@@ -90,7 +90,7 @@ def create_mod(root: str | Path, name: str, package_id: str, with_code: bool = F
         raise ValueError("package_id 只能包含英數字、句點、底線與連字號。")
     mod = workspace / package_id
     mod.mkdir(parents=False, exist_ok=False)
-    for directory in ("About", "Defs", "Patches", "Textures", "Source"):
+    for directory in ("About", "Defs", "Patches", "Textures", "Sounds", "Source"):
         (mod / directory).mkdir()
     (mod / "About/About.xml").write_text(
         f"<ModMetaData>\n  <name>{name}</name>\n  <packageId>{package_id}</packageId>\n  <supportedVersions><li>1.6</li></supportedVersions>\n</ModMetaData>\n",
