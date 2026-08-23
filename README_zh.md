@@ -114,7 +114,7 @@ args = ["stdio"]
 | `build_mod` | 驗證 XML Mod，或建置 C# Mod 並部署輸出 DLL。 |
 | `create_checkpoint` | 建立已登記 Mod 的本機 checkpoint。 |
 | `restore_checkpoint` | 還原 checkpoint；需要 `confirm: true`。 |
-| `import_mod_asset` | 將 PNG/JPG 圖片或 OGG/WAV 音效複製到已登記 Mod。 |
+| `import_mod_asset` | 將 PNG/JPG 圖片或 OGG/WAV 音效複製到已登記 Mod。`kind` 只接受 `texture` 或 `sound`。 |
 | `validate_mod_assets` | 檢查資產副檔名、檔案簽名與過大檔案。 |
 
 ### 測試 session 與診斷
@@ -124,7 +124,7 @@ args = ["stdio"]
 | `run_test_cycle` | 以隔離 save-data folder 與診斷 Bridge 啟動 RimWorld。 |
 | `test_status` | 讀取共用的目前測試 session 狀態。 |
 | `list_test_diagnostics` | 列出已去重的 Bridge 與 `Player.log` 診斷。 |
-| `get_test_diagnostic` | 依 hash 讀取單一診斷。 |
+| `get_test_diagnostic` | 依 `diagnostic_hash` 讀取單一診斷。 |
 | `stop_test` | 清理服務建立的測試連結與監控 daemon；`terminate_game: true` 才會終止本服務啟動的遊戲；需要 `confirm: true`。 |
 
 ## 測試與診斷模型

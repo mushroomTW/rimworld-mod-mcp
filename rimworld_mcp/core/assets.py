@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Literal
 
 from rimworld_mcp.core.workspace import allowed_mod
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 AUDIO_EXTENSIONS = {".ogg", ".wav"}
 
+# 以 Literal 表達，讓允許值直接出現在 MCP 工具的 input schema，而不是只在執行期才驗。
+AssetKind = Literal["texture", "sound"]
 
-def import_asset(mod_path: str, source_path: str, kind: str) -> dict[str, str]:
+
+def import_asset(mod_path: str, source_path: str, kind: AssetKind | str) -> dict[str, str]:
     mod = allowed_mod(mod_path)
     source = Path(source_path).expanduser().resolve(strict=True)
     if not source.is_file():

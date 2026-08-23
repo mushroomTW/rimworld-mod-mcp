@@ -7,7 +7,7 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp_types import ToolAnnotations
 
-from rimworld_mcp.core.assets import import_asset, validate_assets
+from rimworld_mcp.core.assets import AssetKind, import_asset, validate_assets
 from rimworld_mcp.core.build import build_mod
 from rimworld_mcp.core.index import RimWorldIndex
 from rimworld_mcp.core.mods import installed_mods
@@ -174,11 +174,11 @@ def list_test_diagnostics() -> list[dict[str, Any]]:
 
 
 @mcp.tool(title="取得單筆診斷", annotations=_hints("取得單筆診斷", read_only=True))
-def get_test_diagnostic(hash: str) -> dict[str, Any]:
-    """依 hash 取得完整測試診斷。"""
-    item = next((event for event in read_diagnostics() if event.get("hash") == hash), None)
+def get_test_diagnostic(diagnostic_hash: str) -> dict[str, Any]:
+    """依 list_test_diagnostics 回傳的 hash 取得完整測試診斷。"""
+    item = next((event for event in read_diagnostics() if event.get("hash") == diagnostic_hash), None)
     if not item:
-        raise ValueError(f"找不到診斷：{hash}")
+        raise ValueError(f"找不到診斷：{diagnostic_hash}")
     return item
 
 
@@ -192,8 +192,11 @@ def stop_test_tool(confirm: bool = False, terminate_game: bool = False) -> dict[
 
 
 @mcp.tool(title="匯入資產", annotations=_hints("匯入資產", idempotent=False))
-def import_mod_asset(path: str, source_path: str, kind: str) -> dict[str, str]:
-    """將 PNG/JPG 圖片或 OGG/WAV 音效安全匯入已登記 Mod 的 Textures 或 Sounds。"""
+def import_mod_asset(path: str, source_path: str, kind: AssetKind) -> dict[str, str]:
+    """將 PNG/JPG 圖片或 OGG/WAV 音效安全匯入已登記 Mod 的 Textures 或 Sounds。
+
+    kind 只接受 "texture" 或 "sound"。
+    """
     return import_asset(path, source_path, kind)
 
 

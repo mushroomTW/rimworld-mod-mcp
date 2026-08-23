@@ -127,7 +127,7 @@ Only canonical paths contained by a registered workspace may be modified.
 | `build_mod` | Validate an XML mod or build a C# mod and deploy produced DLLs. |
 | `create_checkpoint` | Save a local checkpoint of a registered mod. |
 | `restore_checkpoint` | Restore a checkpoint; requires `confirm: true`. |
-| `import_mod_asset` | Copy a PNG/JPG texture or OGG/WAV sound into a registered mod. |
+| `import_mod_asset` | Copy a PNG/JPG texture or OGG/WAV sound into a registered mod. `kind` is `texture` or `sound`. |
 | `validate_mod_assets` | Check asset extensions, file signatures, and oversized files. |
 
 ### Test sessions and diagnostics
@@ -137,7 +137,7 @@ Only canonical paths contained by a registered workspace may be modified.
 | `run_test_cycle` | Start RimWorld with an isolated save-data folder and the diagnostic Bridge. |
 | `test_status` | Read the shared current test session state. |
 | `list_test_diagnostics` | List deduplicated Bridge and `Player.log` diagnostics. |
-| `get_test_diagnostic` | Retrieve one diagnostic by hash. |
+| `get_test_diagnostic` | Retrieve one diagnostic by `diagnostic_hash`. |
 | `stop_test` | Clean up service-owned test links and the monitoring daemon; `terminate_game: true` also stops the game this service launched; requires `confirm: true`. |
 
 ## Test and diagnostic model
