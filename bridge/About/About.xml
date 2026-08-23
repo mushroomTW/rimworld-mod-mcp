@@ -1,0 +1,17 @@
+<ModMetaData>
+  <name>RimWorld MCP Bridge</name>
+  <author>RimWorld MCP contributors</author>
+  <packageId>rimworldmcp.bridge</packageId>
+  <supportedVersions>
+    <li>1.6</li>
+  </supportedVersions>
+  <!--
+    Bridge 自帶 0Harmony.dll，所以沒有安裝 Harmony mod 也能運作。
+    但只要 Harmony mod 存在就讓它先載入，由它的組件勝出，避免重複載入同名組件。
+    loadAfter 是軟性排序提示，Harmony mod 不存在時不會造成任何問題。
+  -->
+  <loadAfter>
+    <li>brrainz.harmony</li>
+  </loadAfter>
+  <description>Local-only diagnostics bridge used by RimWorld MCP test sessions.</description>
+</ModMetaData>

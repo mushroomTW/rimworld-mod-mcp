@@ -1,0 +1,4 @@
+# 將此 server 項目合併到 Codex 的本機 MCP 設定。
+[mcp_servers.rimworld]
+command = "C:\\Users\\mushroomMaster\\Documents\\rimworld-mcp\\.venv\\Scripts\\rimworld-mcp.exe"
+args = ["stdio"]

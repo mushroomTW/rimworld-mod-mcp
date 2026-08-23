@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+exec "$(dirname "$0")/../.venv/bin/rimworld-mcp" stdio

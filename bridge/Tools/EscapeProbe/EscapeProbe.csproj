@@ -1,0 +1,22 @@
+<!--
+  只為了測試而存在的最小主控台程式：連結 Bridge 的 DiagnosticPayload.cs，
+  讓 Escape 的逐字元邏輯能在沒有安裝 RimWorld 的環境下真正被執行。
+  刻意不參考 Assembly-CSharp.dll，因此 CI 的三個 OS 都能建置。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- 只裝了較新 runtime 的機器（含 CI runner）也要能執行。 -->
+    <RollForward>Major</RollForward>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>EscapeProbe</AssemblyName>
+    <RootNamespace>RimWorldMcp.Bridge.Tools</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Source\DiagnosticPayload.cs" Link="DiagnosticPayload.cs" />
+  </ItemGroup>
+</Project>

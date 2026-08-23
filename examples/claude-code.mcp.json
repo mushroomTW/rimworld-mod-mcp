@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rimworld": {
+      "command": "C:\\Users\\mushroomMaster\\Documents\\rimworld-mcp\\examples\\run-rimworld-mcp.cmd",
+      "args": []
+    }
+  }
+}

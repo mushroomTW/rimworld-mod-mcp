@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      # tests/test_bridge_payload.py 會建置並執行 bridge/Tools/EscapeProbe，
+      # 用來實測 C# 端的 JSON 轉義。沒有 SDK 時那些測試會被 skip 而非失敗。
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.x"
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest
