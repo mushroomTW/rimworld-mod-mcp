@@ -40,6 +40,30 @@ DEF_COLUMNS = (
 )
 SEARCH_XML_BYTES = 4096
 READ_DEF_XML_BYTES = 65536
+B = chr(92)  # 反斜線；用常數避免多層字串跳脫看不懂
+ESCAPABLE = frozenset({B, "%", "_"})
+
+
+def _fts_match(query: str) -> str:
+    """把使用者輸入轉成純字面的 FTS5 查詢字串。
+
+    FTS5 會把 " * ^ : - NEAR 等字元當成運算子，直接轉送使用者輸入會拋出
+    sqlite3.OperationalError 而變成看不懂的工具錯誤。這裡把每個詞包成帶引號的
+    字面詞（詞尾保留 * 作為前綴搜尋），隱含 AND 的行為不變，但語法錯誤消失。
+    """
+    terms: list[str] = []
+    for token in query.split():
+        prefix = token.endswith("*")
+        body = (token[:-1] if prefix else token).replace('"', '""')
+        if not body:
+            continue
+        terms.append(f'"{body}"*' if prefix else f'"{body}"')
+    return " ".join(terms)
+
+
+def _like_literal(value: str) -> str:
+    """跳脫 LIKE 的萬用字元，讓 % 與 _ 以字面比對。"""
+    return "".join(B + ch if ch in ESCAPABLE else ch for ch in value)
 
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
@@ -262,10 +286,11 @@ class RimWorldIndex:
         sql = f"SELECT {', '.join(columns)} FROM def d"
         params: list[object] = []
         conditions: list[str] = []
-        if query.strip():
+        match = _fts_match(query)
+        if match:
             sql += " JOIN def_fts f ON f.rowid=d.id"
             conditions.append("def_fts MATCH ?")
-            params.append(" ".join(query.split()))
+            params.append(match)
         if def_type:
             conditions.append("d.def_type=?")
             params.append(def_type)
@@ -276,6 +301,8 @@ class RimWorldIndex:
         db = self.connection()
         try:
             rows = db.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            raise ValueError(f"Def 查詢失敗：{exc}") from exc
         finally:
             db.close()
         results: list[dict[str, object]] = []
@@ -388,7 +415,10 @@ class RimWorldIndex:
     def read_symbol(self, name: str, limit_bytes: int = 4096) -> list[dict[str, object]]:
         db = self.connection()
         try:
-            rows = db.execute("SELECT * FROM symbol WHERE short_name=? OR fqn LIKE ? ORDER BY file_path,start_line LIMIT 20", (name, f"%{name}%")).fetchall()
+            rows = db.execute(
+                "SELECT * FROM symbol WHERE short_name=? OR fqn LIKE ? ESCAPE '\\' ORDER BY file_path,start_line LIMIT 20",
+                (name, f"%{_like_literal(name)}%"),
+            ).fetchall()
         finally:
             db.close()
         result: list[dict[str, object]] = []
