@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 
 from rimworld_mcp.core.assets import import_asset, validate_assets
 from rimworld_mcp.core.build import build_mod
@@ -19,25 +20,43 @@ mcp = MCPServer("rimworld-mcp", instructions="本機 RimWorld 索引、建置與
 index = RimWorldIndex()
 
 
-@mcp.tool()
+def _hints(
+    title: str,
+    *,
+    read_only: bool = False,
+    destructive: bool = False,
+    idempotent: bool = True,
+    open_world: bool = False,
+) -> ToolAnnotations:
+    """組出 MCP 工具註記，讓客戶端能區分唯讀查詢與具破壞性的操作。"""
+    return ToolAnnotations(
+        title=title,
+        read_only_hint=read_only,
+        destructive_hint=destructive,
+        idempotent_hint=idempotent,
+        open_world_hint=open_world,
+    )
+
+
+@mcp.tool(title="RimWorld 狀態", annotations=_hints("RimWorld 狀態", read_only=True))
 def rimworld_status() -> dict[str, object]:
     """回傳偵測到的 RimWorld 路徑、索引狀態與目前測試狀態。"""
     return {"rimworld": detect_rimworld().as_json(), "index": index.status(), "test": read_status()}
 
 
-@mcp.tool()
+@mcp.tool(title="安裝反編譯工具鏈", annotations=_hints("安裝反編譯工具鏈", open_world=True))
 def setup_toolchain(confirm: bool = False) -> dict[str, str]:
     """還原專案私有的 ILSpyCmd；會下載 .NET tool，必須 confirm=true。"""
     return index.setup_toolchain(confirm)
 
 
-@mcp.tool()
+@mcp.tool(title="重建索引", annotations=_hints("重建索引"))
 def rebuild_index() -> dict[str, object]:
     """本機反編譯 RimWorld 與 DLC，重建 Def、符號及來源索引。"""
     return index.rebuild()
 
 
-@mcp.tool()
+@mcp.tool(title="搜尋 Def", annotations=_hints("搜尋 Def", read_only=True))
 def search_defs(
     query: str,
     def_type: str | None = None,
@@ -53,31 +72,31 @@ def search_defs(
     return index.search_defs(query, def_type, limit, include_xml)
 
 
-@mcp.tool()
+@mcp.tool(title="讀取完整 Def", annotations=_hints("讀取完整 Def", read_only=True))
 def read_def(def_name: str, def_type: str | None = None, max_bytes: int = 65536) -> list[dict[str, object]]:
     """依 defName（或抽象 Def 的 Name）取回完整 XML 定義，超過 max_bytes 會截斷。"""
     return index.read_def(def_name, def_type, max_bytes)
 
 
-@mcp.tool()
+@mcp.tool(title="讀取 C# 符號", annotations=_hints("讀取 C# 符號", read_only=True))
 def read_symbol(name: str, max_bytes: int = 4096) -> list[dict[str, object]]:
     """讀取已反編譯 RimWorld C# 的類別、方法或其他符號。"""
     return index.read_symbol(name, max_bytes)
 
 
-@mcp.tool()
+@mcp.tool(title="搜尋原始碼", annotations=_hints("搜尋原始碼", read_only=True))
 def search_source(pattern: str, file_pattern: str = "*", limit: int = 200) -> list[dict[str, object]]:
     """以 Python regex 搜尋反編譯 C# 與已複製的 Def XML。"""
     return index.search_source(pattern, file_pattern, limit)
 
 
-@mcp.tool()
+@mcp.tool(title="列出已安裝 Mod", annotations=_hints("列出已安裝 Mod", read_only=True))
 def list_installed_mods() -> list[dict[str, object]]:
     """列出本機 Mods 與 Steam Workshop 中含有效 About.xml 的模組。"""
     return [{"package_id": item.package_id, "name": item.name, "path": str(item.path), "dependencies": item.dependencies, "source": item.source} for item in installed_mods(detect_rimworld())]
 
 
-@mcp.tool()
+@mcp.tool(title="檢視已安裝 Mod", annotations=_hints("檢視已安裝 Mod"))
 def inspect_installed_mod(package_id: str) -> dict[str, object]:
     """回傳已安裝 Mod 的 metadata，並按需反編譯其 Assemblies（結果以檔案指紋快取於本機）。"""
     match = next((item for item in installed_mods(detect_rimworld()) if item.package_id == package_id.lower()), None)
@@ -92,7 +111,7 @@ def inspect_installed_mod(package_id: str) -> dict[str, object]:
     }
 
 
-@mcp.tool()
+@mcp.tool(title="搜尋 Mod 原始碼", annotations=_hints("搜尋 Mod 原始碼"))
 def search_installed_mod_source(
     package_id: str, pattern: str, limit: int = 100
 ) -> list[dict[str, object]]:
@@ -106,55 +125,55 @@ def search_installed_mod_source(
     return index.search_mod_source(match.path, pattern, limit)
 
 
-@mcp.tool(name="configure_workspace")
+@mcp.tool(name="configure_workspace", title="登記工作區", annotations=_hints("登記工作區"))
 def configure_workspace_tool(path: str) -> dict[str, str]:
     """登記可由 MCP 修改與測試的 Mod 工作區根目錄。"""
     return {"workspace": str(configure_workspace(path))}
 
 
-@mcp.tool(name="create_mod")
+@mcp.tool(name="create_mod", title="建立 Mod 骨架", annotations=_hints("建立 Mod 骨架", idempotent=False))
 def create_mod_tool(workspace: str, name: str, package_id: str, with_code: bool = False) -> dict[str, str]:
     """在已登記工作區中建立 RimWorld XML-only 或含 C# 骨架的 Mod。"""
     return {"mod": str(create_mod(workspace, name, package_id, with_code))}
 
 
-@mcp.tool(name="build_mod")
+@mcp.tool(name="build_mod", title="建置 Mod", annotations=_hints("建置 Mod"))
 def build_mod_tool(path: str) -> dict[str, object]:
     """驗證 XML-only Mod 或以 dotnet build 建置 C# Mod。"""
     return build_mod(path)
 
 
-@mcp.tool()
+@mcp.tool(title="建立快照", annotations=_hints("建立快照", idempotent=False))
 def create_checkpoint(path: str) -> dict[str, str]:
     """對已登記工作區內的 Mod 建立可還原快照。"""
     return snapshot_mod(path)
 
 
-@mcp.tool()
+@mcp.tool(title="還原快照", annotations=_hints("還原快照", destructive=True))
 def restore_checkpoint(path: str, snapshot_id: str, confirm: bool = False) -> dict[str, str]:
     """還原 Mod 快照；必須 confirm=true。"""
     return restore_mod(path, snapshot_id, confirm)
 
 
-@mcp.tool(name="run_test_cycle")
+@mcp.tool(name="run_test_cycle", title="啟動隔離測試", annotations=_hints("啟動隔離測試", idempotent=False))
 def run_test_cycle_tool(path: str, companion_mods: list[str] | None = None, quicktest: bool = True) -> dict[str, object]:
     """以隔離 savedata、最小依賴集、Bridge 及 Player.log 監控啟動 RimWorld。"""
     return run_test_cycle(path, companion_mods, quicktest)
 
 
-@mcp.tool()
+@mcp.tool(title="測試狀態", annotations=_hints("測試狀態", read_only=True))
 def test_status() -> dict[str, object]:
     """回傳目前或最近一次 RimWorld MCP 測試工作階段。"""
     return read_status()
 
 
-@mcp.tool()
+@mcp.tool(title="列出測試診斷", annotations=_hints("列出測試診斷", read_only=True))
 def list_test_diagnostics() -> list[dict[str, Any]]:
     """列出目前／最近測試的去重錯誤與警告摘要。"""
     return read_diagnostics()
 
 
-@mcp.tool()
+@mcp.tool(title="取得單筆診斷", annotations=_hints("取得單筆診斷", read_only=True))
 def get_test_diagnostic(hash: str) -> dict[str, Any]:
     """依 hash 取得完整測試診斷。"""
     item = next((event for event in read_diagnostics() if event.get("hash") == hash), None)
@@ -163,7 +182,7 @@ def get_test_diagnostic(hash: str) -> dict[str, Any]:
     return item
 
 
-@mcp.tool(name="stop_test")
+@mcp.tool(name="stop_test", title="停止並清理測試", annotations=_hints("停止並清理測試", destructive=True))
 def stop_test_tool(confirm: bool = False, terminate_game: bool = False) -> dict[str, Any]:
     """清理本服務建立的測試 Mod／Bridge 連結與監控 daemon；必須 confirm=true。
 
@@ -172,13 +191,13 @@ def stop_test_tool(confirm: bool = False, terminate_game: bool = False) -> dict[
     return stop_test(confirm, terminate_game)
 
 
-@mcp.tool()
+@mcp.tool(title="匯入資產", annotations=_hints("匯入資產", idempotent=False))
 def import_mod_asset(path: str, source_path: str, kind: str) -> dict[str, str]:
     """將 PNG/JPG 圖片或 OGG/WAV 音效安全匯入已登記 Mod 的 Textures 或 Sounds。"""
     return import_asset(path, source_path, kind)
 
 
-@mcp.tool()
+@mcp.tool(title="檢查資產", annotations=_hints("檢查資產", read_only=True))
 def validate_mod_assets(path: str) -> list[dict[str, object]]:
     """檢查已登記 Mod 的資產副檔名、檔案標頭與過大檔案。"""
     return validate_assets(path)
