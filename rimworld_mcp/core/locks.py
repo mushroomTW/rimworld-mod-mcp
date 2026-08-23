@@ -51,6 +51,11 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+def process_alive(pid: int) -> bool:
+    """_process_alive 的公開別名，供其他模組判斷外部程序是否仍存活。"""
+    return _process_alive(pid)
+
+
 def acquire(name: str, details: dict[str, object] | None = None) -> str:
     """以 O_EXCL 原子建立鎖，並回傳只能由持有者釋放的 token。
 
