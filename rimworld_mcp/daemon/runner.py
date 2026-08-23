@@ -60,10 +60,15 @@ async def run() -> None:
 async def watch_player_log() -> None:
     """Bridge 不可用時，仍從本機 Player.log 收集增量診斷。"""
     offsets: dict[str, int] = {}
+    current_run: object = None
     while True:
         status = read_status()
         raw_path = status.get("player_log")
         run_id = status.get("run_id")
+        if run_id != current_run:
+            # 換一輪測試就丟掉舊 offset，否則第二輪會沿用第一輪的位置而漏讀。
+            current_run = run_id
+            offsets.clear()
         if status.get("state") == "running" and isinstance(raw_path, str) and raw_path:
             path = Path(raw_path)
             if path.is_file():
