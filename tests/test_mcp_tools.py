@@ -9,6 +9,7 @@ def test_public_tool_names_match_the_contract() -> None:
         "setup_toolchain",
         "rebuild_index",
         "search_defs",
+        "read_def",
         "read_symbol",
         "search_source",
         "list_installed_mods",

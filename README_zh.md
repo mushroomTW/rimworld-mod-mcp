@@ -97,7 +97,8 @@ args = ["stdio"]
 | `rimworld_status` | 顯示偵測到的遊戲路徑、索引新鮮度與測試狀態。 |
 | `setup_toolchain` | 還原 ILSpyCmd；需要 `confirm: true`。 |
 | `rebuild_index` | 反編譯 Core/DLC，重建 Def、FTS、符號與引用索引。 |
-| `search_defs` | 搜尋已索引 XML Def。 |
+| `search_defs` | 搜尋已索引 XML Def。預設只回 metadata；`include_xml: true` 會附上截斷過的 XML。 |
+| `read_def` | 依 `defName`（或抽象 Def 的 `Name`）讀取單一 Def 的完整 XML。 |
 | `read_symbol` | 讀取已索引 C# 符號 metadata 與原始碼節錄。 |
 | `search_source` | 對反編譯 Core/DLC C# 與 Def XML 進行 regex 搜尋。 |
 | `list_installed_mods` | 依 `About.xml` 列出 local 與 Workshop Mod。 |

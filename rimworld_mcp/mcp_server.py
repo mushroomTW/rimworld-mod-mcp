@@ -38,9 +38,25 @@ def rebuild_index() -> dict[str, object]:
 
 
 @mcp.tool()
-def search_defs(query: str, def_type: str | None = None, limit: int = 25) -> list[dict[str, object]]:
-    """以 Def 名稱、標籤或描述搜尋已索引的 Core 與 DLC XML Def。"""
-    return index.search_defs(query, def_type, limit)
+def search_defs(
+    query: str,
+    def_type: str | None = None,
+    limit: int = 25,
+    include_xml: bool = False,
+) -> list[dict[str, object]]:
+    """以 Def 名稱、標籤或描述搜尋已索引的 Core 與 DLC XML Def。
+
+    預設只回傳 metadata（不含 xml 欄位），避免單次查詢回傳數 MB 內容。
+    include_xml=true 時每筆會附上截斷過的 xml 與 xml_truncated 旗標；
+    需要完整定義請改用 read_def。
+    """
+    return index.search_defs(query, def_type, limit, include_xml)
+
+
+@mcp.tool()
+def read_def(def_name: str, def_type: str | None = None, max_bytes: int = 65536) -> list[dict[str, object]]:
+    """依 defName（或抽象 Def 的 Name）取回完整 XML 定義，超過 max_bytes 會截斷。"""
+    return index.read_def(def_name, def_type, max_bytes)
 
 
 @mcp.tool()

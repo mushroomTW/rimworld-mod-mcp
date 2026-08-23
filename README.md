@@ -110,7 +110,8 @@ Only canonical paths contained by a registered workspace may be modified.
 | `rimworld_status` | Show discovered game paths, index freshness, and test status. |
 | `setup_toolchain` | Restore ILSpyCmd; requires `confirm: true`. |
 | `rebuild_index` | Decompile Core/DLC and rebuild Def, FTS, symbol, and reference indexes. |
-| `search_defs` | Search indexed XML Defs. |
+| `search_defs` | Search indexed XML Defs. Returns metadata only; pass `include_xml: true` for truncated XML. |
+| `read_def` | Read one Def's complete XML by `defName` (or an abstract Def's `Name`). |
 | `read_symbol` | Read indexed C# symbol metadata and source excerpts. |
 | `search_source` | Regex-search decompiled Core/DLC C# and Def XML. |
 | `list_installed_mods` | List local and Workshop mods discovered from `About.xml`. |

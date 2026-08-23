@@ -24,6 +24,32 @@ def _dotnet_environment() -> dict[str, str]:
     return {**os.environ, "DOTNET_ROLL_FORWARD": "Major"}
 
 
+# def.xml 是整份 Def 的序列化 XML，單筆就可能上百 KB。搜尋結果預設不帶 xml，
+# 需要完整內容時改用 read_def()，避免一次查詢就灌爆呼叫端的 context。
+DEF_COLUMNS = (
+    "id",
+    "pack",
+    "def_type",
+    "def_name",
+    "inherit_name",
+    "parent_name",
+    "abstract",
+    "label",
+    "description",
+    "file_path",
+)
+SEARCH_XML_BYTES = 4096
+READ_DEF_XML_BYTES = 65536
+
+
+def _clip(text: str, limit: int) -> tuple[str, bool]:
+    """以 UTF-8 位元組為單位截斷，回傳 (內容, 是否被截斷)。"""
+    raw = text.encode("utf-8")
+    if len(raw) <= limit:
+        return text, False
+    return raw[:limit].decode("utf-8", errors="ignore"), True
+
+
 @dataclass(frozen=True, slots=True)
 class Symbol:
     fqn: str
@@ -222,26 +248,69 @@ class RimWorldIndex:
                         db.execute("INSERT OR IGNORE INTO def_reference VALUES(?,?,?)", (candidate, relative, line_number))
         return count
 
-    def search_defs(self, query: str, def_type: str | None = None, limit: int = 25) -> list[dict[str, object]]:
+    def search_defs(
+        self,
+        query: str,
+        def_type: str | None = None,
+        limit: int = 25,
+        include_xml: bool = False,
+    ) -> list[dict[str, object]]:
+        """搜尋已索引的 Def。預設不回傳 xml 欄位；需要完整定義時用 read_def()。"""
+        columns = [f"d.{name}" for name in DEF_COLUMNS]
+        if include_xml:
+            columns.append("d.xml")
+        sql = f"SELECT {', '.join(columns)} FROM def d"
+        params: list[object] = []
+        conditions: list[str] = []
+        if query.strip():
+            sql += " JOIN def_fts f ON f.rowid=d.id"
+            conditions.append("def_fts MATCH ?")
+            params.append(" ".join(query.split()))
+        if def_type:
+            conditions.append("d.def_type=?")
+            params.append(def_type)
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " LIMIT ?"
+        params.append(min(max(limit, 1), 200))
         db = self.connection()
         try:
-            sql = "SELECT d.* FROM def d"
-            params: list[object] = []
-            conditions: list[str] = []
-            if query.strip():
-                sql += " JOIN def_fts f ON f.rowid=d.id"
-                conditions.append("def_fts MATCH ?")
-                params.append(" ".join(query.split()))
-            if def_type:
-                conditions.append("d.def_type=?")
-                params.append(def_type)
-            if conditions:
-                sql += " WHERE " + " AND ".join(conditions)
-            sql += " LIMIT ?"
-            params.append(min(max(limit, 1), 200))
-            return [dict(row) for row in db.execute(sql, params)]
+            rows = db.execute(sql, params).fetchall()
         finally:
             db.close()
+        results: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            if include_xml:
+                item["xml"], item["xml_truncated"] = _clip(str(item["xml"]), SEARCH_XML_BYTES)
+            results.append(item)
+        return results
+
+    def read_def(
+        self,
+        def_name: str,
+        def_type: str | None = None,
+        max_bytes: int = READ_DEF_XML_BYTES,
+    ) -> list[dict[str, object]]:
+        """依 defName（或抽象 Def 的 Name）取回完整 XML，並在指定上限處截斷。"""
+        sql = "SELECT * FROM def WHERE (def_name=? OR inherit_name=?)"
+        params: list[object] = [def_name, def_name]
+        if def_type:
+            sql += " AND def_type=?"
+            params.append(def_type)
+        sql += " ORDER BY pack, file_path LIMIT 10"
+        db = self.connection()
+        try:
+            rows = db.execute(sql, params).fetchall()
+        finally:
+            db.close()
+        limit = min(max(max_bytes, 1024), 262144)
+        results: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            item["xml"], item["xml_truncated"] = _clip(str(item["xml"]), limit)
+            results.append(item)
+        return results
 
     def inspect_mod(self, mod_dir: Path) -> list[dict[str, object]]:
         """按需反編譯 Mod DLL，並以檔案版本指紋管理本機快取。"""
