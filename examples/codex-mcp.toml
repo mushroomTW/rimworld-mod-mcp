@@ -1,4 +1,6 @@
 # 將此 server 項目合併到 Codex 的本機 MCP 設定。
+# 把 command 換成這個 repo 在你機器上的實際位置；
+# Windows 用 .venv\Scripts\rimworld-mcp.exe，macOS/Linux 用 .venv/bin/rimworld-mcp。
 [mcp_servers.rimworld]
-command = "C:\\Users\\mushroomMaster\\Documents\\rimworld-mcp\\.venv\\Scripts\\rimworld-mcp.exe"
+command = "/absolute/path/to/rimworld-mcp/.venv/bin/rimworld-mcp"
 args = ["stdio"]

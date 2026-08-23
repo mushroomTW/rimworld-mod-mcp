@@ -71,10 +71,11 @@ command = "C:\\path\\to\\rimworld-mcp\\.venv\\Scripts\\rimworld-mcp.exe"
 args = ["stdio"]
 ```
 
-可調整的範本位於 [examples/](examples/)：
+可調整的範本位於 [examples/](examples/)。範本中的路徑都是佔位字串，請換成這個 repo 在你機器上的實際位置。
 
 - [Codex TOML](examples/codex-mcp.toml)
-- [Claude Code JSON](examples/claude-code.mcp.json)
+- [Claude Code JSON（macOS/Linux）](examples/claude-code.mcp.json)
+- [Claude Code JSON（Windows）](examples/claude-code.mcp.windows.json)
 - [Windows wrapper](examples/run-rimworld-mcp.cmd)
 - [macOS/Linux wrapper](examples/run-rimworld-mcp.sh)
 

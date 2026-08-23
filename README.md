@@ -83,12 +83,18 @@ command = "C:\\path\\to\\rimworld-mcp\\.venv\\Scripts\\rimworld-mcp.exe"
 args = ["stdio"]
 ```
 
-See the ready-to-adapt templates in [examples/](examples/):
+See the templates in [examples/](examples/). Every path in them is a placeholder — replace it
+with this repository's location on your machine.
 
 - [Codex TOML](examples/codex-mcp.toml)
-- [Claude Code JSON](examples/claude-code.mcp.json)
+- [Claude Code JSON (macOS/Linux)](examples/claude-code.mcp.json)
+- [Claude Code JSON (Windows)](examples/claude-code.mcp.windows.json)
 - [Windows wrapper](examples/run-rimworld-mcp.cmd)
 - [macOS/Linux wrapper](examples/run-rimworld-mcp.sh)
+
+> **Language.** Tool descriptions, tool titles, and every error message this server returns are
+> written in Traditional Chinese. This document is the English overview; the operational surface
+> your model sees is Chinese.
 
 ## First use
 
