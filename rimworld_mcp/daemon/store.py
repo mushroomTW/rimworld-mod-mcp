@@ -17,6 +17,29 @@ def status_path() -> Path:
     return data_home() / "test-status.json"
 
 
+def daemon_path() -> Path:
+    return data_home() / "daemon.json"
+
+
+def read_daemon() -> dict[str, Any]:
+    """讀取 daemon 自述檔；用來分辨連接埠是本服務的 daemon 還是別的程序占著。"""
+    try:
+        record = json.loads(daemon_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(record) if isinstance(record, dict) else {}
+
+
+def write_daemon(record: dict[str, Any]) -> None:
+    daemon_path().write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def clear_daemon(pid: int) -> None:
+    """只清掉自己寫的那一筆，避免把後繼 daemon 的紀錄誤刪。"""
+    if read_daemon().get("pid") == pid:
+        daemon_path().unlink(missing_ok=True)
+
+
 def read_diagnostics() -> list[dict[str, Any]]:
     try:
         return list(json.loads(diagnostics_path().read_text(encoding="utf-8")))

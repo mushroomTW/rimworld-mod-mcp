@@ -17,7 +17,7 @@ from rimworld_mcp.core.locks import acquire, process_alive, release
 from rimworld_mcp.core.mods import builtin_packs, installed_mods, parse_about, resolve_test_order
 from rimworld_mcp.core.paths import bridge_port, data_home, detect_rimworld
 from rimworld_mcp.core.workspace import allowed_mod
-from rimworld_mcp.daemon.store import read_status, write_status
+from rimworld_mcp.daemon.store import read_daemon, read_status, write_status
 
 DAEMON_HOST = "127.0.0.1"
 LINK_PREFIX = "RimWorldMcp-"
@@ -123,23 +123,37 @@ def _active_test_session() -> dict[str, Any] | None:
     return None
 
 
-def _ensure_daemon() -> int | None:
-    """確保監控 daemon 在跑，回傳本次啟動的 pid；沿用既有 daemon 時回傳 None。
+def _ensure_daemon() -> dict[str, Any]:
+    """確保監控 daemon 在跑，回傳其狀態；pid 只有在本輪自己啟動時才是整數。
 
-    埠已被佔用代表已有 daemon，Bridge 仍可連線；daemon 完全起不來時 Player.log 仍是備援來源。
+    只有確認占用連接埠的就是本服務的 daemon 才沿用；被其他程序占住時明確回報
+    unavailable 並寫進 test status，而不是靜默降級成只剩 Player.log。
     """
     import socket
 
+    port = bridge_port()
     with socket.socket() as sock:
-        if sock.connect_ex((DAEMON_HOST, bridge_port())) == 0:
-            return None
+        occupied = sock.connect_ex((DAEMON_HOST, port)) == 0
+    if occupied:
+        record = read_daemon()
+        owner = record.get("pid")
+        if record.get("port") == port and isinstance(owner, int) and process_alive(owner):
+            return {"state": "reused", "pid": None, "owner_pid": owner}
+        return {
+            "state": "unavailable",
+            "pid": None,
+            "reason": (
+                f"連接埠 {port} 被非本服務的程序占用，Bridge 無法回報診斷，"
+                "本輪僅由 Player.log 提供。可設定 RIMWORLD_MCP_BRIDGE_PORT 改用其他埠。"
+            ),
+        }
     process = subprocess.Popen(
         [sys.executable, "-m", "rimworld_mcp.daemon.runner"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return process.pid
+    return {"state": "started", "pid": process.pid}
 
 
 def _game_is_running(executable: Path) -> bool:
@@ -251,7 +265,10 @@ def run_test_cycle(path: str, companions: list[str] | None = None, quicktest: bo
         }
         write_status(status)
         # daemon_pid 必須在啟動遊戲之前就落地，否則遊戲啟動失敗時 stop_test 找不到 daemon。
-        daemon_pid = _ensure_daemon()
+        daemon = _ensure_daemon()
+        raw_pid = daemon.get("pid")
+        daemon_pid = raw_pid if isinstance(raw_pid, int) else None
+        status["daemon"] = daemon
         status["daemon_pid"] = daemon_pid
         write_status(status)
         args = [f"-savedatafolder={savedata}"] + (["-quicktest"] if quicktest else [])

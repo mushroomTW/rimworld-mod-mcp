@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
 from pathlib import Path
 
 from rimworld_mcp.core.paths import bridge_port, data_home
-from rimworld_mcp.daemon.store import add_diagnostic, read_status
+from rimworld_mcp.daemon.store import add_diagnostic, clear_daemon, read_status, write_daemon
 
 HOST = "127.0.0.1"
 ACCEPTED_TYPES = frozenset({"error", "warning", "diagnostic", "loaded_mods", "performance"})
@@ -42,13 +44,17 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
 
 
 async def run() -> None:
-    server = await asyncio.start_server(handle, HOST, bridge_port())
+    port = bridge_port()
+    server = await asyncio.start_server(handle, HOST, port)
+    # 綁定成功之後才留下自述檔，讓 _ensure_daemon 能分辨「埠是我們占的」與「埠被別人占的」。
+    write_daemon({"pid": os.getpid(), "port": port, "started_at": int(time.time() * 1000)})
     watcher = asyncio.create_task(watch_player_log())
     try:
         async with server:
             await server.serve_forever()
     finally:
         watcher.cancel()
+        clear_daemon(os.getpid())
 
 
 async def watch_player_log() -> None:
