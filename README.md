@@ -124,7 +124,7 @@ Only canonical paths contained by a registered workspace may be modified.
 | --- | --- |
 | `configure_workspace` | Register a mod-development workspace. |
 | `create_mod` | Create an XML-only or C# mod skeleton. |
-| `build_mod` | Validate an XML mod or build a C# mod and deploy produced DLLs. |
+| `build_mod` | Validate an XML mod or build a C# mod and deploy produced DLLs. The output directory is read from the project's `TargetFramework`, not assumed to be `net472`. |
 | `create_checkpoint` | Save a local checkpoint of a registered mod. |
 | `restore_checkpoint` | Restore a checkpoint; requires `confirm: true`. |
 | `import_mod_asset` | Copy a PNG/JPG texture or OGG/WAV sound into a registered mod. `kind` is `texture` or `sound`. |

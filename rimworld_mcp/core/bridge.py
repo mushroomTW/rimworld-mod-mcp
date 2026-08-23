@@ -15,8 +15,8 @@ def ensure_bridge(bridge_root: Path, managed_dir: Path | None) -> Path:
         raise FileNotFoundError("Bridge 建置需要 RimWorld Managed/Assembly-CSharp.dll。")
     project = bridge_root / "Source" / "RimWorldMcp.Bridge.csproj"
     assemblies = bridge_root / "Assemblies"
-    output = bridge_root / "Source" / "bin" / "Release" / "net472" / "RimWorldMcp.Bridge.dll"
-    staged = assemblies / output.name
+    build_root = bridge_root / "Source" / "bin" / "Release"
+    staged = assemblies / "RimWorldMcp.Bridge.dll"
     sources = [project, *(bridge_root / "Source").glob("*.cs")]
     stale = not staged.is_file() or any(path.stat().st_mtime_ns > staged.stat().st_mtime_ns for path in sources)
     if stale:
@@ -31,9 +31,12 @@ def ensure_bridge(bridge_root: Path, managed_dir: Path | None) -> Path:
             errors="replace",
             check=False,
         )
-        if run.returncode or not output.is_file():
+        # 不假設 TFM 子目錄名稱，直接在輸出樹裡找 DLL。
+        built = next(iter(sorted(build_root.rglob(staged.name))), None)
+        if run.returncode or built is None:
             detail = (run.stderr or run.stdout or "")[-3000:]
             raise RuntimeError(f"Bridge 建置失敗：{detail}")
+        output = built
         assemblies.mkdir(parents=True, exist_ok=True)
         shutil.copy2(output, staged)
         harmony = output.parent / "0Harmony.dll"

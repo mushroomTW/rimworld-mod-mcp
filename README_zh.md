@@ -111,7 +111,7 @@ args = ["stdio"]
 | --- | --- |
 | `configure_workspace` | 登記 Mod 開發 workspace。 |
 | `create_mod` | 建立 XML-only 或 C# Mod 骨架。 |
-| `build_mod` | 驗證 XML Mod，或建置 C# Mod 並部署輸出 DLL。 |
+| `build_mod` | 驗證 XML Mod，或建置 C# Mod 並部署輸出 DLL。輸出目錄依 csproj 的 `TargetFramework` 判斷，不再假設是 `net472`。 |
 | `create_checkpoint` | 建立已登記 Mod 的本機 checkpoint。 |
 | `restore_checkpoint` | 還原 checkpoint；需要 `confirm: true`。 |
 | `import_mod_asset` | 將 PNG/JPG 圖片或 OGG/WAV 音效複製到已登記 Mod。`kind` 只接受 `texture` 或 `sound`。 |
