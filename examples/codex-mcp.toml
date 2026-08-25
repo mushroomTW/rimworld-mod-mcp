@@ -1,6 +1,5 @@
-# 將此 server 項目合併到 Codex 的本機 MCP 設定。
-# 把 command 換成這個 repo 在你機器上的實際位置；
-# Windows 用 .venv\Scripts\rimworld-mcp.exe，macOS/Linux 用 .venv/bin/rimworld-mcp。
+# 把這一段合併到 Codex 的本機 MCP 設定。
+# 先執行 dotnet tool install -g RimWorldModMcp，之後指令會在 PATH 上。
 [mcp_servers.rimworld]
-command = "/absolute/path/to/rimworld-mcp/.venv/bin/rimworld-mcp"
+command = "rimworld-mod-mcp"
 args = ["stdio"]

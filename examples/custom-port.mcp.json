@@ -1,0 +1,13 @@
+{
+  "_comment": "預設的診斷埠 49460 若與其他服務衝突，可以用環境變數改掉。",
+  "mcpServers": {
+    "rimworld": {
+      "command": "rimworld-mod-mcp",
+      "args": ["stdio"],
+      "env": {
+        "RIMWORLD_MOD_MCP_BRIDGE_PORT": "49461",
+        "RIMWORLD_MOD_MCP_GAME_PATH": "D:\Games\RimWorld"
+      }
+    }
+  }
+}

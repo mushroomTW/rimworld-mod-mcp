@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/bridge/" />
+  <Folder Name="/bridge/Source/">
+    <Project Path="bridge/Source/RimWorldModMcp.Bridge.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/RimWorldModMcp.Core/RimWorldModMcp.Core.csproj" />
+    <Project Path="src/RimWorldModMcp.Diagnostics/RimWorldModMcp.Diagnostics.csproj" />
+    <Project Path="src/RimWorldModMcp.Indexing/RimWorldModMcp.Indexing.csproj" />
+    <Project Path="src/RimWorldModMcp.Server/RimWorldModMcp.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RimWorldModMcp.Core.Tests/RimWorldModMcp.Core.Tests.csproj" />
+    <Project Path="tests/RimWorldModMcp.Diagnostics.Tests/RimWorldModMcp.Diagnostics.Tests.csproj" />
+    <Project Path="tests/RimWorldModMcp.Indexing.Tests/RimWorldModMcp.Indexing.Tests.csproj" />
+    <Project Path="tests/RimWorldModMcp.PlatformContracts.Tests/RimWorldModMcp.PlatformContracts.Tests.csproj" />
+  </Folder>
+</Solution>

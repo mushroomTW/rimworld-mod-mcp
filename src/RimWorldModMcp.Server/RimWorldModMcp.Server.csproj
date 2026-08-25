@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>RimWorldModMcp.Server</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>rimworld-mod-mcp</ToolCommandName>
+    <PackageId>RimWorldModMcp</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>RimWorld MCP contributors</Authors>
+    <Description>本機執行的 RimWorld Mod 開發 MCP server：索引遊戲的 Def 與 C# API、建置 Mod、在隔離環境測試。</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>rimworld;mcp;modding;model-context-protocol</PackageTags>
+    <!-- 只裝了較新 runtime 的機器也要能執行。 -->
+    <RollForward>latestMajor</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RimWorldModMcp.Core\RimWorldModMcp.Core.csproj" />
+    <ProjectReference Include="..\RimWorldModMcp.Diagnostics\RimWorldModMcp.Diagnostics.csproj" />
+    <ProjectReference Include="..\RimWorldModMcp.Indexing\RimWorldModMcp.Indexing.csproj" />
+  </ItemGroup>
+
+  <!--
+    Bridge 的原始碼要跟著工具一起發佈：測試場次啟動時會即時建置它，
+    因為它必須參考使用者本機安裝的 RimWorld 組件，無法預先編譯。
+  -->
+  <ItemGroup>
+    <!-- 複製到輸出目錄即可：dotnet tool 打包時會把整個輸出目錄收進 tools/<tfm>/any/。 -->
+    <None Include="..\..\bridge\**\*" Exclude="..\..\bridge\**\bin\**;..\..\bridge\**\obj\**;..\..\bridge\Assemblies\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

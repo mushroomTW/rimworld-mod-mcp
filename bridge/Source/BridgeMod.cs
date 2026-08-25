@@ -10,16 +10,16 @@ using System.Threading.Tasks;
 using HarmonyLib;
 using Verse;
 
-namespace RimWorldMcp.Bridge
+namespace RimWorldModMcp.Bridge
 {
     public sealed class BridgeMod : Mod
     {
         public BridgeMod(ModContentPack content) : base(content)
         {
-            var token = Environment.GetEnvironmentVariable("RIMWORLD_MCP_BRIDGE_TOKEN");
+            var token = Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_BRIDGE_TOKEN");
             if (string.IsNullOrWhiteSpace(token)) return;
-            Diagnostics.Configure(token, Environment.GetEnvironmentVariable("RIMWORLD_MCP_BRIDGE_PORT"));
-            new Harmony("rimworldmcp.bridge").PatchAll(Assembly.GetExecutingAssembly());
+            Diagnostics.Configure(token, Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_BRIDGE_PORT"));
+            new Harmony("rimworldmodmcp.bridge").PatchAll(Assembly.GetExecutingAssembly());
             Diagnostics.Send("diagnostic", "RimWorld MCP Bridge connected", "Bridge initialised.");
             var loaded = string.Join(",", LoadedModManager.RunningModsListForReading.Select(pack => pack.PackageId));
             Diagnostics.Send("loaded_mods", "Loaded mods", loaded);

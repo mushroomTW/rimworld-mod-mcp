@@ -1,7 +1,7 @@
 <ModMetaData>
   <name>RimWorld MCP Bridge</name>
   <author>RimWorld MCP contributors</author>
-  <packageId>rimworldmcp.bridge</packageId>
+  <packageId>rimworldmodmcp.bridge</packageId>
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
