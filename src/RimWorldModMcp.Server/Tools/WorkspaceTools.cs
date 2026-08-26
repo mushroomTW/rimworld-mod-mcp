@@ -22,7 +22,7 @@ public sealed class WorkspaceTools(
     [Description("登記一個 Mod 開發工作區。只有已登記工作區內的路徑可以被修改，所以建立或修改 Mod 前必須先呼叫這個。")]
     public ConfigureWorkspaceResult ConfigureWorkspace(
         [Description("工作區根目錄的絕對路徑。")]
-        string path)
+        string path) => ToolGuard.Run(() =>
     {
         var workspace = workspaces.Configure(path);
 
@@ -31,7 +31,7 @@ public sealed class WorkspaceTools(
             Workspace = workspace,
             Registered = workspaces.Roots(),
         };
-    }
+    });
 
     [McpServerTool(Name = "create_mod", UseStructuredContent = true, Idempotent = false)]
     [Description("在已登記的工作區裡建立一個新 Mod 骨架，含 About.xml 與標準目錄結構。")]
@@ -43,7 +43,7 @@ public sealed class WorkspaceTools(
         [Description("RimWorld 的 packageId，只能用小寫英數字與 . _ - ，例如 yourname.yourmod。")]
         string package_id,
         [Description("是否一併產生 C# 專案骨架（net472）。")]
-        bool with_code = false)
+        bool with_code = false) => ToolGuard.Run(() =>
     {
         var path = scaffolder.Create(workspace, name, package_id, with_code);
 
@@ -53,13 +53,13 @@ public sealed class WorkspaceTools(
             PackageId = package_id.Trim().ToLowerInvariant(),
             WithCode = with_code,
         };
-    }
+    });
 
     [McpServerTool(Name = "build_mod", UseStructuredContent = true)]
     [Description("驗證 XML Mod，或建置 C# Mod 並把產出的 DLL 部署到 Assemblies。失敗時回傳結構化的編譯診斷。")]
     public BuildModResult BuildMod(
         [Description("Mod 目錄的路徑，必須在已登記的工作區內。")]
-        string path)
+        string path) => ToolGuard.Run(() =>
     {
         var result = builds.Build(path);
 
@@ -86,13 +86,13 @@ public sealed class WorkspaceTools(
             ErrorCount = result.Diagnostics.Count(d => d.Severity == "error"),
             WarningCount = result.Diagnostics.Count(d => d.Severity == "warning"),
         };
-    }
+    });
 
     [McpServerTool(Name = "create_checkpoint", UseStructuredContent = true, Idempotent = false)]
     [Description("為 Mod 建立一份本機快照，之後可以還原。建置產物與 .git 不會進快照。")]
     public CheckpointResult CreateCheckpoint(
         [Description("Mod 目錄的路徑。")]
-        string path)
+        string path) => ToolGuard.Run(() =>
     {
         var checkpoint = checkpoints.Create(path);
 
@@ -102,13 +102,13 @@ public sealed class WorkspaceTools(
             Path = checkpoint.Path,
             CreatedUtc = checkpoint.CreatedUtc,
         };
-    }
+    });
 
     [McpServerTool(Name = "list_checkpoints", UseStructuredContent = true, ReadOnly = true)]
     [Description("列出一個 Mod 的所有快照，由新到舊。")]
     public ListCheckpointsResult ListCheckpoints(
         [Description("Mod 目錄的路徑。")]
-        string path)
+        string path) => ToolGuard.Run(() =>
     {
         var items = checkpoints.List(path);
 
@@ -117,7 +117,7 @@ public sealed class WorkspaceTools(
             Results = [.. items.Select(c => new CheckpointResult { Id = c.Id, Path = c.Path, CreatedUtc = c.CreatedUtc })],
             Count = items.Count,
         };
-    }
+    });
 
     [McpServerTool(Name = "restore_checkpoint", UseStructuredContent = true, Destructive = true)]
     [Description("把 Mod 還原到指定快照。這會覆蓋現有內容，所以需要 confirm=true；還原前會自動再建一份快照。")]
@@ -127,11 +127,13 @@ public sealed class WorkspaceTools(
         [Description("要還原的快照 ID。")]
         string checkpoint_id,
         [Description("必須明確傳 true 才會執行。")]
-        bool confirm = false)
+        bool confirm = false) => ToolGuard.Run(() =>
     {
         if (!confirm)
         {
-            throw new UnauthorizedAccessException("還原快照會覆蓋現有內容，需要 confirm=true。");
+            // 這是「補一個參數就能重試」的情境，訊息必須能送達呼叫端，
+            // 所以直接用 McpException 而不是領域例外。
+            throw new ModelContextProtocol.McpException("還原快照會覆蓋現有內容，需要 confirm=true。");
         }
 
         var (restored, safety) = checkpoints.Restore(path, checkpoint_id);
@@ -142,7 +144,7 @@ public sealed class WorkspaceTools(
             RestoredFrom = checkpoint_id,
             PreRestoreCheckpoint = safety,
         };
-    }
+    });
 
     [McpServerTool(Name = "import_mod_asset", UseStructuredContent = true, Idempotent = false)]
     [Description("把圖片或音效複製到 Mod 的 Textures/Sounds 目錄，並回傳 RimWorld 使用的引用路徑。")]
@@ -151,8 +153,8 @@ public sealed class WorkspaceTools(
         string path,
         [Description("來源檔案的絕對路徑。")]
         string source_path,
-        [Description("資產類別：texture 接受 png/jpg/jpeg，sound 接受 ogg/wav。")]
-        AssetKind kind)
+        [Description("資產類別：Texture 接受 png/jpg/jpeg，Sound 接受 ogg/wav。")]
+        AssetKind kind) => ToolGuard.Run(() =>
     {
         var result = assets.Import(path, source_path, kind);
 
@@ -161,13 +163,13 @@ public sealed class WorkspaceTools(
             Asset = result.Asset,
             Reference = result.Reference,
         };
-    }
+    });
 
     [McpServerTool(Name = "validate_mod_assets", UseStructuredContent = true, ReadOnly = true)]
     [Description("檢查 Mod 內資產的副檔名、檔案簽名與大小。副檔名對但內容不符的檔案會讓遊戲載入失敗。")]
     public ValidateAssetsResult ValidateModAssets(
         [Description("Mod 目錄的路徑。")]
-        string path)
+        string path) => ToolGuard.Run(() =>
     {
         var issues = assets.Validate(path);
 
@@ -182,7 +184,7 @@ public sealed class WorkspaceTools(
             Count = issues.Count,
             ErrorCount = issues.Count(i => i.Level == "error"),
         };
-    }
+    });
 }
 
 /// <summary>建立 Mod 的結果。</summary>

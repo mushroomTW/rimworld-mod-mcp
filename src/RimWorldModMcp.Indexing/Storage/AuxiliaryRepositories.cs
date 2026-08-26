@@ -42,27 +42,83 @@ public static class SourceFileRepository
 
     public static void Insert(SqliteConnection connection, string assembly, string path, string text)
     {
-        using var insert = connection.CreateCommand();
-        insert.CommandText = """
-            INSERT INTO source_file (assembly, path, text) VALUES ($assembly, $path, $text)
-            ON CONFLICT(assembly, path) DO UPDATE SET text = excluded.text
-            RETURNING id;
-            """;
-        insert.Parameters.AddWithValue("$assembly", assembly);
-        insert.Parameters.AddWithValue("$path", path);
-        insert.Parameters.AddWithValue("$text", text);
+        // FTS5 虛擬表不支援 UPSERT——`ON CONFLICT` 會直接拋
+        // 「UPSERT not implemented for virtual table」。而且 external content 表
+        // 對同一個 rowid 重複插入不會取代，而是留下舊內容的幽靈索引項
+        // （integrity-check 也抓不到）。所以更新既有列時必須先用 'delete'
+        // 指令、帶著「舊值」把舊索引項移掉，再插入新值。
+        long id;
+        string? previousText = null;
 
-        var id = (long)insert.ExecuteScalar()!;
+        using (var find = connection.CreateCommand())
+        {
+            find.CommandText = "SELECT id, text FROM source_file WHERE assembly = $assembly AND path = $path;";
+            find.Parameters.AddWithValue("$assembly", assembly);
+            find.Parameters.AddWithValue("$path", path);
+
+            using var reader = find.ExecuteReader();
+            id = reader.Read() ? reader.GetInt64(0) : -1;
+
+            if (id >= 0)
+            {
+                previousText = reader.GetString(1);
+            }
+        }
+
+        if (id >= 0)
+        {
+            using var removeFts = connection.CreateCommand();
+            removeFts.CommandText = """
+                INSERT INTO source_fts (source_fts, rowid, path, text) VALUES ('delete', $rowid, $path, $text);
+                """;
+            removeFts.Parameters.AddWithValue("$rowid", id);
+            removeFts.Parameters.AddWithValue("$path", path);
+            removeFts.Parameters.AddWithValue("$text", previousText!);
+            removeFts.ExecuteNonQuery();
+
+            using var update = connection.CreateCommand();
+            update.CommandText = "UPDATE source_file SET text = $text WHERE id = $id;";
+            update.Parameters.AddWithValue("$text", text);
+            update.Parameters.AddWithValue("$id", id);
+            update.ExecuteNonQuery();
+        }
+        else
+        {
+            using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO source_file (assembly, path, text) VALUES ($assembly, $path, $text)
+                RETURNING id;
+                """;
+            insert.Parameters.AddWithValue("$assembly", assembly);
+            insert.Parameters.AddWithValue("$path", path);
+            insert.Parameters.AddWithValue("$text", text);
+
+            id = (long)insert.ExecuteScalar()!;
+        }
 
         using var fts = connection.CreateCommand();
-        fts.CommandText = """
-            INSERT INTO source_fts (rowid, path, text) VALUES ($rowid, $path, $text)
-            ON CONFLICT DO NOTHING;
-            """;
+        fts.CommandText = "INSERT INTO source_fts (rowid, path, text) VALUES ($rowid, $path, $text);";
         fts.Parameters.AddWithValue("$rowid", id);
         fts.Parameters.AddWithValue("$path", path);
         fts.Parameters.AddWithValue("$text", text);
         fts.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// 刪除指定組件前綴的所有原始碼列，並同步移除 FTS 索引項。
+    /// external content 表必須先對每一列發 'delete' 指令再刪內容列，
+    /// 順序反過來會留下孤兒索引項。
+    /// </summary>
+    public static void DeleteWhereAssemblyLike(SqliteConnection connection, string assemblyLike)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO source_fts (source_fts, rowid, path, text)
+            SELECT 'delete', id, path, text FROM source_file WHERE assembly LIKE $like ESCAPE '\';
+            DELETE FROM source_file WHERE assembly LIKE $like ESCAPE '\';
+            """;
+        command.Parameters.AddWithValue("$like", assemblyLike);
+        command.ExecuteNonQuery();
     }
 
     public static long Count(SqliteConnection connection)
@@ -126,7 +182,9 @@ public static class DefReferenceRepository
             sql += " AND source_kind = $kind";
         }
 
-        sql += " ORDER BY confidence, source_kind, file_path, line LIMIT $limit";
+        // exact 要排在 heuristic 前面。不能寫 ORDER BY confidence——那只是靠
+        // 'e' < 'h' 的字母順序巧合，加入第三種可信度就會靜默排錯。
+        sql += " ORDER BY CASE confidence WHEN 'exact' THEN 0 ELSE 1 END, source_kind, file_path, line LIMIT $limit";
 
         using var command = connection.CreateCommand();
         command.CommandText = sql;

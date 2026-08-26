@@ -43,7 +43,22 @@ internal static partial class WindowsJunction
     internal static void Create(string linkPath, string targetPath)
     {
         // junction 本體是一個「帶有 reparse point 的空目錄」，所以要先把目錄建出來。
-        Directory.CreateDirectory(linkPath);
+        //
+        // 必須用「獨占建立」而不是 Directory.CreateDirectory：後者對既有目錄
+        // 靜默成功，呼叫端「檢查不存在」與這裡「建立」之間若被別人（使用者、
+        // Steam）搶先放進一個空目錄，那個目錄會被就地轉成 junction、之後再被
+        // 清理程序刪掉。
+        if (!CreateDirectoryExclusive(linkPath, IntPtr.Zero))
+        {
+            var error = Marshal.GetLastPInvokeError();
+
+            if (error == ErrorAlreadyExists)
+            {
+                throw new IOException($"拒絕覆寫既有路徑：{linkPath}");
+            }
+
+            throw new Win32Exception(error, $"無法建立 junction 目錄：{linkPath}");
+        }
 
         try
         {
@@ -57,7 +72,7 @@ internal static partial class WindowsJunction
             {
                 Directory.Delete(linkPath);
             }
-            catch (IOException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 // 清理失敗不應遮蔽原本的錯誤。
             }
@@ -70,7 +85,13 @@ internal static partial class WindowsJunction
     {
         // SubstituteName 必須是 NT 命名空間路徑（\??\C:\...），PrintName 則是給人看的一般路徑。
         // 兩者都省略的話 Explorer 與 dir 指令會顯示不出目標。
-        var substituteName = @"\??\" + targetPath;
+        //
+        // UNC 路徑（\\server\share）的 NT 形式是 \??\UNC\server\share——
+        // 直接前綴 \??\ 會做出一個「建得起來但解析不了」的 junction，
+        // owned-link 判定隨之失敗，清理時它會被跳過而永久留在 Mods 目錄。
+        var substituteName = targetPath.StartsWith(@"\\", StringComparison.Ordinal)
+            ? @"\??\UNC\" + targetPath[2..]
+            : @"\??\" + targetPath;
         var substituteBytes = Encoding.Unicode.GetBytes(substituteName);
         var printBytes = Encoding.Unicode.GetBytes(targetPath);
 
@@ -123,6 +144,12 @@ internal static partial class WindowsJunction
             throw new Win32Exception(Marshal.GetLastPInvokeError(), $"設定 junction reparse point 失敗：{linkPath} -> {targetPath}");
         }
     }
+
+    private const int ErrorAlreadyExists = 183;
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateDirectoryW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CreateDirectoryExclusive(string lpPathName, IntPtr lpSecurityAttributes);
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     private static partial SafeFileHandle CreateFile(

@@ -53,8 +53,16 @@ public sealed record TestSession
     [JsonPropertyName("daemon_pid")]
     public int? DaemonPid { get; init; }
 
+    /// <summary>daemon 行程的啟動時間。終止前比對，防 PID 重用誤殺無關行程。</summary>
+    [JsonPropertyName("daemon_start_utc")]
+    public DateTime? DaemonStartUtc { get; init; }
+
     [JsonPropertyName("game_pid")]
     public int? GamePid { get; init; }
+
+    /// <summary>遊戲行程的啟動時間。終止前比對，防 PID 重用誤殺無關行程。</summary>
+    [JsonPropertyName("game_start_utc")]
+    public DateTime? GameStartUtc { get; init; }
 
     [JsonPropertyName("previous_run")]
     public string? PreviousRun { get; init; }

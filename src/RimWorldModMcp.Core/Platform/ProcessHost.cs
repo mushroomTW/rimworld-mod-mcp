@@ -12,8 +12,16 @@ public interface IProcessHost
     /// </summary>
     bool IsAlive(int processId);
 
-    /// <summary>終止指定程序。成功送出終止要求回傳 true。</summary>
-    bool Terminate(int processId);
+    /// <summary>
+    /// 終止指定程序。成功送出終止要求回傳 true。
+    ///
+    /// <para>
+    /// 提供 <paramref name="expectedStartUtc"/> 時會先比對程序啟動時間：
+    /// 對不上代表這個 PID 已被作業系統重用給別的程序，拒絕終止——
+    /// 否則會殺掉一個無關的程序。記錄過啟動時間的呼叫端都應該傳。
+    /// </para>
+    /// </summary>
+    bool Terminate(int processId, DateTime? expectedStartUtc = null);
 
     /// <summary>取得程序啟動時間，用於配合 PID 判斷是否為同一個程序。</summary>
     DateTime? StartTimeUtc(int processId);
@@ -54,11 +62,23 @@ public sealed class ProcessHost : IProcessHost
         }
     }
 
-    public bool Terminate(int processId)
+    public bool Terminate(int processId, DateTime? expectedStartUtc = null)
     {
         if (processId <= 0)
         {
             return false;
+        }
+
+        // PID 重用防護：啟動時間對不上就代表原程序早已結束，這個 PID 現在
+        // 屬於別人。與 CriticalSectionLock.IsStale 用同一套判準（容忍一秒精度差）。
+        if (expectedStartUtc is not null)
+        {
+            var actual = StartTimeUtc(processId);
+
+            if (actual is not null && Math.Abs((expectedStartUtc.Value - actual.Value).TotalSeconds) > 1)
+            {
+                return false;
+            }
         }
 
         try
@@ -102,9 +122,11 @@ public sealed class ProcessHost : IProcessHost
             using var process = Process.GetProcessById(processId);
             return process.StartTime.ToUniversalTime();
         }
-        catch
+        catch (Exception e) when (
+            e is ArgumentException or InvalidOperationException or Win32Exception or NotSupportedException or IOException)
         {
-            // 拿不到啟動時間就回 null，呼叫端會退回「只比對 PID」的行為。
+            // 拿不到啟動時間（不存在、已結束、權限不足、平台限制）就回 null，
+            // 呼叫端會退回「只比對 PID」的行為。裸 catch 會連程式錯誤一起吞掉。
             return null;
         }
     }

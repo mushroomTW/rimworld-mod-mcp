@@ -45,20 +45,6 @@ public sealed class TestCycleService(
             throw new DirectoryNotFoundException("找不到 RimWorld 的執行檔或 Mods 目錄。");
         }
 
-        var active = sessions.Read();
-
-        if (active.State == "running" && active.GamePid is { } pid && processes.IsAlive(pid))
-        {
-            throw new InvalidOperationException(
-                $"已有進行中的測試場次（run_id={active.RunId}）。請先呼叫 stop_test(confirm=true)。");
-        }
-
-        // 使用者自己開著遊戲時不能動 Mods 目錄——連結會被鎖住，而且會干擾他的存檔。
-        if (IsGameRunning(paths.Executable))
-        {
-            throw new InvalidOperationException("RimWorld 正在執行中。請先關閉遊戲再開始測試。");
-        }
-
         var info = AboutXml.Parse(mod, "workspace")
             ?? throw new InvalidOperationException("Mod 的 About/About.xml 無效或缺少 packageId。");
 
@@ -101,13 +87,37 @@ public sealed class TestCycleService(
 
         int? daemonPid = null;
 
-        // 鎖只保護「建連結 → 寫設定 → 啟動遊戲」這段臨界區。
+        // 鎖只保護「檢查單一場次 → 建連結 → 寫設定 → 啟動遊戲」這段臨界區。
         // 場次開始之後改由狀態檔維持單一場次——否則忘記停止的場次會把鎖
         // 留在長壽的 MCP server 程序名下，殘骸回收永遠不會觸發。
-        var token_ = locks.Acquire("test", new Dictionary<string, string> { ["run_id"] = runId });
+        var lockToken = locks.Acquire("test", new Dictionary<string, string> { ["run_id"] = runId });
 
         try
         {
+            // 單一場次的檢查必須在鎖之內。放在鎖之外的話，兩個並行的
+            // run_test_cycle 會同時通過檢查、啟動兩個遊戲、互相覆寫狀態檔，
+            // 其中一個的 PID 從此遺失成為孤兒。
+            var active = sessions.Read();
+
+            if (active.State == "running" && active.GamePid is { } pid && processes.IsAlive(pid))
+            {
+                throw new InvalidOperationException(
+                    $"已有進行中的測試場次（run_id={active.RunId}）。請先呼叫 stop_test(confirm=true)。");
+            }
+
+            // 上一場次的遊戲崩潰時 Stop() 沒被呼叫，它的連結還躺在使用者的
+            // Mods 目錄裡——狀態檔即將被覆寫，這是最後的清理機會。
+            foreach (var stale in active.Links)
+            {
+                links.RemoveLink(stale.Link, stale.Target);
+            }
+
+            // 使用者自己開著遊戲時不能動 Mods 目錄——連結會被鎖住，而且會干擾他的存檔。
+            if (IsGameRunning(paths.Executable))
+            {
+                throw new InvalidOperationException("RimWorld 正在執行中。請先關閉遊戲再開始測試。");
+            }
+
             CleanupOldSaveData();
             Directory.CreateDirectory(configDirectory);
 
@@ -142,12 +152,13 @@ public sealed class TestCycleService(
             WriteModsConfig(configDirectory, paths.ModsConfig, activeMods);
             CopyPrefs(configDirectory, paths.PrefsXml);
 
-            File.WriteAllText(store.BridgeTokenFile, token, new UTF8Encoding(false));
+            WriteBridgeToken(token);
             diagnostics.Clear();
 
             // daemon 必須在啟動遊戲之前就緒，否則最早的診斷會漏掉。
             var (daemonState, ownedPid) = daemons.Ensure();
             daemonPid = ownedPid;
+            var daemonStartUtc = ownedPid is { } dp ? processes.StartTimeUtc(dp) : null;
 
             var logOffset = paths.PlayerLog is not null && File.Exists(paths.PlayerLog)
                 ? new FileInfo(paths.PlayerLog).Length
@@ -169,13 +180,21 @@ public sealed class TestCycleService(
                 Bridge = bridgeState,
                 Daemon = daemonState,
                 DaemonPid = daemonPid,
+                DaemonStartUtc = daemonStartUtc,
             };
 
             sessions.Write(session);
 
-            var game = LaunchGame(paths, saveData, quickTest, token);
+            using var game = LaunchGame(paths, saveData, quickTest, token);
 
-            session = session with { State = "running", GamePid = game.Id };
+            session = session with
+            {
+                State = "running",
+                GamePid = game.Id,
+                // 記下啟動時間，stop_test 終止前比對——PID 被作業系統重用時
+                // 不做比對會殺掉一個無關的行程。
+                GameStartUtc = processes.StartTimeUtc(game.Id),
+            };
             sessions.Write(session);
 
             return session;
@@ -194,11 +213,13 @@ public sealed class TestCycleService(
                 processes.Terminate(owned);
             }
 
+            DeleteBridgeToken();
+
             throw;
         }
         finally
         {
-            locks.Release("test", token_);
+            locks.Release("test", lockToken);
         }
     }
 
@@ -217,35 +238,50 @@ public sealed class TestCycleService(
         // 會因為檔案被佔用而失敗，留下工具自己建立的孤兒連結。
         //
         // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
-        // 那個行程的 PID 根本不會被記錄。
-        var gameStopped = terminateGame && session.GamePid is { } gamePid && processes.Terminate(gamePid);
+        // 那個行程的 PID 根本不會被記錄。啟動時間一併比對，防 PID 重用。
+        var gameStopped = terminateGame
+            && session.GamePid is { } gamePid
+            && processes.Terminate(gamePid, session.GameStartUtc);
 
         if (gameStopped && session.GamePid is { } stoppedPid)
         {
             WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
         }
 
-        var daemonStopped = session.DaemonPid is { } daemonPid && processes.Terminate(daemonPid);
+        var daemonStopped = session.DaemonPid is { } daemonPid
+            && processes.Terminate(daemonPid, session.DaemonStartUtc);
 
         var remaining = new List<TestLink>();
 
         foreach (var link in session.Links)
         {
-            if (!links.RemoveLink(link.Link, link.Target))
+            // Removed 以外的結果都要留在狀態裡：Failed 是還被佔用（下次可補清），
+            // NotOurs 是路徑被別的東西佔著——使用者需要知道 Mods 目錄有殘留。
+            if (links.RemoveLink(link.Link, link.Target) != LinkRemoval.Removed)
             {
                 remaining.Add(link);
             }
         }
 
-        if (session.SaveData is not null && Directory.Exists(session.SaveData))
+        // 場次結束後 token 就該失效。留著它的話，任何讀得到這個檔的本機程序
+        // 都能在 daemon 存活期間持續灌入「診斷」——那些文字最終會進到
+        // LLM 呼叫端的 context，等於一條 prompt injection 投遞管道。
+        DeleteBridgeToken();
+
+        var gameStillAlive = session.GamePid is { } alivePid && processes.IsAlive(alivePid);
+
+        if (session.SaveData is not null && Directory.Exists(session.SaveData) && !gameStillAlive)
         {
+            // 遊戲還活著就跳過刪除。Windows 上檔案鎖會擋下來，但 POSIX 允許
+            // 刪除開啟中的檔案——terminate_game=false（預設）時在 Linux/macOS
+            // 會把執行中遊戲的存檔整個刪掉。
             try
             {
                 Directory.Delete(session.SaveData, recursive: true);
             }
             catch (IOException)
             {
-                // 遊戲還沒完全退出時檔案可能被鎖住；下次啟動的清理會處理掉。
+                // 檔案仍被鎖住；下次啟動的清理會處理掉。
             }
         }
 
@@ -283,14 +319,42 @@ public sealed class TestCycleService(
         }
     }
 
+    /// <summary>寫入一次性 bridge token；在 Unix 上限制為僅擁有者可讀寫。</summary>
+    private void WriteBridgeToken(string token)
+    {
+        File.WriteAllText(store.BridgeTokenFile, token, new UTF8Encoding(false));
+
+        if (!OperatingSystem.IsWindows())
+        {
+            // Linux 的 ~/.local/share 預設 umask 下檔案是 0644，同機其他使用者
+            // 可讀——而這個 token 授權整條 loopback 診斷通道。
+            File.SetUnixFileMode(store.BridgeTokenFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    private void DeleteBridgeToken()
+    {
+        try
+        {
+            File.Delete(store.BridgeTokenFile);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // 刪不掉時 daemon 端的驗證仍以檔案內容為準，下一場次會覆寫它。
+        }
+    }
+
     private Process LaunchGame(RimWorldPaths paths, string saveData, bool quickTest, string token)
     {
         var startInfo = new ProcessStartInfo(paths.Executable!)
         {
             WorkingDirectory = paths.InstallRoot,
             UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            // 不重導 stdout/stderr：診斷本來就走 Player.log 與 Bridge，這兩條
+            // 管線沒有人讀。重導又不讀的話，OS 管線緩衝區（Windows 約 4 KB）
+            // 被 Unity 的啟動 log 填滿後，RimWorld 的下一次寫入會永久阻塞。
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
             CreateNoWindow = false,
         };
 
@@ -318,7 +382,15 @@ public sealed class TestCycleService(
 
         try
         {
-            return Process.GetProcessesByName(name).Length > 0;
+            var found = Process.GetProcessesByName(name);
+
+            // 回傳的每個 Process 都持有 handle，不 Dispose 會逐次洩漏。
+            foreach (var process in found)
+            {
+                process.Dispose();
+            }
+
+            return found.Length > 0;
         }
         catch (InvalidOperationException)
         {

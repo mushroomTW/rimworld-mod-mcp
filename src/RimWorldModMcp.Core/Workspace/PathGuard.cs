@@ -1,3 +1,5 @@
+using RimWorldModMcp.Core.Platform;
+
 namespace RimWorldModMcp.Core.Workspace;
 
 /// <summary>
@@ -23,28 +25,75 @@ public static class PathGuard
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var expanded = ExpandUser(path);
+        var expanded = PathText.ExpandUser(path);
         var full = Path.GetFullPath(expanded);
 
-        try
+        return Path.TrimEndingDirectorySeparator(ResolveRealPath(full, depth: 0));
+    }
+
+    /// <summary>
+    /// 從根往下逐一解析每個路徑元件的 symlink / junction。
+    ///
+    /// <para>
+    /// 只對葉節點呼叫 <see cref="FileSystemInfo.ResolveLinkTarget"/> 是不夠的：
+    /// <c>工作區\link\子目錄</c> 這種「中間元件是連結」的路徑，葉節點本身不是
+    /// reparse point，會原樣通過前綴比對——而 junction 在 Windows 上不需要
+    /// 任何權限就建得出來。必須逐層解析。
+    /// </para>
+    /// </summary>
+    private static string ResolveRealPath(string full, int depth)
+    {
+        // 連結指向連結可以構成迴圈；超過合理深度就放棄解析，
+        // 用字串形式讓後續的存在性檢查去擋。
+        if (depth > 40)
         {
-            var info = new DirectoryInfo(full);
-            if (info.Exists)
-            {
-                var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
-                if (resolved is not null)
-                {
-                    full = resolved.FullName;
-                }
-            }
-        }
-        catch (IOException)
-        {
-            // 解析不了（斷掉的連結等）就用字串正規化的結果，
-            // 後續的存在性檢查會把它擋下來。
+            return full;
         }
 
-        return Path.TrimEndingDirectorySeparator(full);
+        var root = Path.GetPathRoot(full);
+        if (string.IsNullOrEmpty(root))
+        {
+            return full;
+        }
+
+        var current = root;
+        var segments = full[root.Length..]
+            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            current = Path.Combine(current, segment);
+
+            try
+            {
+                FileSystemInfo info = Directory.Exists(current)
+                    ? new DirectoryInfo(current)
+                    : new FileInfo(current);
+
+                if (info.Exists)
+                {
+                    var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
+                    if (resolved is not null)
+                    {
+                        // 連結目標的路徑本身也可能含有中間連結，遞迴解析到底。
+                        current = ResolveRealPath(resolved.FullName, depth + 1);
+                    }
+                }
+
+                // 不存在的尾端元件無從解析，維持字串附加；
+                // 後續的存在性檢查會把不存在的路徑擋下來。
+            }
+            catch (IOException)
+            {
+                // 解析不了（斷掉的連結等）就用字串正規化的結果。
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // 無權讀取屬性時同樣退回字串形式，不能讓例外逃出邊界檢查。
+            }
+        }
+
+        return current;
     }
 
     /// <summary>
@@ -57,7 +106,7 @@ public static class PathGuard
     /// </summary>
     public static bool IsWithin(string candidate, string root)
     {
-        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var comparison = PathText.Comparison;
 
         var normalisedCandidate = Path.TrimEndingDirectorySeparator(candidate);
         var normalisedRoot = Path.TrimEndingDirectorySeparator(root);
@@ -69,16 +118,5 @@ public static class PathGuard
 
         var prefix = normalisedRoot + Path.DirectorySeparatorChar;
         return normalisedCandidate.StartsWith(prefix, comparison);
-    }
-
-    private static string ExpandUser(string path)
-    {
-        if (!path.StartsWith('~'))
-        {
-            return path;
-        }
-
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, path.TrimStart('~').TrimStart('/', '\\'));
     }
 }

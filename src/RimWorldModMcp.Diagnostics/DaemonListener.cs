@@ -28,6 +28,18 @@ public sealed class DaemonListener(
     };
 
     /// <summary>
+    /// 單行 payload 的位元組上限。沒有上限的話，任何本機程序（token 驗證
+    /// 發生在解析之後）送一條不含換行的超長資料就能把 daemon 撐爆記憶體。
+    /// </summary>
+    private const int MaxLineBytes = 256 * 1024;
+
+    /// <summary>同時處理的連線數上限；超過的連線排隊等待。</summary>
+    private static readonly SemaphoreSlim ConnectionThrottle = new(32, 32);
+
+    /// <summary>單一連線的閒置逾時。開著不送資料的連線不能永久佔住資源。</summary>
+    private static readonly TimeSpan ReadTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>
     /// 啟動並執行 daemon 直到取消。
     ///
     /// <para>
@@ -86,22 +98,92 @@ public sealed class DaemonListener(
     {
         using (client)
         {
-            // token 在每個連線建立時讀一次。Bridge 每送一筆診斷就開一條新連線，
-            // 所以場次之間換 token 能立刻生效。
-            var expected = ReadToken();
+            // 節流：fire-and-forget 的連線處理若沒有上限，開一萬條連線
+            // 就能耗盡 socket handle 與執行緒池。
+            await ConnectionThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
-                using var reader = new StreamReader(client.GetStream(), new UTF8Encoding(false));
+                // token 在每個連線建立時讀一次。Bridge 每送一筆診斷就開一條新連線，
+                // 所以場次之間換 token 能立刻生效。
+                var expected = ReadToken();
 
-                while (await reader.ReadLineAsync(cancellationToken) is { } line)
+                using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutSource.CancelAfter(ReadTimeout);
+
+                await foreach (var line in ReadLinesAsync(client.GetStream(), timeoutSource.Token).ConfigureAwait(false))
                 {
                     Accept(line, expected);
                 }
             }
-            catch (Exception e) when (e is IOException or SocketException or OperationCanceledException)
+            catch (Exception e) when (e is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
             {
-                // 連線中斷是常態（遊戲關閉、寫到一半退出），不需要處理。
+                // 連線中斷是常態（遊戲關閉、寫到一半退出），閒置逾時也走這裡。
+            }
+            catch
+            {
+                // fire-and-forget 的例外沒有人 await——任何非預期例外都不能
+                // 往外拋，否則變成 unobserved task exception 被靜默丟棄。
+            }
+            finally
+            {
+                ConnectionThrottle.Release();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 逐行讀取，行長超過 <see cref="MaxLineBytes"/> 時丟棄該連線的剩餘資料。
+    /// 不能用 StreamReader.ReadLineAsync——它沒有長度上限，會把整條超長行
+    /// 累積在記憶體裡。
+    /// </summary>
+    private static async IAsyncEnumerable<string> ReadLinesAsync(
+        Stream stream,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var buffer = new byte[8192];
+        var line = new MemoryStream();
+        var oversized = false;
+
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            var start = 0;
+
+            for (var i = 0; i < read; i++)
+            {
+                if (buffer[i] != (byte)'\n')
+                {
+                    continue;
+                }
+
+                if (!oversized)
+                {
+                    line.Write(buffer, start, i - start);
+                    yield return Encoding.UTF8.GetString(line.GetBuffer(), 0, (int)line.Length).TrimEnd('\r');
+                }
+
+                line.SetLength(0);
+                oversized = false;
+                start = i + 1;
+            }
+
+            if (!oversized)
+            {
+                line.Write(buffer, start, read - start);
+
+                if (line.Length > MaxLineBytes)
+                {
+                    // 超長行整行作廢，直到下一個換行為止。
+                    line.SetLength(0);
+                    oversized = true;
+                }
             }
         }
     }
@@ -134,7 +216,7 @@ public sealed class DaemonListener(
 
         if (!payload.TryGetProperty("token", out var token)
             || token.ValueKind != JsonValueKind.String
-            || !string.Equals(token.GetString(), expectedToken, StringComparison.Ordinal))
+            || !TokenEquals(token.GetString(), expectedToken))
         {
             return;
         }
@@ -157,6 +239,23 @@ public sealed class DaemonListener(
 
         // 只取需要的欄位——token 到此為止，不會進入儲存或回應。
         diagnostics.Add(typeText, firstLine, text, "bridge", sessions.Read().RunId);
+    }
+
+    /// <summary>
+    /// 定時比較。loopback 上的時序攻擊訊噪比很差，但這是唯一的驗證機制，
+    /// 改用固定時間比較幾乎零成本。
+    /// </summary>
+    private static bool TokenEquals(string? provided, string expected)
+    {
+        if (provided is null)
+        {
+            return false;
+        }
+
+        var left = Encoding.UTF8.GetBytes(provided);
+        var right = Encoding.UTF8.GetBytes(expected);
+
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(left, right);
     }
 
     private string? ReadToken()

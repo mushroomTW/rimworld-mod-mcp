@@ -50,6 +50,7 @@ public sealed class ModInspectionService(
 
         var results = new List<ModAssemblyInfo>(assemblies.Count);
         using var connection = database.Open();
+        var reindexed = false;
 
         foreach (var assembly in assemblies)
         {
@@ -74,7 +75,7 @@ public sealed class ModInspectionService(
             ClearAssembly(connection, key);
 
             var symbols = _symbolReader.Read(assembly)
-                .Select(s => s with { Assembly = key })
+                .Select(s => s with { Assembly = key, AssemblyPath = assembly })
                 .ToList();
 
             SymbolRepository.Insert(connection, symbols);
@@ -87,10 +88,10 @@ public sealed class ModInspectionService(
                 sourceCount++;
             }
 
-            SymbolRepository.RebuildFts(connection);
             IndexMetaRepository.Set(connection, $"mod_stamp:{key}", stamp);
 
             transaction.Commit();
+            reindexed = true;
 
             results.Add(new ModAssemblyInfo(
                 Path.GetFileNameWithoutExtension(assembly),
@@ -100,21 +101,36 @@ public sealed class ModInspectionService(
                 FromCache: false));
         }
 
+        // 'rebuild' 是對整個 symbol 內容表（含遊戲本體數十萬列）重建索引，
+        // 一次 Inspect 只能做一次——放進 per-assembly 迴圈的話，
+        // 一個有五個 DLL 的 Mod 會觸發五次全庫重建。
+        if (reindexed)
+        {
+            SymbolRepository.RebuildFts(connection);
+        }
+
         return results;
     }
 
     /// <summary>搜尋一個已安裝 Mod 的原始碼，必要時先建立索引。</summary>
-    public IReadOnlyList<SourceHit> SearchSource(string packageId, string modPath, string pattern, int limit)
+    public (IReadOnlyList<SourceHit> Hits, bool SourceIndexed) SearchSource(
+        string packageId, string modPath, string pattern, int limit)
     {
-        Inspect(packageId, modPath);
+        var inspected = Inspect(packageId, modPath);
 
         using var connection = database.Open();
         var prefix = $"mod:{packageId}:";
 
-        return [.. sourceQueries
-            .Search(connection, pattern, null, limit * 2)
-            .Where(hit => hit.Assembly.StartsWith(prefix, StringComparison.Ordinal))
-            .Take(Math.Clamp(limit, 1, 800))];
+        // 組件前綴必須推進 SQL 過濾（見 SourceQueryService.Candidates 的說明），
+        // 在記憶體裡事後過濾的話，遊戲本體的命中會把候選名額全部吃掉。
+        var hits = sourceQueries.Search(
+            connection, pattern, null, limit,
+            assemblyLike: FtsQuery.LikeLiteral(prefix) + "%");
+
+        // XML-only Mod 沒有任何組件；回報 false 讓呼叫端知道零命中的原因。
+        var indexed = inspected.Any(a => a.SourceFileCount > 0);
+
+        return (hits, indexed);
     }
 
     /// <summary>清除一個 Mod 的所有索引資料。</summary>
@@ -124,21 +140,25 @@ public sealed class ModInspectionService(
         using var transaction = connection.BeginTransaction();
 
         var prefix = $"mod:{packageId}:";
+        var like = FtsQuery.LikeLiteral(prefix) + "%";
+
+        // 原始碼列交給會同步 FTS 的刪除；絕不能呼叫 SourceFileRepository.Clear——
+        // 那是無條件全刪，會把 Core 加所有 DLC 的反編譯結果一併炸掉，
+        // 使用者得付出重跑幾分鐘全文索引的代價。
+        SourceFileRepository.DeleteWhereAssemblyLike(connection, like);
 
         using (var command = connection.CreateCommand())
         {
             command.CommandText = """
                 DELETE FROM symbol WHERE assembly LIKE $prefix ESCAPE '\';
-                DELETE FROM source_file WHERE assembly LIKE $prefix ESCAPE '\';
                 DELETE FROM index_meta WHERE key LIKE $metaPrefix ESCAPE '\';
                 """;
-            command.Parameters.AddWithValue("$prefix", FtsQuery.LikeLiteral(prefix) + "%");
+            command.Parameters.AddWithValue("$prefix", like);
             command.Parameters.AddWithValue("$metaPrefix", "mod\\_stamp:" + FtsQuery.LikeLiteral(prefix) + "%");
             command.ExecuteNonQuery();
         }
 
         SymbolRepository.RebuildFts(connection);
-        SourceFileRepository.Clear(connection);
 
         transaction.Commit();
     }
@@ -179,11 +199,11 @@ public sealed class ModInspectionService(
 
     private static void ClearAssembly(Microsoft.Data.Sqlite.SqliteConnection connection, string key)
     {
+        // source_file 的刪除必須同步 FTS 索引項，交給 repository 的專用方法。
+        SourceFileRepository.DeleteWhereAssemblyLike(connection, FtsQuery.LikeLiteral(key));
+
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            DELETE FROM symbol WHERE assembly = $key;
-            DELETE FROM source_file WHERE assembly = $key;
-            """;
+        command.CommandText = "DELETE FROM symbol WHERE assembly = $key;";
         command.Parameters.AddWithValue("$key", key);
         command.ExecuteNonQuery();
     }

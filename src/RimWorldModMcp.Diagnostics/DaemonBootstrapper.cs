@@ -32,7 +32,13 @@ public sealed class DaemonBootstrapper(
 
         // 已經有一個活著的、綁在同一個埠上的 daemon：直接沿用。
         // OwnedPid 回傳 null——不是我們啟動的，停止測試時不可以殺它。
-        if (existing is not null && existing.Port == port && processes.IsAlive(existing.Pid))
+        //
+        // 啟動時間也要對得上：只比 PID 的話，作業系統重用 PID 時會把一個
+        // 不相干的程序認作自家 daemon，遊戲的診斷從此石沉大海而狀態顯示正常。
+        if (existing is not null
+            && existing.Port == port
+            && processes.IsAlive(existing.Pid)
+            && StartTimeMatches(existing))
         {
             return (new DaemonState
             {
@@ -42,7 +48,7 @@ public sealed class DaemonBootstrapper(
             }, null);
         }
 
-        var process = Spawn();
+        using var process = Spawn();
 
         if (process is null)
         {
@@ -80,7 +86,33 @@ public sealed class DaemonBootstrapper(
             Thread.Sleep(100);
         }
 
+        // 逾時的子行程必須殺掉：它可能在第 11 秒才 bind 成功並佔住埠，
+        // 而此時已經沒有任何人記得它的 PID，stop_test 永遠不會清它。
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // 行程剛好自己退出了，或無權終止。
+        }
+
         return (Unavailable(port, $"診斷 daemon 在 {StartupTimeout.TotalSeconds} 秒內沒有回報就緒。"), null);
+    }
+
+    /// <summary>自述檔記錄的啟動時間與實際程序是否吻合（容忍一秒的檔案往返精度差）。</summary>
+    private bool StartTimeMatches(DaemonRecord record)
+    {
+        var recorded = record.StartTimeUtc;
+        var actual = processes.StartTimeUtc(record.Pid);
+
+        if (recorded is null || actual is null)
+        {
+            // 任一邊拿不到就退回「只比 PID」的既有行為。
+            return true;
+        }
+
+        return Math.Abs((recorded.Value - actual.Value).TotalSeconds) <= 1;
     }
 
     private static DaemonState Unavailable(int port, string reason) => new()
@@ -107,8 +139,10 @@ public sealed class DaemonBootstrapper(
         var startInfo = new ProcessStartInfo(executable)
         {
             UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            // 不重導：沒有人讀這兩條管線。daemon 輸出量小，但緩衝區一旦填滿
+            // 就會永久阻塞——與遊戲行程同一個教訓。
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
             CreateNoWindow = true,
         };
 

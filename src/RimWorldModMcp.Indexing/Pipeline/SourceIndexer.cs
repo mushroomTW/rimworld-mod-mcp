@@ -25,6 +25,7 @@ public sealed class SourceIndexer(IndexDatabase database, IRimWorldLocator locat
 {
     private readonly Lock _gate = new();
     private Task? _current;
+    private CancellationTokenSource? _cancellation;
     private SourceIndexProgress _progress = new(false, false, 0, 0, null);
 
     public SourceIndexProgress Progress
@@ -50,10 +51,46 @@ public sealed class SourceIndexer(IndexDatabase database, IRimWorldLocator locat
                 return _progress;
             }
 
+            // 保留 CTS 才有辦法叫停——沒有它，rebuild_index 清空 source_file 時
+            // 上一輪背景索引還在往裡寫，而且沒有任何路徑能停止它。
+            _cancellation?.Dispose();
+            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var token = _cancellation.Token;
+
             _progress = new SourceIndexProgress(true, false, 0, 0, null);
-            _current = Task.Run(() => Run(cancellationToken), cancellationToken);
+            _current = Task.Run(() => Run(token), token);
 
             return _progress;
+        }
+    }
+
+    /// <summary>
+    /// 取消進行中的背景索引並等它停下。沒有在跑時什麼都不做。
+    /// </summary>
+    public void Cancel()
+    {
+        Task? current;
+
+        lock (_gate)
+        {
+            current = _current;
+            _cancellation?.Cancel();
+        }
+
+        if (current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // 最多等一小段時間讓當前交易收尾；等不到也沒關係，
+            // 呼叫端接下來的資料庫操作會靠 busy_timeout 與已取消的 token 收斂。
+            current.Wait(TimeSpan.FromSeconds(10));
+        }
+        catch (AggregateException)
+        {
+            // 取消或失敗的結果已經記錄在 _progress，這裡不需要重拋。
         }
     }
 
@@ -74,6 +111,8 @@ public sealed class SourceIndexer(IndexDatabase database, IRimWorldLocator locat
 
             using var decompiler = new MemberDecompiler();
             using var connection = database.Open();
+
+            IndexMetaRepository.Set(connection, "source_index_error", string.Empty);
 
             foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order())
             {
@@ -99,11 +138,11 @@ public sealed class SourceIndexer(IndexDatabase database, IRimWorldLocator locat
                 transaction.Commit();
             }
 
-            using (var final = database.Open())
-            {
-                IndexMetaRepository.Set(final, "source_indexed", "true");
-                IndexMetaRepository.Set(final, "source_file_count", indexed.ToString());
-            }
+            // 用同一條連線寫 meta。開第二條連線時第一條還活著——WAL 下沒事，
+            // 但快取目錄落在 OneDrive／網路磁碟時會退回 DELETE journal，
+            // 兩條連線會互卡到 busy_timeout 之後拋 SQLITE_BUSY。
+            IndexMetaRepository.Set(connection, "source_indexed", "true");
+            IndexMetaRepository.Set(connection, "source_file_count", indexed.ToString());
 
             stopwatch.Stop();
             return Report(new SourceIndexProgress(false, true, indexed, stopwatch.ElapsedMilliseconds, null));
@@ -116,7 +155,25 @@ public sealed class SourceIndexer(IndexDatabase database, IRimWorldLocator locat
         catch (Exception e)
         {
             stopwatch.Stop();
+            PersistError(e.Message);
             return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, e.Message));
+        }
+    }
+
+    /// <summary>
+    /// 把失敗原因寫進 index_meta。行程內的 _progress 在重啟後就消失了，
+    /// 沒有這一步，使用者只會看到 source_indexed 一直是 false 而永遠等不到原因。
+    /// </summary>
+    private void PersistError(string message)
+    {
+        try
+        {
+            using var connection = database.Open();
+            IndexMetaRepository.Set(connection, "source_index_error", message);
+        }
+        catch (Exception e) when (e is Microsoft.Data.Sqlite.SqliteException or IOException)
+        {
+            // 連錯誤都寫不進去（資料庫本身壞了）時，_progress 至少還在。
         }
     }
 

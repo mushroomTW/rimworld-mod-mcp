@@ -152,8 +152,9 @@ public sealed class DirectoryLinkContracts : IDisposable
         Directory.CreateDirectory(intruder);
         File.WriteAllText(Path.Combine(intruder, "About.xml"), "<ModMetaData />");
 
-        _links.RemoveLink(intruder, _target);
+        var result = _links.RemoveLink(intruder, _target);
 
+        Assert.Equal(LinkRemoval.NotOurs, result);
         Assert.True(Directory.Exists(intruder));
         Assert.True(File.Exists(Path.Combine(intruder, "About.xml")));
     }
@@ -198,17 +199,17 @@ public sealed class DirectoryLinkContracts : IDisposable
         Assert.True(File.Exists(Path.Combine(real, "About.xml")));
     }
 
-    /// <summary>契約：移除失敗要回報 false，不能靜默當成成功。</summary>
+    /// <summary>契約：移除結果要能區分「已移除」「不是我們的」「失敗」，不能靜默當成成功。</summary>
     [Fact]
     public void RemoveLinkReportsWhetherTheLinkIsGone()
     {
         var link = LinkPath("Reported");
         _links.EnsureLink(link, _target);
 
-        Assert.True(_links.RemoveLink(link, _target));
+        Assert.Equal(LinkRemoval.Removed, _links.RemoveLink(link, _target));
         Assert.False(Directory.Exists(link));
 
         // 已經不存在的連結再移除一次也算成功。
-        Assert.True(_links.RemoveLink(link, _target));
+        Assert.Equal(LinkRemoval.Removed, _links.RemoveLink(link, _target));
     }
 }

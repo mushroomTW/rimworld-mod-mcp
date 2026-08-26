@@ -35,7 +35,9 @@ switch (command)
         return Decompile(args.Length > 1 ? args[1] : "ThingDef");
 
     case "stdio":
-        return await RimWorldModMcp.Server.McpHost.RunStdioAsync(args[1..]);
+        // 無參數啟動時 args 是空陣列，args[1..] 會拋 ArgumentOutOfRangeException，
+        // 而「不帶參數」正是 MCP client 設定檔的標準啟動方式。
+        return await RimWorldModMcp.Server.McpHost.RunStdioAsync(args.Length > 0 ? args[1..] : []);
 
     case "daemon":
         return await RunDaemon();
@@ -130,7 +132,12 @@ static int BuildIndex()
     var locator = new RimWorldLocator();
     var processes = new ProcessHost();
     var database = new IndexDatabase(store);
-    var builder = new IndexBuilder(database, locator, new IndexFingerprint(), new CriticalSectionLock(store, processes));
+    var builder = new IndexBuilder(
+        database,
+        locator,
+        new IndexFingerprint(),
+        new CriticalSectionLock(store, processes),
+        new SourceIndexer(database, locator));
 
     Console.Error.WriteLine($"索引資料庫：{database.DatabasePath}");
 

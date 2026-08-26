@@ -16,6 +16,17 @@ namespace RimWorldModMcp.Indexing.Pipeline;
 /// </summary>
 public sealed class IndexFingerprint
 {
+    private readonly Lock _cacheGate = new();
+    private string? _cachedValue;
+    private string? _cachedKey;
+    private DateTime _cachedAtUtc;
+
+    /// <summary>
+    /// 指紋計算要對兩萬個 Def XML 各做一次 stat，是幾百毫秒到數秒的操作，
+    /// 而 <c>rimworld_status</c> 每次呼叫都會算一次。短 TTL 記憶化。
+    /// </summary>
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(10);
+
     /// <summary>計算目前安裝的指紋。偵測不到遊戲時回傳 <c>null</c>。</summary>
     public string? Compute(RimWorldPaths paths)
     {
@@ -24,6 +35,32 @@ public sealed class IndexFingerprint
             return null;
         }
 
+        var cacheKey = paths.ManagedDir + "\n" + paths.DataDir;
+
+        lock (_cacheGate)
+        {
+            if (_cachedValue is not null
+                && _cachedKey == cacheKey
+                && DateTime.UtcNow - _cachedAtUtc < CacheTtl)
+            {
+                return _cachedValue;
+            }
+        }
+
+        var computed = ComputeUncached(paths);
+
+        lock (_cacheGate)
+        {
+            _cachedValue = computed;
+            _cachedKey = cacheKey;
+            _cachedAtUtc = DateTime.UtcNow;
+        }
+
+        return computed;
+    }
+
+    private static string ComputeUncached(RimWorldPaths paths)
+    {
         var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
         if (paths.InstallRoot is not null)
@@ -31,12 +68,12 @@ public sealed class IndexFingerprint
             AppendFile(digest, Path.Combine(paths.InstallRoot, "Version.txt"));
         }
 
-        foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order())
+        foreach (var assembly in Directory.GetFiles(paths.ManagedDir!, "Assembly-CSharp*.dll").Order())
         {
             AppendFile(digest, assembly);
         }
 
-        foreach (var pack in Directory.GetDirectories(paths.DataDir).Order())
+        foreach (var pack in Directory.GetDirectories(paths.DataDir!).Order())
         {
             var defsRoot = Path.Combine(pack, "Defs");
 
@@ -52,7 +89,7 @@ public sealed class IndexFingerprint
             foreach (var file in Directory.EnumerateFiles(defsRoot, "*.xml", SearchOption.AllDirectories).Order())
             {
                 var info = new FileInfo(file);
-                Append(digest, $"{Path.GetRelativePath(paths.DataDir, file).Replace('\\', '/')}:{info.Length}:{info.LastWriteTimeUtc.Ticks}");
+                Append(digest, $"{Path.GetRelativePath(paths.DataDir!, file).Replace('\\', '/')}:{info.Length}:{info.LastWriteTimeUtc.Ticks}");
             }
         }
 
@@ -67,8 +104,18 @@ public sealed class IndexFingerprint
         {
             Append(digest, $"{info.Name}:{info.Length}:{info.LastWriteTimeUtc.Ticks}");
         }
+        else
+        {
+            // 「檔案不存在」也要留下痕跡：否則刪掉 Version.txt 與
+            // 從未有過 Version.txt 會得到相同的指紋。
+            Append(digest, $"{Path.GetFileName(path)}:missing");
+        }
     }
 
     private static void Append(IncrementalHash digest, string value)
-        => digest.AppendData(Encoding.UTF8.GetBytes(value));
+    {
+        // 各段之間以 NUL 分隔，避免相鄰片段串接後構造出相同的位元組序列。
+        digest.AppendData(Encoding.UTF8.GetBytes(value));
+        digest.AppendData("\0"u8);
+    }
 }

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Core.Paths;
 
@@ -15,6 +16,8 @@ public interface IRimWorldLocator
 public sealed partial class RimWorldLocator : IRimWorldLocator
 {
     public const string SteamAppId = "294100";
+
+    /// <summary>與 bridge/Source/BridgeMod.cs 的預設埠必須一致（Bridge 無法參考 Core，該處為複製的常數）。</summary>
     public const int DefaultBridgePort = 49460;
 
     public int BridgePort()
@@ -26,7 +29,39 @@ public sealed partial class RimWorldLocator : IRimWorldLocator
             : DefaultBridgePort;
     }
 
+    private readonly Lock _cacheGate = new();
+    private RimWorldPaths? _cachedPaths;
+    private DateTime _cachedAtUtc;
+
+    /// <summary>
+    /// 偵測結果的短期快取。完整偵測要走 install candidates、讀 libraryfolders.vdf、
+    /// 做十幾次存在性檢查；此物件是 singleton，一次 run_test_cycle 會呼叫 Detect
+    /// 四次以上。TTL 取短（安裝路徑幾乎不變，但使用者可能剛裝好遊戲）。
+    /// </summary>
+    private static readonly TimeSpan DetectCacheTtl = TimeSpan.FromSeconds(5);
+
     public RimWorldPaths Detect()
+    {
+        lock (_cacheGate)
+        {
+            if (_cachedPaths is not null && DateTime.UtcNow - _cachedAtUtc < DetectCacheTtl)
+            {
+                return _cachedPaths;
+            }
+        }
+
+        var detected = DetectUncached();
+
+        lock (_cacheGate)
+        {
+            _cachedPaths = detected;
+            _cachedAtUtc = DateTime.UtcNow;
+        }
+
+        return detected;
+    }
+
+    private static RimWorldPaths DetectUncached()
     {
         var install = InstallCandidates().FirstOrDefault(Directory.Exists);
         if (install is null)
@@ -162,7 +197,7 @@ public sealed partial class RimWorldLocator : IRimWorldLocator
         var overridePath = EnvironmentVariables.GamePath;
         if (!string.IsNullOrWhiteSpace(overridePath))
         {
-            var expanded = ExpandUser(overridePath);
+            var expanded = PathText.ExpandUser(overridePath);
             if (Directory.Exists(expanded))
             {
                 yield return Path.GetFullPath(expanded);
@@ -247,7 +282,7 @@ public sealed partial class RimWorldLocator : IRimWorldLocator
         var overridePath = EnvironmentVariables.PlayerLog;
         if (!string.IsNullOrWhiteSpace(overridePath))
         {
-            yield return ExpandUser(overridePath);
+            yield return PathText.ExpandUser(overridePath);
         }
 
         if (OperatingSystem.IsMacOS())
@@ -285,17 +320,6 @@ public sealed partial class RimWorldLocator : IRimWorldLocator
         var unity = Path.Combine(home, ".config", "unity3d", "Ludeon Studios");
         yield return Path.Combine(unity, "RimWorld by Ludeon Studios");
         yield return Path.Combine(unity, "RimWorld");
-    }
-
-    private static string ExpandUser(string path)
-    {
-        if (!path.StartsWith('~'))
-        {
-            return path;
-        }
-
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, path.TrimStart('~').TrimStart('/', '\\'));
     }
 
     [GeneratedRegex(@"<key>\s*CFBundleExecutable\s*</key>\s*<string>([^<]+)</string>")]

@@ -50,9 +50,19 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
 
         var target = Path.Combine(targetRoot, Path.GetFileName(source));
 
-        if (File.Exists(target) && !SameFile(source, target))
+        if (File.Exists(target))
         {
-            throw new IOException($"目標已存在且內容不同：{target}");
+            // 目標若是 symlink，File.Copy 會跟著它把內容寫到連結指向的地方——
+            // 可能在工作區之外。一律拒絕，不猜測使用者的意圖。
+            if (new FileInfo(target).Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new IOException($"目標是一個連結，拒絕覆寫：{target}");
+            }
+
+            if (!SameFile(source, target))
+            {
+                throw new IOException($"目標已存在且內容不同：{target}");
+            }
         }
 
         File.Copy(source, target, overwrite: true);
@@ -78,7 +88,15 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
                 continue;
             }
 
-            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            // 不跟隨 symlink / junction：跟進去的話，指向別處的連結會把
+            // 工作區外的檔案掃進來，自我指涉的連結則造成無界遞迴。
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            };
+
+            foreach (var file in Directory.EnumerateFiles(root, "*", options))
             {
                 Inspect(file, mod, issues);
             }
@@ -100,14 +118,18 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
 
         Span<byte> header = stackalloc byte[12];
         int read;
+        long length;
 
         try
         {
             using var stream = File.OpenRead(file);
             read = stream.ReadAtLeast(header, 12, throwOnEndOfStream: false);
+            length = stream.Length;
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            // 檔案在列舉與讀取之間消失或被鎖住時，回報這一筆就好，
+            // 不能讓一個檔案毀掉整次驗證。
             issues.Add(new AssetIssue("error", relative, "無法讀取檔案。"));
             return;
         }
@@ -117,7 +139,7 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
             issues.Add(new AssetIssue("error", relative, "檔案內容與副檔名不符或已損毀。"));
         }
 
-        if (new FileInfo(file).Length > LargeFileBytes)
+        if (length > LargeFileBytes)
         {
             issues.Add(new AssetIssue("warning", relative, "資產超過 50 MiB，可能拖慢載入。"));
         }
@@ -142,6 +164,21 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
         var a = new FileInfo(left);
         var b = new FileInfo(right);
 
-        return a.Length == b.Length && a.LastWriteTimeUtc == b.LastWriteTimeUtc;
+        if (a.Length != b.Length)
+        {
+            return false;
+        }
+
+        // 這個 guard 存在的目的就是防止靜默覆寫不同的內容，
+        // 所以必須比對內容雜湊——長度加時間戳會把「同秒寫入的同大小不同檔」誤判為相同。
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        using var leftStream = File.OpenRead(left);
+        using var rightStream = File.OpenRead(right);
+
+        var leftHash = sha.ComputeHash(leftStream);
+        sha.Initialize();
+        var rightHash = sha.ComputeHash(rightStream);
+
+        return leftHash.AsSpan().SequenceEqual(rightHash);
     }
 }

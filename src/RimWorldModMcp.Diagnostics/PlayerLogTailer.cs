@@ -81,14 +81,39 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             stream.Seek(offset, SeekOrigin.Begin);
 
-            using var reader = new StreamReader(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            using var reader = new StreamReader(
+                stream,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+                detectEncodingFromByteOrderMarks: false);
 
-            while (reader.ReadLine() is { } line)
+            var content = reader.ReadToEnd();
+
+            // 只消費「完整的行」。遊戲可能正寫到一半——沒有結尾換行的最後
+            // 一段先留著，下一輪它補完後才讀，否則半行會被當成完整行分類，
+            // 剩餘部分之後又變成另一行。
+            var lastNewline = content.LastIndexOf('\n');
+
+            if (lastNewline < 0)
             {
-                Classify(line, session.RunId);
+                return;
             }
 
-            offsets[path] = stream.Position;
+            var complete = content[..(lastNewline + 1)];
+
+            var batch = new List<(string Type, string FirstLine, string Text)>();
+
+            foreach (var line in complete.Split('\n'))
+            {
+                if (Classify(line) is { } item)
+                {
+                    batch.Add(item);
+                }
+            }
+
+            // 整批一次寫入：錯誤風暴時逐行各做一次全檔 read+serialize 是 O(n²) IO。
+            diagnostics.AddRange(batch, "player.log", session.RunId);
+
+            offsets[path] = offset + Encoding.UTF8.GetByteCount(complete);
         }
         catch (IOException)
         {
@@ -96,13 +121,14 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         }
     }
 
-    private void Classify(string line, string? runId)
+    private static (string Type, string FirstLine, string Text)? Classify(string line)
     {
-        var text = line.Trim();
+        // 關掉 BOM 自動偵測後，檔案開頭的 BOM 會以字元形式出現在第一行。
+        var text = line.Trim().TrimStart('﻿').Trim();
 
         if (text.Length == 0)
         {
-            return;
+            return null;
         }
 
         var isError = text.Contains("error", StringComparison.OrdinalIgnoreCase)
@@ -112,10 +138,10 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
 
         if (!isError && !isWarning)
         {
-            return;
+            return null;
         }
 
-        diagnostics.Add(isError ? "error" : "warning", text, text, "player.log", runId);
+        return (isError ? "error" : "warning", text, text);
     }
 
     private static async Task<bool> SafeWaitAsync(PeriodicTimer timer, CancellationToken cancellationToken)

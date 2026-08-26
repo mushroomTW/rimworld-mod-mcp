@@ -54,25 +54,47 @@ public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locat
         }
 
         Directory.CreateDirectory(assemblies);
-        CopyMetadata(sourceDirectory, modDirectory);
 
-        var (success, output) = RunBuild(project, managed);
+        // 原始碼先複製進快取目錄再建置，bin/obj 才會落在快取而不是工具的
+        // 安裝位置——以 dotnet tool 全域安裝時，安裝目錄不一定可寫。
+        var cachedProject = Path.Combine(modDirectory, "Source", "RimWorldModMcp.Bridge.csproj");
+
+        try
+        {
+            CopyMetadata(sourceDirectory, modDirectory);
+            CopySources(sourceDirectory, modDirectory);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // About/ 不存在或檔案被鎖住時，要以設計好的降級訊息回報，
+            // 不能讓原始例外逸出成使用者看到的整包堆疊。
+            return new BridgeBuild(false, null, false, $"複製 Bridge 原始碼失敗：{e.Message}");
+        }
+
+        var (success, output) = RunBuild(cachedProject, managed);
 
         if (!success)
         {
             return new BridgeBuild(false, null, false, $"Bridge 建置失敗：{output}");
         }
 
-        var built = FindOutput(project);
+        var built = FindOutput(cachedProject);
 
         if (built is null)
         {
             return new BridgeBuild(false, null, false, "Bridge 建置回報成功，但找不到輸出的 DLL。");
         }
 
-        foreach (var file in Directory.GetFiles(built, "*.dll"))
+        try
         {
-            File.Copy(file, Path.Combine(assemblies, Path.GetFileName(file)), overwrite: true);
+            foreach (var file in Directory.GetFiles(built, "*.dll"))
+            {
+                File.Copy(file, Path.Combine(assemblies, Path.GetFileName(file)), overwrite: true);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new BridgeBuild(false, null, false, $"複製 Bridge 組件失敗：{e.Message}");
         }
 
         var missing = RequiredAssemblies.Where(name => !File.Exists(Path.Combine(assemblies, name))).ToList();
@@ -89,7 +111,7 @@ public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locat
 
     private static (bool Success, string Output) RunBuild(string project, string managedDirectory)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        var startInfo = new ProcessStartInfo(Core.Platform.DotnetHost.Executable())
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -104,7 +126,7 @@ public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locat
 
         // 指向本機安裝的遊戲組件。沒有這個變數時 csproj 會退回公開的參考組件，
         // 那種組件只有簽章沒有實作，不能拿來實際執行。
-        startInfo.Environment["RIMWORLD_MANAGED_DIR"] = managedDirectory;
+        startInfo.Environment[EnvironmentVariables.ManagedDir] = managedDirectory;
 
         try
         {
@@ -115,9 +137,26 @@ public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locat
                 return (false, "無法啟動 dotnet build。");
             }
 
-            var stdout = process.StandardOutput.ReadToEnd();
-            var stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
+            // 兩條管線必須並行讀取：先讀完 stdout 再讀 stderr 的話，
+            // dotnet build 把 stderr 緩衝區寫滿後雙方永久互等，MCP server 整個掛住。
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+
+            if (!process.WaitForExit(TimeSpan.FromMinutes(10)))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                }
+
+                return (false, "Bridge 建置超過 10 分鐘未完成，已強制終止。");
+            }
+
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            var stderr = stderrTask.GetAwaiter().GetResult();
 
             var combined = (stderr + Environment.NewLine + stdout).Trim();
 
@@ -140,8 +179,17 @@ public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locat
             return null;
         }
 
+        // 可能同時存在多個 TFM 輸出（歷史殘留）與 ref/ 目錄；取最新寫入的那一份，
+        // 並排除 reference assembly——那種組件只有簽章沒有實作。
         return Directory
             .EnumerateFiles(releaseRoot, "RimWorldModMcp.Bridge.dll", SearchOption.AllDirectories)
+            .Where(path =>
+            {
+                var directory = Path.GetFileName(Path.GetDirectoryName(path));
+                return !string.Equals(directory, "ref", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(directory, "refint", StringComparison.OrdinalIgnoreCase);
+            })
+            .OrderByDescending(File.GetLastWriteTimeUtc)
             .Select(Path.GetDirectoryName)
             .FirstOrDefault(directory => directory is not null);
     }
@@ -157,6 +205,30 @@ public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locat
         foreach (var file in Directory.GetFiles(sourceAbout))
         {
             File.Copy(file, Path.Combine(targetAbout, Path.GetFileName(file)), overwrite: true);
+        }
+    }
+
+    /// <summary>把 Source/（排除 bin/obj）複製到快取目錄，建置在那裡進行。</summary>
+    private static void CopySources(string sourceDirectory, string modDirectory)
+    {
+        var sourceRoot = Path.Combine(sourceDirectory, "Source");
+        var targetRoot = Path.Combine(modDirectory, "Source");
+
+        Directory.CreateDirectory(targetRoot);
+
+        foreach (var file in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceRoot, file);
+
+            if (relative.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                relative.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var target = Path.Combine(targetRoot, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: true);
         }
     }
 

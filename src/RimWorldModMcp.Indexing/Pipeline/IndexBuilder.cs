@@ -38,7 +38,8 @@ public sealed class IndexBuilder(
     IndexDatabase database,
     IRimWorldLocator locator,
     IndexFingerprint fingerprint,
-    CriticalSectionLock locks)
+    CriticalSectionLock locks,
+    SourceIndexer sourceIndexer)
 {
     private readonly AssemblySymbolReader _symbolReader = new();
     private readonly DefXmlScanner _defScanner = new();
@@ -52,6 +53,10 @@ public sealed class IndexBuilder(
         {
             throw new DirectoryNotFoundException("找不到 RimWorld 的 Managed 或 Data 目錄。");
         }
+
+        // 背景的原始碼索引若還在跑，它會在我們清空 source_file 之後繼續往裡寫、
+        // 最後把 source_indexed 覆寫回 true——先叫停再動表。
+        sourceIndexer.Cancel();
 
         using var _ = locks.Hold("index", new Dictionary<string, string> { ["operation"] = "rebuild_index" });
 
@@ -71,7 +76,9 @@ public sealed class IndexBuilder(
         var symbolCount = 0;
         foreach (var assembly in assemblies)
         {
-            symbolCount += SymbolRepository.Insert(connection, _symbolReader.Read(assembly));
+            symbolCount += SymbolRepository.Insert(
+                connection,
+                _symbolReader.Read(assembly).Select(s => s with { AssemblyPath = assembly }));
         }
 
         // 內容全部就位之後才建全文索引，比逐筆維護快一個數量級。

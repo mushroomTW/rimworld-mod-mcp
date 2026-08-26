@@ -71,6 +71,12 @@ public sealed record SymbolRecord
 {
     public required string Assembly { get; init; }
 
+    /// <summary>
+    /// 組件檔案的實際路徑，反編譯時用來定位。Mod 組件的 <see cref="Assembly"/>
+    /// 是 <c>mod:pkg:Name:hash</c> 形式的索引鍵，拼不回檔案路徑，必須另外存。
+    /// </summary>
+    public string? AssemblyPath { get; init; }
+
     public required string Fqn { get; init; }
 
     public required string ShortName { get; init; }

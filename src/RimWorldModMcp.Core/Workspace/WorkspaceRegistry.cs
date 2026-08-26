@@ -41,7 +41,7 @@ public sealed class WorkspaceRegistry(StoreDirectories store)
             throw new DirectoryNotFoundException($"工作區不是目錄：{root}");
         }
 
-        var comparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+        var comparer = StringComparer.FromComparison(Platform.PathText.Comparison);
         var roots = new SortedSet<string>(Roots(), comparer) { root };
 
         var file = store.WorkspacesFile;

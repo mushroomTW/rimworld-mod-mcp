@@ -25,8 +25,27 @@ public interface IDirectoryLink
     /// 移除本工具建立的連結。不是本工具建立的、或指向別處的，一律不動作。
     /// <b>只移除連結本身，永遠不會碰到目標目錄的內容。</b>
     /// </summary>
-    /// <returns>連結是否已不存在（本來就不是自家連結時視為成功）。</returns>
-    bool RemoveLink(string linkPath, string targetPath);
+    LinkRemoval RemoveLink(string linkPath, string targetPath);
+}
+
+/// <summary>
+/// <see cref="IDirectoryLink.RemoveLink"/> 的結果。
+///
+/// <para>
+/// 「已消失」與「存在但我們拒絕碰」必須能區分：把後者當成功，
+/// 呼叫端會從追蹤狀態移除它，一個佔著連結名稱的陌生目錄就再也沒人回報。
+/// </para>
+/// </summary>
+public enum LinkRemoval
+{
+    /// <summary>連結已移除，或本來就不存在。</summary>
+    Removed,
+
+    /// <summary>路徑上存在的東西不是本工具的連結，拒絕動它。</summary>
+    NotOurs,
+
+    /// <summary>是自家連結但移除失敗（最常見：遊戲仍透過它載入組件）。</summary>
+    Failed,
 }
 
 /// <inheritdoc cref="IDirectoryLink"/>
@@ -121,9 +140,9 @@ public sealed class DirectoryLink : IDirectoryLink
 
             return PathsEqual(Normalise(actualFinal.FullName), Normalise(FinalTargetOf(targetPath)));
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            // 連結已斷掉之類的狀況：無法確認指向，就不當成自家連結。
+            // 連結已斷掉、或無權讀取屬性：無法確認指向，就不當成自家連結。
             return false;
         }
     }
@@ -144,7 +163,7 @@ public sealed class DirectoryLink : IDirectoryLink
             // 用實際存在的父目錄回推真實位置。
             return info.Exists ? info.FullName : path;
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return path;
         }
@@ -154,17 +173,17 @@ public sealed class DirectoryLink : IDirectoryLink
         => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
     private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            left,
-            right,
-            OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+        => string.Equals(left, right, PathText.Comparison);
 
-    public bool RemoveLink(string linkPath, string targetPath)
+    public LinkRemoval RemoveLink(string linkPath, string targetPath)
     {
         if (!IsOwnedLink(linkPath, targetPath))
         {
-            // 不是自家連結就不該碰它，這不算失敗。
-            return true;
+            // 路徑上什麼都沒有＝已清乾淨；有東西但不是自家連結＝拒絕碰，
+            // 但要讓呼叫端知道那裡佔著一個不是我們的東西。
+            return Directory.Exists(linkPath) || File.Exists(linkPath)
+                ? LinkRemoval.NotOurs
+                : LinkRemoval.Removed;
         }
 
         try
@@ -173,13 +192,13 @@ public sealed class DirectoryLink : IDirectoryLink
             // Directory.Delete(path, recursive: true) 會走進 junction 把「目標目錄」的內容刪光，
             // 那等於毀掉使用者的 Mod 原始碼。非遞迴版只移除 reparse point 本身。
             Directory.Delete(linkPath);
-            return true;
+            return LinkRemoval.Removed;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             // 移除失敗最常見的原因是遊戲仍在執行、透過這個連結載入著組件。
             // 不再靜默吞掉——呼叫端要能把殘留回報給使用者。
-            return false;
+            return LinkRemoval.Failed;
         }
     }
 }

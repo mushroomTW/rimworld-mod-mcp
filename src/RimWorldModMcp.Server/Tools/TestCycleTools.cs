@@ -19,14 +19,12 @@ public sealed class TestCycleTools(TestCycleService testCycle, DiagnosticStore d
         [Description("要一併啟用的其他 Mod 的 packageId 清單。")]
         string[]? companion_mods = null,
         [Description("是否用 -quicktest 直接進入測試地圖，跳過主選單。")]
-        bool quicktest = true)
-    {
-        return ToResult(testCycle.Start(path, companion_mods, quicktest));
-    }
+        bool quicktest = true) => ToolGuard.Run(() =>
+        ToResult(testCycle.Start(path, companion_mods, quicktest)));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("回報目前測試場次的狀態，包含 Bridge 與診斷 daemon 是否正常運作。")]
-    public TestSessionResult TestStatus() => ToResult(testCycle.Status());
+    public TestSessionResult TestStatus() => ToolGuard.Run(() => ToResult(testCycle.Status()));
 
     [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true)]
     [Description("停止測試場次：移除臨時連結、終止診斷 daemon、清理暫存存檔。需要 confirm=true。")]
@@ -34,23 +32,26 @@ public sealed class TestCycleTools(TestCycleService testCycle, DiagnosticStore d
         [Description("必須明確傳 true 才會執行。")]
         bool confirm = false,
         [Description("是否一併終止遊戲行程。預設 false，讓使用者自己關閉遊戲。")]
-        bool terminate_game = false)
+        bool terminate_game = false) => ToolGuard.Run(() =>
     {
         if (!confirm)
         {
-            throw new UnauthorizedAccessException("停止測試會移除連結並終止 daemon，需要 confirm=true。");
+            // 補一個參數就能重試的情境，訊息必須送達呼叫端。
+            throw new ModelContextProtocol.McpException("停止測試會移除連結並終止 daemon，需要 confirm=true。");
         }
 
         return ToResult(testCycle.Stop(terminate_game));
-    }
+    });
 
     [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true)]
     [Description("列出本次測試收集到的錯誤與警告。同一個錯誤會合併並累計次數。")]
     public ListDiagnosticsResult ListTestDiagnostics(
         [Description("只回傳指定類型：error、warning、diagnostic、loaded_mods 或 performance。")]
         string? type = null,
-        [Description("每筆內容的字元上限，避免長堆疊灌爆輸出。")]
-        int max_text_length = 2000)
+        [Description("每筆內容的字元上限，範圍 100-20000，避免長堆疊灌爆輸出。")]
+        int max_text_length = 2000,
+        [Description("最多回傳幾筆，範圍 1-500。")]
+        int limit = 100) => ToolGuard.Run(() =>
     {
         var records = diagnostics.Read();
 
@@ -59,28 +60,35 @@ public sealed class TestCycleTools(TestCycleService testCycle, DiagnosticStore d
             records = [.. records.Where(r => string.Equals(r.Type, type, StringComparison.OrdinalIgnoreCase))];
         }
 
-        var limit = Math.Clamp(max_text_length, 100, 20000);
+        var textLimit = Math.Clamp(max_text_length, 100, 20000);
+
+        // crash loop 可以在幾秒內產生數千筆診斷，一定要有筆數上限——
+        // 這是所有查詢型工具裡最容易爆量的一個。
+        var effectiveLimit = Math.Clamp(limit, 1, 500);
+        var page = records.Take(effectiveLimit).ToList();
 
         return new ListDiagnosticsResult
         {
-            Results = [.. records.Select(r => ToSummary(r, limit))],
-            Count = records.Count,
+            Results = [.. page.Select(r => ToSummary(r, textLimit))],
+            Count = page.Count,
+            TotalCount = records.Count,
+            LimitReached = records.Count > page.Count,
             ErrorCount = records.Count(r => r.Type == "error"),
             WarningCount = records.Count(r => r.Type == "warning"),
         };
-    }
+    });
 
     [McpServerTool(Name = "get_test_diagnostic", UseStructuredContent = true, ReadOnly = true)]
     [Description("依 hash 取得單一診斷的完整內容，包含未截斷的堆疊。")]
     public DiagnosticSummary GetTestDiagnostic(
         [Description("診斷的 hash，來自 list_test_diagnostics。")]
-        string diagnostic_hash)
+        string diagnostic_hash) => ToolGuard.Run(() =>
     {
         var record = diagnostics.Find(diagnostic_hash)
             ?? throw new KeyNotFoundException($"找不到診斷：{diagnostic_hash}");
 
         return ToSummary(record, int.MaxValue);
-    }
+    });
 
     private static TestSessionResult ToResult(TestSession session) => new()
     {
@@ -187,6 +195,13 @@ public sealed record ListDiagnosticsResult
 
     [JsonPropertyName("count")]
     public required int Count { get; init; }
+
+    /// <summary>過濾後的總筆數；大於 count 時代表有被 limit 截掉的部分。</summary>
+    [JsonPropertyName("total_count")]
+    public required int TotalCount { get; init; }
+
+    [JsonPropertyName("limit_reached")]
+    public required bool LimitReached { get; init; }
 
     [JsonPropertyName("error_count")]
     public required int ErrorCount { get; init; }

@@ -25,12 +25,13 @@ public sealed class SymbolRepository
     {
         using var insert = connection.CreateCommand();
         insert.CommandText = """
-            INSERT INTO symbol (assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static)
-            VALUES ($assembly, $fqn, $short, $kind, $parent, $token, $signature, $base, $interfaces, $access, $static)
-            ON CONFLICT(assembly, fqn, metadata_token) DO NOTHING;
+            INSERT INTO symbol (assembly, assembly_path, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static)
+            VALUES ($assembly, $path, $fqn, $short, $kind, $parent, $token, $signature, $base, $interfaces, $access, $static)
+            ON CONFLICT(assembly, metadata_token) DO NOTHING;
             """;
 
         var assembly = insert.CreateParameter("$assembly");
+        var assemblyPath = insert.CreateParameter("$path");
         var fqn = insert.CreateParameter("$fqn");
         var shortName = insert.CreateParameter("$short");
         var kind = insert.CreateParameter("$kind");
@@ -47,6 +48,7 @@ public sealed class SymbolRepository
         foreach (var symbol in symbols)
         {
             assembly.Value = symbol.Assembly;
+            assemblyPath.Value = (object?)symbol.AssemblyPath ?? DBNull.Value;
             fqn.Value = symbol.Fqn;
             shortName.Value = symbol.ShortName;
             kind.Value = symbol.Kind.ToString();
@@ -78,7 +80,7 @@ public sealed class SymbolRepository
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static
+            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
             FROM symbol
             WHERE short_name = $name OR fqn LIKE $like ESCAPE '\'
             ORDER BY (short_name = $name) DESC, fqn
@@ -89,6 +91,11 @@ public sealed class SymbolRepository
         command.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
         command.Parameters.AddWithValue("$limit", Utf8Text.Clamp(limit, 1, 100));
 
+        return ReadHits(command);
+    }
+
+    private static List<SymbolHit> ReadHits(SqliteCommand command)
+    {
         var results = new List<SymbolHit>();
         using var reader = command.ExecuteReader();
 
@@ -107,6 +114,7 @@ public sealed class SymbolRepository
                 Interfaces = reader.IsDBNull(8) ? [] : reader.GetString(8).Split('|'),
                 Accessibility = reader.GetString(9),
                 IsStatic = reader.GetInt32(10) != 0,
+                AssemblyPath = reader.IsDBNull(11) ? null : reader.GetString(11),
             });
         }
 
@@ -119,9 +127,26 @@ public sealed class SymbolRepository
     /// </summary>
     public static List<SymbolHit> Descendants(SqliteConnection connection, string baseTypeFqn, int limit)
     {
+        // base_chain 裡存的是去除泛型引數的定義名稱（見 AssemblySymbolReader.BaseChain），
+        // 查詢輸入也做同樣的正規化，Verse.Comp<T> 與 Verse.Comp`1 都能查。
+        var backtick = baseTypeFqn.IndexOf('`');
+        var angle = baseTypeFqn.IndexOf('<');
+        var cut = (backtick, angle) switch
+        {
+            (< 0, < 0) => -1,
+            (< 0, _) => angle,
+            (_, < 0) => backtick,
+            _ => Math.Min(backtick, angle),
+        };
+
+        if (cut >= 0)
+        {
+            baseTypeFqn = baseTypeFqn[..cut];
+        }
+
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static
+            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
             FROM symbol
             WHERE base_chain IS NOT NULL
               AND ('|' || base_chain || '|') LIKE $needle ESCAPE '\'
@@ -132,28 +157,7 @@ public sealed class SymbolRepository
         command.Parameters.AddWithValue("$needle", $"%|{FtsQuery.LikeLiteral(baseTypeFqn)}|%");
         command.Parameters.AddWithValue("$limit", Utf8Text.Clamp(limit, 1, 500));
 
-        var results = new List<SymbolHit>();
-        using var reader = command.ExecuteReader();
-
-        while (reader.Read())
-        {
-            results.Add(new SymbolHit
-            {
-                Assembly = reader.GetString(0),
-                Fqn = reader.GetString(1),
-                ShortName = reader.GetString(2),
-                Kind = reader.GetString(3),
-                ParentFqn = reader.IsDBNull(4) ? null : reader.GetString(4),
-                MetadataToken = reader.GetInt32(5),
-                Signature = reader.GetString(6),
-                BaseChain = reader.IsDBNull(7) ? [] : reader.GetString(7).Split('|'),
-                Interfaces = reader.IsDBNull(8) ? [] : reader.GetString(8).Split('|'),
-                Accessibility = reader.GetString(9),
-                IsStatic = reader.GetInt32(10) != 0,
-            });
-        }
-
-        return results;
+        return ReadHits(command);
     }
 
     public static long Count(SqliteConnection connection)
@@ -168,6 +172,9 @@ public sealed class SymbolRepository
 public sealed record SymbolHit
 {
     public required string Assembly { get; init; }
+
+    /// <summary>組件檔案的實際路徑；反編譯時優先使用（Mod 組件只能靠它定位）。</summary>
+    public string? AssemblyPath { get; init; }
 
     public required string Fqn { get; init; }
 

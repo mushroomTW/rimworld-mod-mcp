@@ -74,9 +74,28 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
             }
             catch (IOException) when (File.Exists(path))
             {
-                var existing = Read(path);
+                var (outcome, existing) = ReadClassified(path);
 
-                if (mayReclaim && IsStale(existing))
+                // 「讀不到」不等於「殘骸」。持有者以 FileShare.None 建檔後、寫完內容前，
+                // 我們的讀取會吃到分享違規——那是一個活得好好的鎖，不能因此刪掉它，
+                // 否則兩個程序會同時認為自己持有臨界區。短暫重試後仍讀不到就當作被持有。
+                for (var attempt = 0; outcome == ReadOutcome.Unreadable && attempt < 5; attempt++)
+                {
+                    Thread.Sleep(50);
+                    (outcome, existing) = ReadClassified(path);
+                }
+
+                var stale = outcome switch
+                {
+                    // 內容壞掉的鎖檔視為殘骸——留著它只會讓工具永遠卡住。
+                    ReadOutcome.Corrupt => true,
+                    ReadOutcome.Ok => IsStale(existing),
+                    // 檔案在讀取前消失：持有者剛釋放，直接重試建檔。
+                    ReadOutcome.Missing => true,
+                    _ => false,
+                };
+
+                if (mayReclaim && stale)
                 {
                     TryDelete(path);
                     continue;
@@ -112,7 +131,6 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
     /// <summary>持有者是否已經不存在（可以接管）。</summary>
     private bool IsStale(LockRecord? record)
     {
-        // 讀不到或內容壞掉的鎖檔視為殘骸——留著它只會讓工具永遠卡住。
         if (record is null || record.ProcessId <= 0)
         {
             return true;
@@ -139,17 +157,42 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 
     private string LockPath(string name) => Path.Combine(store.LocksDirectory, name + ".json");
 
-    private static LockRecord? Read(string path)
+    private enum ReadOutcome
+    {
+        Ok,
+
+        /// <summary>檔案不存在。</summary>
+        Missing,
+
+        /// <summary>存在但目前讀不到（典型：持有者仍握著 FileShare.None 在寫入）。</summary>
+        Unreadable,
+
+        /// <summary>讀得到但內容不是合法的鎖紀錄。</summary>
+        Corrupt,
+    }
+
+    private static (ReadOutcome Outcome, LockRecord? Record) ReadClassified(string path)
     {
         try
         {
-            return JsonSerializer.Deserialize<LockRecord>(File.ReadAllText(path));
+            var record = JsonSerializer.Deserialize<LockRecord>(File.ReadAllText(path));
+            return record is null ? (ReadOutcome.Corrupt, null) : (ReadOutcome.Ok, record);
         }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
         {
-            return null;
+            return (ReadOutcome.Missing, null);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return (ReadOutcome.Unreadable, null);
+        }
+        catch (JsonException)
+        {
+            return (ReadOutcome.Corrupt, null);
         }
     }
+
+    private static LockRecord? Read(string path) => ReadClassified(path).Record;
 
     private static void TryDelete(string path)
     {

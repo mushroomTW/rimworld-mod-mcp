@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using RimWorldModMcp.Core.Paths;
+using RimWorldModMcp.Core.Platform;
 using RimWorldModMcp.Core.Workspace;
 
 namespace RimWorldModMcp.Core.Building;
@@ -58,8 +59,14 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
         ValidateAbout(mod);
 
         var sourceDirectory = Path.Combine(mod, "Source");
+
+        // 不跟隨 symlink / junction，避免掃到工作區外或掉進自我指涉的連結。
         var projects = Directory.Exists(sourceDirectory)
-            ? Directory.GetFiles(sourceDirectory, "*.csproj", SearchOption.AllDirectories)
+            ? Directory.GetFiles(sourceDirectory, "*.csproj", new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            })
             : [];
 
         if (projects.Length == 0)
@@ -81,9 +88,12 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
         return BuildProject(mod, projects[0]);
     }
 
+    /// <summary>MSBuild 卡死（NuGet 還原掛住等）時的停損點，避免整個 MCP server 無限期停擺。</summary>
+    private static readonly TimeSpan BuildTimeout = TimeSpan.FromMinutes(10);
+
     private BuildResult BuildProject(string mod, string project)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        var startInfo = new ProcessStartInfo(DotnetExecutable())
         {
             WorkingDirectory = mod,
             UseShellExecute = false,
@@ -104,15 +114,33 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
 
         if (managed is not null)
         {
-            startInfo.Environment["RIMWORLD_MANAGED_DIR"] = managed;
+            startInfo.Environment[EnvironmentVariables.ManagedDir] = managed;
         }
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("無法啟動 dotnet build。");
 
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        // 兩條管線必須並行讀取。先讀完 stdout 再讀 stderr 的話，
+        // 子行程把 stderr 的緩衝區寫滿（約 4 KB）後會阻塞，雙方永久互等。
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit(BuildTimeout))
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                // 行程剛好自己退出了，或無權終止；兩者都不影響回報逾時。
+            }
+
+            throw new InvalidOperationException($"dotnet build 超過 {BuildTimeout.TotalMinutes:0} 分鐘未完成，已強制終止。");
+        }
+
+        var stdout = stdoutTask.GetAwaiter().GetResult();
+        var stderr = stderrTask.GetAwaiter().GetResult();
 
         var diagnostics = ParseDiagnostics(stdout + Environment.NewLine + stderr);
         var success = process.ExitCode == 0;
@@ -132,6 +160,17 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
             warnings.Add("未偵測到 RimWorld 的 Managed 目錄，遊戲組件參考可能無法解析。");
         }
 
+        // 失敗但一筆診斷都沒解析到（MSBuild 崩潰、SDK 版本問題等非標準輸出）時，
+        // 附上截斷過的輸出尾段——否則呼叫端拿到的是零資訊的 success:false。
+        string? message = null;
+
+        if (!success && diagnostics.Count == 0)
+        {
+            var combined = (stdout + Environment.NewLine + stderr).Trim();
+            var tail = combined.Length > 4000 ? combined[^4000..] : combined;
+            message = "建置失敗且無法解析出結構化診斷，原始輸出尾段：" + Utf8Text.Truncate(tail, 4000, out _);
+        }
+
         return new BuildResult
         {
             Kind = "csharp",
@@ -143,8 +182,11 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
             Deployed = deployed,
             Diagnostics = diagnostics,
             Warnings = warnings,
+            Message = message,
         };
     }
+
+    private static string DotnetExecutable() => DotnetHost.Executable();
 
     private static void ValidateAbout(string mod)
     {
@@ -209,7 +251,7 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
     }
 
     /// <summary>
-    /// 輸出目錄的候選順序：csproj 宣告的 TFM、bin/Release 的子目錄、bin/Release 本身。
+    /// 輸出目錄的候選順序：csproj 宣告的 TFM、bin/Release 本身、bin/Release 的子目錄。
     /// 不可退回硬編碼 net472——那會讓宣告其他 TFM 的專案找不到產出。
     /// </summary>
     private static IEnumerable<string> OutputDirectories(string project, IReadOnlyList<string> frameworks)
@@ -221,16 +263,28 @@ public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorld
             yield return Path.Combine(releaseRoot, framework);
         }
 
+        // 設了 AppendTargetFrameworkToOutputPath=false 的專案（腳手架產生的就是）
+        // 會直接輸出在這一層。這一項必須排在子目錄掃描之前——SDK 預設會產生
+        // bin/Release/ref/（reference assembly，方法沒有實作），先掃子目錄
+        // 會把它部署進遊戲：載得起來但所有方法都是空的，極難診斷。
+        yield return releaseRoot;
+
         if (Directory.Exists(releaseRoot))
         {
             foreach (var directory in Directory.GetDirectories(releaseRoot).Order())
             {
+                var name = Path.GetFileName(directory);
+
+                // reference assembly 目錄永遠不是部署對象。
+                if (name.Equals("ref", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("refint", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 yield return directory;
             }
         }
-
-        // 設了 AppendTargetFrameworkToOutputPath=false 的專案會直接輸出在這一層。
-        yield return releaseRoot;
     }
 
     private static IReadOnlyList<string> TargetFrameworks(string project)

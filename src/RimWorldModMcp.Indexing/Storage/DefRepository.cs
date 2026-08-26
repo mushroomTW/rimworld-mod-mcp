@@ -133,6 +133,13 @@ public sealed class DefRepository
             sql += " WHERE " + string.Join(" AND ", conditions);
         }
 
+        // 有 FTS 時一定要按 bm25 相關性排序。沒有 ORDER BY 的話回傳的是
+        // rowid 順序的前 N 筆，不是最相關的 N 筆——對搜尋工具是體感最大的落差。
+        if (match.Length > 0)
+        {
+            sql += " ORDER BY rank";
+        }
+
         sql += " LIMIT $limit";
 
         using var command = connection.CreateCommand();

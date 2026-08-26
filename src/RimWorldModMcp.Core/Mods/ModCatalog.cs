@@ -35,8 +35,19 @@ public sealed class ModCatalog(IRimWorldLocator locator)
         }
 
         var packs = new List<ModInfo>();
+        string[] directories;
 
-        foreach (var directory in Directory.GetDirectories(paths.DataDir).Order())
+        try
+        {
+            directories = Directory.GetDirectories(paths.DataDir);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Data/ 本身讀不到就沒有內建包可列；與單一 Mod 解析失敗一樣採容忍策略。
+            return [];
+        }
+
+        foreach (var directory in directories.Order())
         {
             var info = AboutXml.Parse(directory, IsCore(directory) ? "core" : "expansion");
 
@@ -68,7 +79,19 @@ public sealed class ModCatalog(IRimWorldLocator locator)
             return;
         }
 
-        foreach (var directory in Directory.GetDirectories(root))
+        string[] directories;
+
+        try
+        {
+            directories = Directory.GetDirectories(root);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // 一個來源（本機或 Workshop）讀不到，不應讓整個列表失敗。
+            return;
+        }
+
+        foreach (var directory in directories)
         {
             var info = AboutXml.Parse(directory, source);
 

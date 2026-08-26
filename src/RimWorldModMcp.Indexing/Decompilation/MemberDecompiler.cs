@@ -121,23 +121,62 @@ public sealed class MemberDecompiler : IMemberDecompiler, IDisposable
     }
 
     private DecompilerHandle Handle(string assemblyPath)
-        => _handles.GetOrAdd(assemblyPath, path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path))).Value;
+    {
+        // 快取鍵必須包含檔案的大小與時間戳。這個物件是 singleton、而且
+        // PrefetchEntireImage 已把整個映像讀進記憶體——只用路徑當鍵的話，
+        // 使用者更新遊戲或 Mod 之後仍會從快取住的「舊映像」反編譯出舊程式碼，
+        // 連 force 重建都救不回來。
+        var stamp = Stamp(assemblyPath);
+
+        while (true)
+        {
+            var lazy = _handles.GetOrAdd(
+                assemblyPath,
+                path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path, stamp)));
+
+            var handle = lazy.Value;
+
+            if (handle.Stamp == stamp)
+            {
+                return handle;
+            }
+
+            // 檔案已被更新：丟掉舊映像重載，順便回收記憶體。
+            if (_handles.TryRemove(new KeyValuePair<string, Lazy<DecompilerHandle>>(assemblyPath, lazy)))
+            {
+                lock (handle.Gate)
+                {
+                    handle.Dispose();
+                }
+            }
+        }
+    }
+
+    private static string Stamp(string assemblyPath)
+    {
+        var info = new FileInfo(assemblyPath);
+        return $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
+    }
 
     private sealed class DecompilerHandle : IDisposable
     {
-        private DecompilerHandle(PEFile file, CSharpDecompiler decompiler)
+        private DecompilerHandle(PEFile file, CSharpDecompiler decompiler, string stamp)
         {
             File = file;
             Decompiler = decompiler;
+            Stamp = stamp;
         }
 
         internal PEFile File { get; }
 
         internal CSharpDecompiler Decompiler { get; }
 
+        /// <summary>載入當下的檔案大小與時間戳，用於失效判定。</summary>
+        internal string Stamp { get; }
+
         internal Lock Gate { get; } = new();
 
-        internal static DecompilerHandle Create(string assemblyPath)
+        internal static DecompilerHandle Create(string assemblyPath, string stamp)
         {
             // PrefetchEntireImage 讀完就放掉檔案控制代碼。預設的 memory-map 會鎖住 DLL，
             // 使用者中途更新遊戲時會留下卡住的 handle。
@@ -156,7 +195,7 @@ public sealed class MemberDecompiler : IMemberDecompiler, IDisposable
                 ShowXmlDocumentation = false,
             };
 
-            return new DecompilerHandle(file, new CSharpDecompiler(file, resolver, settings));
+            return new DecompilerHandle(file, new CSharpDecompiler(file, resolver, settings), stamp);
         }
 
         public void Dispose() => File.Dispose();

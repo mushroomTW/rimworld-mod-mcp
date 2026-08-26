@@ -9,7 +9,7 @@ public static class IndexSchema
     /// 結構版本。與資料庫裡的 <c>user_version</c> 不符時整個丟掉重建——
     /// 索引全部是衍生資料，重建不會損失任何使用者內容，所以不需要 migration 機制。
     /// </summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     private const string Ddl = """
         CREATE TABLE IF NOT EXISTS def (
@@ -38,6 +38,9 @@ public static class IndexSchema
         CREATE TABLE IF NOT EXISTS symbol (
           id             INTEGER PRIMARY KEY,
           assembly       TEXT NOT NULL,
+          -- 組件檔案的實際路徑。Mod 組件的 assembly 是 mod:pkg:Name:hash 形式的
+          -- 索引鍵，拼不回檔案位置；反編譯入口需要真實路徑。
+          assembly_path  TEXT,
           fqn            TEXT NOT NULL,
           short_name     TEXT NOT NULL,
           kind           TEXT NOT NULL,
@@ -50,7 +53,9 @@ public static class IndexSchema
           interfaces     TEXT,
           accessibility  TEXT NOT NULL,
           is_static      INTEGER NOT NULL,
-          UNIQUE(assembly, fqn, metadata_token)
+          -- metadata_token 在單一組件內已唯一。把 fqn 也放進鍵反而會讓
+          -- 「同 token 但 fqn 算錯」的兩筆都寫得進去，遮蔽 bug 而非防止重複。
+          UNIQUE(assembly, metadata_token)
         );
 
         CREATE INDEX IF NOT EXISTS idx_symbol_short ON symbol(short_name);

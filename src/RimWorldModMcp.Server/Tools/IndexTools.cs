@@ -26,7 +26,7 @@ public sealed class IndexTools(
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("回報偵測到的 RimWorld 安裝路徑與索引狀態。開始任何工作前先呼叫這個確認環境就緒。")]
-    public RimWorldStatusResult RimWorldStatus()
+    public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
         var status = builder.Status();
@@ -53,13 +53,13 @@ public sealed class IndexTools(
                 Fingerprint = status.Fingerprint,
             },
         };
-    }
+    });
 
     [McpServerTool(Name = "rebuild_index", UseStructuredContent = true)]
     [Description("重建 Def 與 C# 符號索引。讀取遊戲的 IL metadata，數秒內完成。原始碼全文索引會在背景繼續進行。")]
     public RebuildIndexResult RebuildIndex(
         [Description("是否同時在背景建立原始碼全文索引（search_source 需要）。預設 true。")]
-        bool index_source = true)
+        bool index_source = true) => ToolGuard.Run(() =>
     {
         var result = builder.Rebuild();
 
@@ -77,7 +77,7 @@ public sealed class IndexTools(
             ElapsedMilliseconds = result.ElapsedMilliseconds,
             SourceIndexingStarted = index_source,
         };
-    }
+    });
 
     [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true)]
     [Description("以名稱、標籤或描述搜尋已索引的 Def。預設不回傳 XML 內容以節省輸出；需要完整定義請用 read_def。")]
@@ -89,7 +89,7 @@ public sealed class IndexTools(
         [Description("最多回傳幾筆，範圍 1-200。")]
         int limit = 25,
         [Description("是否附上截斷過的 XML 內容。")]
-        bool include_xml = false)
+        bool include_xml = false) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var hits = DefRepository.Search(connection, query, def_type, limit, include_xml);
@@ -101,7 +101,7 @@ public sealed class IndexTools(
             Count = hits.Count,
             LimitReached = hits.Count >= effectiveLimit,
         };
-    }
+    });
 
     [McpServerTool(Name = "read_def", UseStructuredContent = true, ReadOnly = true)]
     [Description("讀取單一 Def 的完整 XML 定義。抽象 Def 請用它的 Name 屬性值查詢。")]
@@ -111,7 +111,7 @@ public sealed class IndexTools(
         [Description("限定 Def 型別。留空表示不限。")]
         string? def_type = null,
         [Description("XML 內容的位元組上限，範圍 1024-262144。")]
-        int max_bytes = 65536)
+        int max_bytes = 65536) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var hits = DefRepository.Read(connection, def_name, def_type, max_bytes);
@@ -121,7 +121,7 @@ public sealed class IndexTools(
             Results = [.. hits.Select(ToSummary)],
             Count = hits.Count,
         };
-    }
+    });
 
     [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
     [Description("查詢 C# 符號的簽章、完整繼承鏈與介面實作，可選擇一併反編譯出原始碼。")]
@@ -133,7 +133,7 @@ public sealed class IndexTools(
         [Description("原始碼節錄的位元組上限，範圍 256-32768。")]
         int max_bytes = 4096,
         [Description("最多回傳幾筆，範圍 1-100。")]
-        int limit = 20)
+        int limit = 20) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var hits = SymbolRepository.Read(connection, name, limit);
@@ -151,9 +151,15 @@ public sealed class IndexTools(
             string? body = null;
             bool? truncated = null;
 
-            if (managed is not null)
+            // 優先用索引裡記錄的實際組件路徑——Mod 組件的 assembly 欄位是
+            // mod:pkg:Name:hash 形式的索引鍵，拼 Managed\<key>.dll 出來的
+            // 根本不是合法路徑。
+            var assemblyPath = hit.AssemblyPath
+                ?? (managed is not null ? Path.Combine(managed, hit.Assembly + ".dll") : null);
+
+            if (assemblyPath is not null && File.Exists(assemblyPath))
             {
-                var source = decompiler.DecompileMember(Path.Combine(managed, hit.Assembly + ".dll"), hit.MetadataToken);
+                var source = decompiler.DecompileMember(assemblyPath, hit.MetadataToken);
 
                 if (source is not null)
                 {
@@ -166,7 +172,7 @@ public sealed class IndexTools(
         }
 
         return new ReadSymbolResult { Results = results, Count = results.Count };
-    }
+    });
 
     [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
     [Description("找出所有繼承自指定型別的類別。用來回答「哪些類別繼承 ThingComp」這類問題。")]
@@ -174,7 +180,7 @@ public sealed class IndexTools(
         [Description("基底型別的完整名稱，例如 Verse.ThingComp。")]
         string base_type,
         [Description("最多回傳幾筆，範圍 1-500。")]
-        int limit = 100)
+        int limit = 100) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var hits = SymbolRepository.Descendants(connection, base_type, limit);
@@ -185,7 +191,7 @@ public sealed class IndexTools(
             Results = [.. hits.Select(ToSummary)],
             Count = hits.Count,
         };
-    }
+    });
 
     [McpServerTool(Name = "search_source", UseStructuredContent = true, ReadOnly = true)]
     [Description("以正規表示式搜尋反編譯後的遊戲原始碼。需要原始碼索引完成；未完成時 source_indexed 會是 false。")]
@@ -195,7 +201,7 @@ public sealed class IndexTools(
         [Description("限定檔案路徑樣式，例如 RimWorld/*.cs。留空表示不限。")]
         string? file_pattern = null,
         [Description("最多回傳幾筆，範圍 1-800。")]
-        int limit = 200)
+        int limit = 200) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var hits = sourceQueries.Search(connection, pattern, file_pattern, limit);
@@ -213,7 +219,7 @@ public sealed class IndexTools(
             LimitReached = hits.Count >= Math.Clamp(limit, 1, 800),
             SourceIndexed = IndexMetaRepository.Get(connection, "source_indexed") == "true",
         };
-    }
+    });
 
     [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true)]
     [Description("找出一個 Def 被引用的位置，包含 Def XML 的交叉引用與 C# 的 DefOf 靜態欄位。")]
@@ -223,7 +229,7 @@ public sealed class IndexTools(
         [Description("限定來源類別：def_xml、game_source 或 mod_source。留空表示不限。")]
         string? source_kind = null,
         [Description("最多回傳幾筆，範圍 1-500。")]
-        int limit = 100)
+        int limit = 100) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var usages = DefReferenceRepository.Find(connection, def_name, source_kind, limit);
@@ -241,7 +247,7 @@ public sealed class IndexTools(
             })],
             Count = usages.Count,
         };
-    }
+    });
 
     private static DefSummary ToSummary(RimWorldModMcp.Indexing.Model.DefHit hit) => new()
     {

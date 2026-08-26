@@ -29,7 +29,7 @@ public sealed class ModScaffolder(WorkspaceRegistry workspaces)
         if (!workspaces.Roots().Any(root => string.Equals(
                 PathGuard.Canonicalize(root),
                 workspace,
-                OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)))
+                Platform.PathText.Comparison)))
         {
             throw new UnauthorizedAccessException("workspace 必須是已登記的工作區根目錄；請先呼叫 configure_workspace。");
         }
@@ -68,7 +68,7 @@ public sealed class ModScaffolder(WorkspaceRegistry workspaces)
             {
                 Directory.Delete(modPath, recursive: true);
             }
-            catch (IOException)
+            catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
             {
                 // 清理失敗不應遮蔽原本的錯誤。
             }
@@ -79,13 +79,35 @@ public sealed class ModScaffolder(WorkspaceRegistry workspaces)
         return modPath;
     }
 
+    /// <summary>Windows 的保留裝置名，任何副檔名組合都不能當目錄名。</summary>
+    private static readonly string[] ReservedNames =
+    [
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+
     private static string SanitiseFolderName(string name)
     {
-        var cleaned = new string([.. name.Where(c => !Path.GetInvalidFileNameChars().Contains(c))]).Trim();
+        var cleaned = new string([.. name.Where(c => !Path.GetInvalidFileNameChars().Contains(c))])
+            .Trim()
+            // Windows 不接受結尾是句點或空白的目錄名（建得出來但很多 API 打不開）。
+            .TrimEnd('.', ' ');
 
-        return cleaned.Length > 0
-            ? cleaned
-            : throw new ArgumentException("name 不能是空的或只有非法字元。", nameof(name));
+        if (cleaned.Length == 0)
+        {
+            throw new ArgumentException("name 不能是空的或只有非法字元。", nameof(name));
+        }
+
+        // "." 與 ".." 是路徑導航元件；目前雖然會被「目標已存在」擋下，
+        // 但那是巧合而不是設計——這裡要靠自己擋。
+        if (cleaned is "." or ".." ||
+            ReservedNames.Contains(Path.GetFileNameWithoutExtension(cleaned), StringComparer.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"name 不能是保留名稱：{cleaned}", nameof(name));
+        }
+
+        return cleaned;
     }
 
     private static string AboutXml(string name, string packageId) => $"""

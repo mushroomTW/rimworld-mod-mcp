@@ -101,7 +101,7 @@ public sealed class CriticalSectionLockTests : IDisposable
 
         public bool IsAlive(int processId) => Alive;
 
-        public bool Terminate(int processId) => true;
+        public bool Terminate(int processId, DateTime? expectedStartUtc = null) => true;
 
         public DateTime? StartTimeUtc(int processId) => StartTime;
     }

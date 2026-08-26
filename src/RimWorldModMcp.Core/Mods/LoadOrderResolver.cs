@@ -11,7 +11,7 @@ public sealed record LoadOrder(
 ///
 /// <para>
 /// 硬相依（<c>modDependencies</c>）缺少時列進 <see cref="LoadOrder.Missing"/>，
-/// 由呼叫端決定要不要中止；軟排序（<c>loadAfter</c>）缺少時只記錄不影響結果。
+/// 由呼叫端決定要不要中止；軟排序（<c>loadAfter</c>、<c>loadBefore</c>）缺少時只記錄不影響結果。
 /// <c>incompatibleWith</c> 雙方都在選集內則直接拒絕。
 /// </para>
 /// </summary>
@@ -92,6 +92,34 @@ public sealed class LoadOrderResolver
         var ordered = new List<string>();
         var visited = new Dictionary<string, bool>(StringComparer.Ordinal);
 
+        // loadBefore 是 loadAfter 的反向邊：「X loadBefore Y」等價於「Y loadAfter X」。
+        // 先反轉成 after-邊，排序時走同一條路徑——否則宣告了 loadBefore 的
+        // 相伴 Mod 會被排錯順序，而錯誤只會在遊戲內以難懂的形式浮現。
+        var afterEdgesFromBefore = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        foreach (var id in wanted)
+        {
+            if (!index.TryGetValue(id, out var mod))
+            {
+                continue;
+            }
+
+            foreach (var before in mod.LoadBefore)
+            {
+                if (!wanted.Contains(before))
+                {
+                    continue;
+                }
+
+                if (!afterEdgesFromBefore.TryGetValue(before, out var list))
+                {
+                    afterEdgesFromBefore[before] = list = [];
+                }
+
+                list.Add(id);
+            }
+        }
+
         // Core 一律排第一，即使它不在 available 裡也要列出來——
         // RimWorld 沒有 Core 就無法啟動。
         ordered.Add(CorePackageId);
@@ -106,10 +134,12 @@ public sealed class LoadOrderResolver
 
         void Visit(string id)
         {
-            if (visited.TryGetValue(id, out var completed))
+            if (visited.ContainsKey(id))
             {
-                // 進行中（false）代表遇到循環。硬相依的循環在展開階段就會爆，
-                // 這裡只可能是 loadAfter 造成的軟循環，忽略即可。
+                // 已完成（true）：不必重走。進行中（false）：遇到循環——
+                // 注意展開階段用 visited-set 靜默吸收循環、不會拋出，所以
+                // 硬相依的循環也會走到這裡。循環內的順序約束本來就無法全部
+                // 滿足，這裡以確定性的 DFS 順序（外層照字母序迭代）收斂。
                 return;
             }
 
@@ -135,6 +165,15 @@ public sealed class LoadOrderResolver
                 {
                     // 軟排序目標不在選集內：記錄下來讓使用者知道，但不視為錯誤。
                     skippedLoadAfter.Add(after);
+                }
+            }
+
+            // 別的 Mod 宣告了 loadBefore 我們：那些 Mod 必須排在前面。
+            if (afterEdgesFromBefore.TryGetValue(id, out var mustComeFirst))
+            {
+                foreach (var earlier in mustComeFirst)
+                {
+                    Visit(earlier);
                 }
             }
 

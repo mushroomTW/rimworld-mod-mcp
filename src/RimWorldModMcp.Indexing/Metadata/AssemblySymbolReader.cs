@@ -109,13 +109,17 @@ public sealed class AssemblySymbolReader
         ImmutableArray<string> typeParameters,
         List<SymbolRecord> symbols)
     {
+        // 一次建好存取子集合。逐一線性掃描的話，每個方法都要重掃整個型別的
+        // 屬性與事件，Pawn、Map 這種巨型類別會是 O(方法數 × 成員數)。
+        var accessors = AccessorMethods(reader, type);
+
         foreach (var handle in type.GetMethods())
         {
             var method = reader.GetMethodDefinition(handle);
             var name = reader.GetString(method.Name);
 
             // 屬性與事件的存取子會另外以 property/event 的形式出現，不重複列。
-            if (name.StartsWith('<') || IsAccessor(reader, type, handle))
+            if (name.StartsWith('<') || accessors.Contains(handle))
             {
                 continue;
             }
@@ -199,6 +203,12 @@ public sealed class AssemblySymbolReader
                 parts.Add("set;");
             }
 
+            // 屬性的可見度取兩個存取子中較開放的一個——只看 getter 的話，
+            // private get / public set 這種組合會被誤報成 private。
+            var accessibility = MostVisible(
+                getter is null ? null : MethodAccessibility(getter.Value.Attributes),
+                setter is null ? null : MethodAccessibility(setter.Value.Attributes));
+
             symbols.Add(new SymbolRecord
             {
                 Assembly = assemblyName,
@@ -208,7 +218,7 @@ public sealed class AssemblySymbolReader
                 ParentFqn = typeFqn,
                 MetadataToken = MetadataTokens.GetToken(handle),
                 Signature = $"{returnType} {name} {{ {string.Join(' ', parts)} }}",
-                Accessibility = representative is null ? "private" : MethodAccessibility(representative.Value.Attributes),
+                Accessibility = accessibility ?? "private",
                 IsStatic = representative?.Attributes.HasFlag(MethodAttributes.Static) ?? false,
             });
         }
@@ -261,6 +271,14 @@ public sealed class AssemblySymbolReader
     /// 由近到遠的基底型別鏈。同組件內的基底可以一路往上走，
     /// 遇到外部組件的型別參考時記下名稱就停——跨組件解析需要載入其他 DLL，
     /// 成本與收益不成比例。
+    ///
+    /// <para>
+    /// 泛型實例化的基底（<c>class Foo : Comp&lt;Bar&gt;</c>）的 handle 是
+    /// TypeSpecification 而不是 TypeDefinition——不解開它的話，鏈在第一層就斷，
+    /// RimWorld 大量以泛型為基底的家族（Dialog_*、CompProperties_* 等）
+    /// 在 find_descendants 全部查不到。鏈上存的是去除引數的定義名稱，
+    /// 讓 <c>Descendants</c> 的精確比對不受實例化引數影響。
+    /// </para>
     /// </summary>
     private static List<string> BaseChain(MetadataReader reader, TypeDefinition type, GenericContext context)
     {
@@ -271,24 +289,89 @@ public sealed class AssemblySymbolReader
         while (guard++ < 64)
         {
             var baseHandle = current.BaseType;
-            var name = MetadataNames.Resolve(reader, baseHandle, context);
+
+            if (baseHandle.IsNil)
+            {
+                break;
+            }
+
+            var nextHandle = baseHandle;
+
+            if (baseHandle.Kind == HandleKind.TypeSpecification)
+            {
+                var definition = GenericDefinitionHandle(reader, (TypeSpecificationHandle)baseHandle);
+
+                if (!definition.IsNil)
+                {
+                    nextHandle = definition;
+                }
+            }
+
+            var name = MetadataNames.Resolve(reader, nextHandle, context);
 
             if (name is null)
             {
                 break;
             }
 
-            chain.Add(name);
+            chain.Add(StripGenericSuffix(name));
 
-            if (baseHandle.Kind != HandleKind.TypeDefinition)
+            if (nextHandle.Kind != HandleKind.TypeDefinition)
             {
                 break;
             }
 
-            current = reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle);
+            current = reader.GetTypeDefinition((TypeDefinitionHandle)nextHandle);
         }
 
         return chain;
+    }
+
+    /// <summary>
+    /// 從 GENERICINST 簽章取出未實例化的型別定義／參考 handle。
+    /// 不是泛型實例（或格式不符預期）時回傳 nil。
+    /// </summary>
+    private static EntityHandle GenericDefinitionHandle(MetadataReader reader, TypeSpecificationHandle handle)
+    {
+        try
+        {
+            var blob = reader.GetBlobReader(reader.GetTypeSpecification(handle).Signature);
+
+            if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance)
+            {
+                return default;
+            }
+
+            // GENERICINST 之後是 CLASS/VALUETYPE 標記（讀出來是 TypeHandle 偽碼），
+            // 接著才是 TypeDefOrRef coded token。
+            if (blob.ReadSignatureTypeCode() != SignatureTypeCode.TypeHandle)
+            {
+                return default;
+            }
+
+            return blob.ReadTypeHandle();
+        }
+        catch (BadImageFormatException)
+        {
+            return default;
+        }
+    }
+
+    /// <summary>去掉 arity 標記（<c>`1</c>）與泛型引數列表（<c>&lt;...&gt;</c>）。</summary>
+    private static string StripGenericSuffix(string name)
+    {
+        var backtick = name.IndexOf('`');
+        var angle = name.IndexOf('<');
+
+        var cut = (backtick, angle) switch
+        {
+            (< 0, < 0) => -1,
+            (< 0, _) => angle,
+            (_, < 0) => backtick,
+            _ => Math.Min(backtick, angle),
+        };
+
+        return cut < 0 ? name : name[..cut];
     }
 
     private static List<string> Interfaces(MetadataReader reader, TypeDefinition type, GenericContext context)
@@ -369,46 +452,96 @@ public sealed class AssemblySymbolReader
         return inherits.Count > 0 ? $"{signature} : {string.Join(", ", inherits)}" : signature;
     }
 
-    private static bool IsAccessor(MetadataReader reader, TypeDefinition type, MethodDefinitionHandle handle)
+    private static HashSet<MethodDefinitionHandle> AccessorMethods(MetadataReader reader, TypeDefinition type)
     {
+        var set = new HashSet<MethodDefinitionHandle>();
+
         foreach (var propertyHandle in type.GetProperties())
         {
             var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-            if (accessors.Getter == handle || accessors.Setter == handle)
+
+            if (!accessors.Getter.IsNil)
             {
-                return true;
+                set.Add(accessors.Getter);
+            }
+
+            if (!accessors.Setter.IsNil)
+            {
+                set.Add(accessors.Setter);
             }
         }
 
         foreach (var eventHandle in type.GetEvents())
         {
             var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
-            if (accessors.Adder == handle || accessors.Remover == handle || accessors.Raiser == handle)
+
+            if (!accessors.Adder.IsNil)
             {
-                return true;
+                set.Add(accessors.Adder);
+            }
+
+            if (!accessors.Remover.IsNil)
+            {
+                set.Add(accessors.Remover);
+            }
+
+            if (!accessors.Raiser.IsNil)
+            {
+                set.Add(accessors.Raiser);
             }
         }
 
-        return false;
+        return set;
     }
 
     private static string ParameterList(MetadataReader reader, MethodDefinition method, MethodSignature<string> signature)
     {
-        var names = new List<string>();
+        var count = signature.ParameterTypes.Length;
+        var names = new string?[count];
+        var refKinds = new string?[count];
 
         foreach (var handle in method.GetParameters())
         {
             var parameter = reader.GetParameter(handle);
 
+            // Param 表的列是可選且可稀疏的。必須用 SequenceNumber 定位——
+            // 順序 Add 的話，任何一個參數缺列就會讓後面所有名字整體錯位。
             // SequenceNumber 0 是回傳值，不是真正的參數。
-            if (parameter.SequenceNumber > 0)
+            var index = parameter.SequenceNumber - 1;
+
+            if (index < 0 || index >= count)
             {
-                names.Add(reader.GetString(parameter.Name));
+                continue;
+            }
+
+            names[index] = reader.GetString(parameter.Name);
+
+            // byref 參數的 out/in 資訊在參數屬性上，簽章本身只知道 byref。
+            // 對 Harmony patch 作者來說 out 與 ref 的差異是關鍵——prefix 要照著寫。
+            var attributes = parameter.Attributes;
+
+            if (attributes.HasFlag(ParameterAttributes.Out) && !attributes.HasFlag(ParameterAttributes.In))
+            {
+                refKinds[index] = "out";
+            }
+            else if (attributes.HasFlag(ParameterAttributes.In) && !attributes.HasFlag(ParameterAttributes.Out))
+            {
+                refKinds[index] = "in";
             }
         }
 
         return string.Join(", ", signature.ParameterTypes.Select((type, index) =>
-            index < names.Count && !string.IsNullOrEmpty(names[index]) ? $"{type} {names[index]}" : type));
+        {
+            var display = type;
+
+            if (display.StartsWith("ref ", StringComparison.Ordinal) && refKinds[index] is { } kind)
+            {
+                display = kind + display[3..];
+            }
+
+            var name = names[index];
+            return string.IsNullOrEmpty(name) ? display : $"{display} {name}";
+        }));
     }
 
     private static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
@@ -442,6 +575,32 @@ public sealed class AssemblySymbolReader
         var angle = name.IndexOf('<');
         return angle >= 0 ? name[..angle] : name;
     }
+
+    /// <summary>回傳兩個可見度字串中較開放的一個。</summary>
+    private static string? MostVisible(string? left, string? right)
+    {
+        if (left is null)
+        {
+            return right;
+        }
+
+        if (right is null)
+        {
+            return left;
+        }
+
+        return VisibilityRank(left) >= VisibilityRank(right) ? left : right;
+    }
+
+    private static int VisibilityRank(string accessibility) => accessibility switch
+    {
+        "public" => 5,
+        "protected internal" => 4,
+        "internal" => 3,
+        "protected" => 2,
+        "private protected" => 1,
+        _ => 0,
+    };
 
     private static string TypeAccessibility(TypeAttributes attributes) => (attributes & TypeAttributes.VisibilityMask) switch
     {

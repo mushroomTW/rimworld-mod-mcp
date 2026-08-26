@@ -16,7 +16,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     [Description("列出使用者安裝的所有 Mod（本機與 Steam Workshop），含相依關係。")]
     public ListModsResult ListInstalledMods(
         [Description("是否一併列出 Core 與已安裝的 DLC。")]
-        bool include_builtin = false)
+        bool include_builtin = false) => ToolGuard.Run(() =>
     {
         var mods = catalog.Installed().ToList();
 
@@ -30,7 +30,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
             Results = [.. mods.Select(ToSummary)],
             Count = mods.Count,
         };
-    }
+    });
 
     [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
     [Description("檢視一個已安裝 Mod 的組件，必要時按需反編譯並建立索引。之後就能用 search_installed_mod_source 搜尋它的原始碼。")]
@@ -38,7 +38,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         [Description("Mod 的 packageId。")]
         string package_id,
         [Description("是否忽略快取強制重新索引。")]
-        bool force = false)
+        bool force = false) => ToolGuard.Run(() =>
     {
         var mod = catalog.Find(package_id);
         var assemblies = inspection.Inspect(mod.PackageId, mod.Path, force);
@@ -56,7 +56,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
             })],
             AssemblyCount = assemblies.Count,
         };
-    }
+    });
 
     [McpServerTool(Name = "search_installed_mod_source", UseStructuredContent = true)]
     [Description("以正規表示式搜尋一個已安裝 Mod 的反編譯原始碼。尚未索引時會先自動索引。")]
@@ -66,10 +66,10 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         [Description("正規表示式（.NET 語法），一律不分大小寫。")]
         string pattern,
         [Description("最多回傳幾筆，範圍 1-800。")]
-        int limit = 100)
+        int limit = 100) => ToolGuard.Run(() =>
     {
         var mod = catalog.Find(package_id);
-        var hits = inspection.SearchSource(mod.PackageId, mod.Path, pattern, limit);
+        var (hits, indexed) = inspection.SearchSource(mod.PackageId, mod.Path, pattern, limit);
 
         return new SearchSourceResult
         {
@@ -82,9 +82,9 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
             })],
             Count = hits.Count,
             LimitReached = hits.Count >= Math.Clamp(limit, 1, 800),
-            SourceIndexed = true,
+            SourceIndexed = indexed,
         };
-    }
+    });
 
     private static ModSummary ToSummary(ModInfo mod) => new()
     {
