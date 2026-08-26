@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      必須是 net472：RimWorld 跑在 Unity Mono 上，載入不了其他目標框架的組件。
+      MCP server 本身是 net10.0，兩者在同一個 solution 裡並存。
+    -->
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AssemblyName>RimWorldModMcp.Bridge</AssemblyName>
+    <RootNamespace>RimWorldModMcp.Bridge</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RimWorldManagedDir)' == ''">
+    <RimWorldManagedDir>$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
+  </PropertyGroup>
+
+  <!--
+    有本機安裝時參考真正的遊戲組件，那是實際部署要用的版本。
+  -->
+  <ItemGroup Condition="'$(RimWorldManagedDir)' != ''">
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(RimWorldManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!--
+    沒有本機安裝時（例如 CI）退回公開的參考組件，讓 Bridge 仍然能被編譯檢查。
+    參考組件只有型別簽章沒有實作，不能用於實際執行，所以標成 PrivateAssets。
+  -->
+  <ItemGroup Condition="'$(RimWorldManagedDir)' == ''">
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.*" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.3.6" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

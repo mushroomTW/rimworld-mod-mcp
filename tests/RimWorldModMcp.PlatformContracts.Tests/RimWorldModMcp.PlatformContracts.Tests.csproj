@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RimWorldModMcp.Core\RimWorldModMcp.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    以原始碼層級連結 Bridge 的 payload 產生器，而不是參考它的組件。
+    Bridge 是 net472 且會被部署進 RimWorld 的 Assemblies 目錄，
+    多一顆 DLL 就多一條與其他 Mod 組件衝突的路徑；連結原始碼則零額外相依。
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\bridge\Source\DiagnosticPayload.cs" Link="DiagnosticPayload.cs" />
+  </ItemGroup>
+
+</Project>

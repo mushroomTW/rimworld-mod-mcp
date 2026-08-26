@@ -1,0 +1,164 @@
+using System.Collections.Concurrent;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using ICSharpCode.Decompiler;
+using ICSharpCode.Decompiler.CSharp;
+using ICSharpCode.Decompiler.Metadata;
+using ICSharpCode.Decompiler.TypeSystem;
+
+namespace RimWorldModMcp.Indexing.Decompilation;
+
+/// <summary>依需求把單一成員或整個組件反編譯成 C# 原始碼。</summary>
+public interface IMemberDecompiler
+{
+    /// <summary>反編譯單一成員（型別、方法、屬性、欄位）。</summary>
+    string? DecompileMember(string assemblyPath, int metadataToken);
+
+    /// <summary>反編譯整個組件，逐檔回傳。</summary>
+    IEnumerable<(string Path, string Text)> DecompileAll(string assemblyPath, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// 以 ICSharpCode.Decompiler 實作的反編譯器。
+///
+/// <para>
+/// Python 版必須為每個組件另外開一個 <c>ilspycmd</c> 子行程，解析它的 stdout／stderr，
+/// 還要靠「有沒有產出 .cs」來判斷成敗。這裡直接在行程內呼叫函式庫，
+/// 錯誤是真的例外，而且可以精確到「只反編譯這一個方法」。
+/// </para>
+/// </summary>
+public sealed class MemberDecompiler : IMemberDecompiler, IDisposable
+{
+    // CSharpDecompiler 不是 thread-safe，每個組件各自持有一個實例並在使用時上鎖。
+    private readonly ConcurrentDictionary<string, Lazy<DecompilerHandle>> _handles = new(StringComparer.OrdinalIgnoreCase);
+
+    public string? DecompileMember(string assemblyPath, int metadataToken)
+    {
+        var handle = MetadataTokens.EntityHandle(metadataToken);
+
+        if (handle.IsNil)
+        {
+            return null;
+        }
+
+        var entry = Handle(assemblyPath);
+
+        lock (entry.Gate)
+        {
+            try
+            {
+                return handle.Kind switch
+                {
+                    HandleKind.TypeDefinition
+                        or HandleKind.MethodDefinition
+                        or HandleKind.PropertyDefinition
+                        or HandleKind.FieldDefinition
+                        or HandleKind.EventDefinition => entry.Decompiler.DecompileAsString(handle),
+                    _ => null,
+                };
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                // 個別成員反編譯失敗（泛型特化、混淆過的 IL 等）不應該讓整個查詢失敗。
+                return null;
+            }
+        }
+    }
+
+    public IEnumerable<(string Path, string Text)> DecompileAll(string assemblyPath, CancellationToken cancellationToken = default)
+    {
+        var entry = Handle(assemblyPath);
+        var reader = entry.File.Metadata;
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var type = reader.GetTypeDefinition(typeHandle);
+            var name = reader.GetString(type.Name);
+
+            // 巢狀型別會跟著外層一起輸出；編譯器產生的型別沒有閱讀價值。
+            if (type.IsNested || name.StartsWith('<') || name == "<Module>")
+            {
+                continue;
+            }
+
+            string text;
+
+            lock (entry.Gate)
+            {
+                try
+                {
+                    text = entry.Decompiler.DecompileTypeAsString(
+                        new FullTypeName(Metadata.MetadataNames.FullName(reader, type)));
+                }
+                catch (Exception e) when (e is not OutOfMemoryException)
+                {
+                    // ILSpy 對個別型別失敗是常態，跳過就好——這對應 Python 版
+                    // 「returncode 非 0 但有產出 .cs 就算成功」的寬容規則。
+                    continue;
+                }
+            }
+
+            var ns = reader.GetString(type.Namespace);
+            var path = string.IsNullOrEmpty(ns) ? $"{name}.cs" : $"{ns.Replace('.', '/')}/{name}.cs";
+
+            yield return (path, text);
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var entry in _handles.Values)
+        {
+            if (entry.IsValueCreated)
+            {
+                entry.Value.Dispose();
+            }
+        }
+
+        _handles.Clear();
+    }
+
+    private DecompilerHandle Handle(string assemblyPath)
+        => _handles.GetOrAdd(assemblyPath, path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path))).Value;
+
+    private sealed class DecompilerHandle : IDisposable
+    {
+        private DecompilerHandle(PEFile file, CSharpDecompiler decompiler)
+        {
+            File = file;
+            Decompiler = decompiler;
+        }
+
+        internal PEFile File { get; }
+
+        internal CSharpDecompiler Decompiler { get; }
+
+        internal Lock Gate { get; } = new();
+
+        internal static DecompilerHandle Create(string assemblyPath)
+        {
+            // PrefetchEntireImage 讀完就放掉檔案控制代碼。預設的 memory-map 會鎖住 DLL，
+            // 使用者中途更新遊戲時會留下卡住的 handle。
+            var file = new PEFile(
+                assemblyPath,
+                System.IO.File.OpenRead(assemblyPath),
+                System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage);
+
+            // resolver 必須指向 Managed 目錄，否則跨組件的型別全都解析成 ??。
+            var resolver = new UniversalAssemblyResolver(assemblyPath, throwOnError: false, file.DetectTargetFrameworkId());
+
+            var settings = new DecompilerSettings
+            {
+                ThrowOnAssemblyResolveErrors = false,
+                RemoveDeadCode = false,
+                ShowXmlDocumentation = false,
+            };
+
+            return new DecompilerHandle(file, new CSharpDecompiler(file, resolver, settings));
+        }
+
+        public void Dispose() => File.Dispose();
+    }
+}

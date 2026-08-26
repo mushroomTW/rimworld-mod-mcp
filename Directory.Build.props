@@ -1,0 +1,15 @@
+<Project>
+
+  <!--
+    整個 repo 共用的建置設定。
+    注意：bridge/Source 的 net472 專案會覆寫 Nullable 與 ImplicitUsings，
+    因此這裡刻意不設 TreatWarningsAsErrors，避免 Unity Mono 目標框架的
+    既有警告讓 Bridge 建置失敗。
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

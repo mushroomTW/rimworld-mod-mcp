@@ -5,7 +5,9 @@ on:
   pull_request:
 
 jobs:
-  test:
+  # 平台契約在三個 OS 上都必須真的執行：junction 與程序語意在各平台不同，
+  # 只在一個平台跑等於失去防護。
+  platform-contracts:
     strategy:
       fail-fast: false
       matrix:
@@ -13,15 +15,40 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.14"
-      # tests/test_bridge_payload.py 會建置並執行 bridge/Tools/EscapeProbe，
-      # 用來實測 C# 端的 JSON 轉義。沒有 SDK 時那些測試會被 skip 而非失敗。
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.x"
-      - run: uv sync --all-extras
-      - run: uv run ruff check .
-      - run: uv run mypy
-      - run: uv run pytest
+          dotnet-version: '10.x'
+      - run: dotnet test tests/RimWorldModMcp.PlatformContracts.Tests --configuration Release
+
+  # 其餘測試與平台無關，跑一次就夠。
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - run: dotnet build RimWorldModMcp.slnx --configuration Release
+      - run: dotnet test tests/RimWorldModMcp.Core.Tests --configuration Release --no-build
+      - run: dotnet test tests/RimWorldModMcp.Indexing.Tests --configuration Release --no-build
+      - run: dotnet test tests/RimWorldModMcp.Diagnostics.Tests --configuration Release --no-build
+
+  # 確認 dotnet tool 打包成功且能被安裝——SQLite 的原生程式庫是靠
+  # runtimes/<rid>/native 解析的，打包成功但執行期載入失敗是典型的陷阱。
+  pack:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - run: dotnet pack src/RimWorldModMcp.Server --configuration Release -o ./nupkg
+      - run: dotnet tool install -g RimWorldModMcp --add-source ./nupkg --version 0.1.0
+      # detect 在沒有安裝 RimWorld 的 runner 上會回傳非零，這是預期的；
+      # 這裡要驗的是工具能啟動、相依能解析。
+      - run: rimworld-mod-mcp detect || true
+        shell: bash

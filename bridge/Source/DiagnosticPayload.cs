@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace RimWorldMcp.Bridge
+namespace RimWorldModMcp.Bridge
 {
     /// <summary>
     /// 產生送往 Python daemon 的 NDJSON 行。

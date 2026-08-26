@@ -1,0 +1,9 @@
+{
+  "_comment": "直接指向本機建置產物，不需要 dotnet tool install -g。先執行 dotnet build -c Release，再把下面的路徑換成這個 repo 在你機器上的實際位置。",
+  "mcpServers": {
+    "rimworld": {
+      "command": "C:\\path\\to\\rimworld-mod-mcp\\src\\RimWorldModMcp.Server\\bin\\Release\\net10.0\\RimWorldModMcp.Server.exe",
+      "args": ["stdio"]
+    }
+  }
+}
