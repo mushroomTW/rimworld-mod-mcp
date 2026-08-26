@@ -158,4 +158,57 @@ public sealed class DirectoryLinkContracts : IDisposable
         Assert.True(File.Exists(Path.Combine(intruder, "About.xml")));
     }
 
+    /// <summary>
+    /// 契約：連結目標位於「會被重新導向的路徑」底下時，仍必須被認出是自家連結。
+    ///
+    /// <para>
+    /// 這條是端對端測試抓到的真實迴歸。<c>ResolveLinkTarget(returnFinalTarget: true)</c>
+    /// 會穿透所有層級的重新導向（企業資料夾重新導向、OneDrive 已知資料夾移動、
+    /// 打包應用程式的容器虛擬化），使得完全解析後的路徑與當初寫入 reparse point
+    /// 的字串完全不同。當時只解析比對的其中一邊，導致自家連結被誤判成別人的，
+    /// 清理時被跳過，在使用者的 Mods 目錄留下孤兒連結。
+    /// </para>
+    /// <para>
+    /// 這裡用「連結指向另一個連結」來模擬同樣的不對稱：中間層一旦被完全解析，
+    /// 只解析單邊的比對就會失敗。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void OwnedLinkIsRecognisedWhenTheTargetIsItselfRedirected()
+    {
+        var real = Path.Combine(_root, "RealLocation");
+        Directory.CreateDirectory(real);
+        File.WriteAllText(Path.Combine(real, "About.xml"), "<ModMetaData />");
+
+        // 中間層：一個指向真實位置的連結，扮演被重新導向的路徑。
+        var redirected = Path.Combine(_root, DirectoryLink.LinkPrefix + "Redirected");
+        _links.EnsureLink(redirected, real);
+
+        // 我們建立的連結指向那個「被重新導向的路徑」，而不是最終位置。
+        var link = LinkPath("ViaRedirect");
+        _links.EnsureLink(link, redirected);
+
+        Assert.True(_links.IsOwnedLink(link, redirected), "應認出指向重新導向路徑的自家連結");
+
+        _links.RemoveLink(link, redirected);
+
+        Assert.False(Directory.Exists(link));
+        // 中間層與真實內容都必須完好。
+        Assert.True(Directory.Exists(redirected));
+        Assert.True(File.Exists(Path.Combine(real, "About.xml")));
+    }
+
+    /// <summary>契約：移除失敗要回報 false，不能靜默當成成功。</summary>
+    [Fact]
+    public void RemoveLinkReportsWhetherTheLinkIsGone()
+    {
+        var link = LinkPath("Reported");
+        _links.EnsureLink(link, _target);
+
+        Assert.True(_links.RemoveLink(link, _target));
+        Assert.False(Directory.Exists(link));
+
+        // 已經不存在的連結再移除一次也算成功。
+        Assert.True(_links.RemoveLink(link, _target));
+    }
 }

@@ -171,6 +171,7 @@ dotnet run --project src/RimWorldModMcp.Server -- detect      # 顯示偵測到�
 dotnet run --project src/RimWorldModMcp.Server -- index       # 建一次索引並回報統計
 dotnet run --project src/RimWorldModMcp.Server -- symbols     # 只跑符號讀取
 dotnet run --project src/RimWorldModMcp.Server -- decompile X # 反編譯符號 X
+dotnet run --project src/RimWorldModMcp.Server -- linkcheck P  # 診斷測試連結為何未被清理
 ```
 
 ## 授權

@@ -25,7 +25,8 @@ public interface IDirectoryLink
     /// 移除本工具建立的連結。不是本工具建立的、或指向別處的，一律不動作。
     /// <b>只移除連結本身，永遠不會碰到目標目錄的內容。</b>
     /// </summary>
-    void RemoveLink(string linkPath, string targetPath);
+    /// <returns>連結是否已不存在（本來就不是自家連結時視為成功）。</returns>
+    bool RemoveLink(string linkPath, string targetPath);
 }
 
 /// <inheritdoc cref="IDirectoryLink"/>
@@ -92,22 +93,33 @@ public sealed class DirectoryLink : IDirectoryLink
         }
 
         // 第三重：解析後必須確實指向預期目標。
+        //
+        // 這裡要兩邊用同樣的方式解析才能比對。returnFinalTarget: true 會穿透
+        // 所有層級的重新導向——企業的資料夾重新導向、OneDrive 已知資料夾移動、
+        // 打包應用程式的容器虛擬化都會讓「完全解析後的路徑」與當初寫入的路徑
+        // 長得完全不同。只解析其中一邊會讓自家連結被誤判成別人的，
+        // 於是清理時被跳過，在使用者的 Mods 目錄留下孤兒連結。
         try
         {
-            var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
-            if (resolved is null)
+            var expected = Normalise(targetPath);
+
+            // 先比對「直接目標」，也就是當初寫進 reparse point 的原始字串。
+            var immediate = info.ResolveLinkTarget(returnFinalTarget: false);
+
+            if (immediate is not null && PathsEqual(Normalise(immediate.FullName), expected))
+            {
+                return true;
+            }
+
+            // 再比對「完全解析後」的形式，兩邊都解析，讓重新導向在雙方同時展開。
+            var actualFinal = info.ResolveLinkTarget(returnFinalTarget: true);
+
+            if (actualFinal is null)
             {
                 return false;
             }
 
-            var actual = Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved.FullName));
-            var expected = Path.TrimEndingDirectorySeparator(Path.GetFullPath(targetPath));
-
-            var comparison = OperatingSystem.IsLinux()
-                ? StringComparison.Ordinal
-                : StringComparison.OrdinalIgnoreCase;
-
-            return string.Equals(actual, expected, comparison);
+            return PathsEqual(Normalise(actualFinal.FullName), Normalise(FinalTargetOf(targetPath)));
         }
         catch (IOException)
         {
@@ -116,11 +128,43 @@ public sealed class DirectoryLink : IDirectoryLink
         }
     }
 
-    public void RemoveLink(string linkPath, string targetPath)
+    /// <summary>把預期目標本身也完全解析一次，讓兩邊站在同一個基準上比對。</summary>
+    private static string FinalTargetOf(string path)
+    {
+        try
+        {
+            var info = new DirectoryInfo(path);
+
+            if (info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                return info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? path;
+            }
+
+            // 目標本身不是連結時，仍可能位於被重新導向的路徑底下。
+            // 用實際存在的父目錄回推真實位置。
+            return info.Exists ? info.FullName : path;
+        }
+        catch (IOException)
+        {
+            return path;
+        }
+    }
+
+    private static string Normalise(string path)
+        => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    private static bool PathsEqual(string left, string right)
+        => string.Equals(
+            left,
+            right,
+            OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+
+    public bool RemoveLink(string linkPath, string targetPath)
     {
         if (!IsOwnedLink(linkPath, targetPath))
         {
-            return;
+            // 不是自家連結就不該碰它，這不算失敗。
+            return true;
         }
 
         try
@@ -129,13 +173,13 @@ public sealed class DirectoryLink : IDirectoryLink
             // Directory.Delete(path, recursive: true) 會走進 junction 把「目標目錄」的內容刪光，
             // 那等於毀掉使用者的 Mod 原始碼。非遞迴版只移除 reparse point 本身。
             Directory.Delete(linkPath);
+            return true;
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            // 清理是盡力而為，失敗不應讓整個停止流程中斷。
-        }
-        catch (UnauthorizedAccessException)
-        {
+            // 移除失敗最常見的原因是遊戲仍在執行、透過這個連結載入著組件。
+            // 不再靜默吞掉——呼叫端要能把殘留回報給使用者。
+            return false;
         }
     }
 }

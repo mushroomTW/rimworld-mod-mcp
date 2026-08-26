@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TestSessionStore>();
         services.AddSingleton<DaemonRecordStore>();
         services.AddSingleton<DaemonBootstrapper>();
+        services.AddSingleton<BridgeBuilder>();
         services.AddSingleton<DaemonListener>();
         services.AddSingleton<TestCycleService>();
 

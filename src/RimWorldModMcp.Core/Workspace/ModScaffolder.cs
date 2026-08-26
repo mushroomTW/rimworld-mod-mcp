@@ -43,19 +43,37 @@ public sealed class ModScaffolder(WorkspaceRegistry workspaces)
 
         Directory.CreateDirectory(modPath);
 
-        foreach (var folder in Folders)
+        try
         {
-            Directory.CreateDirectory(Path.Combine(modPath, folder));
+            foreach (var folder in Folders)
+            {
+                Directory.CreateDirectory(Path.Combine(modPath, folder));
+            }
+
+            File.WriteAllText(Path.Combine(modPath, "About", "About.xml"), AboutXml(name, normalisedId), new UTF8Encoding(false));
+
+            if (withCode)
+            {
+                File.WriteAllText(
+                    Path.Combine(modPath, "Source", normalisedId + ".csproj"),
+                    CsProj(),
+                    new UTF8Encoding(false));
+            }
         }
-
-        File.WriteAllText(Path.Combine(modPath, "About", "About.xml"), AboutXml(name, normalisedId), new UTF8Encoding(false));
-
-        if (withCode)
+        catch
         {
-            File.WriteAllText(
-                Path.Combine(modPath, "Source", normalisedId + ".csproj"),
-                CsProj(),
-                new UTF8Encoding(false));
+            // 建到一半失敗時要把殘骸清掉。留著半成品目錄的話，
+            // 使用者修正問題後重試會撞上「目標已存在」而卡死。
+            try
+            {
+                Directory.Delete(modPath, recursive: true);
+            }
+            catch (IOException)
+            {
+                // 清理失敗不應遮蔽原本的錯誤。
+            }
+
+            throw;
         }
 
         return modPath;

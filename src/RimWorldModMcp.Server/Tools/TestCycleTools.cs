@@ -100,6 +100,7 @@ public sealed class TestCycleTools(TestCycleService testCycle, DiagnosticStore d
         PreviousRun = session.PreviousRun,
         TerminatedDaemon = session.Terminated?.Daemon,
         TerminatedGame = session.Terminated?.Game,
+        LinksRemaining = [.. session.Links.Select(l => l.Link)],
     };
 
     private static DiagnosticSummary ToSummary(DiagnosticRecord record, int maxTextLength) => new()
@@ -169,6 +170,13 @@ public sealed record TestSessionResult
 
     [JsonPropertyName("terminated_game")]
     public bool? TerminatedGame { get; init; }
+
+    /// <summary>
+    /// 停止後仍未能移除的連結。通常代表遊戲還在執行中佔用著它們——
+    /// 關閉遊戲後再呼叫一次 stop_test 即可清乾淨。
+    /// </summary>
+    [JsonPropertyName("links_remaining")]
+    public IReadOnlyList<string> LinksRemaining { get; init; } = [];
 }
 
 /// <summary>診斷清單。</summary>

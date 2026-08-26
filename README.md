@@ -171,6 +171,7 @@ dotnet run --project src/RimWorldModMcp.Server -- detect      # show detected pa
 dotnet run --project src/RimWorldModMcp.Server -- index       # build the index and report stats
 dotnet run --project src/RimWorldModMcp.Server -- symbols     # run symbol reading only
 dotnet run --project src/RimWorldModMcp.Server -- decompile X # decompile symbol X
+dotnet run --project src/RimWorldModMcp.Server -- linkcheck P  # diagnose why a test link was not cleaned up
 ```
 
 ## License

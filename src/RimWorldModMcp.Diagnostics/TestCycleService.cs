@@ -30,6 +30,7 @@ public sealed class TestCycleService(
     CriticalSectionLock locks,
     TestSessionStore sessions,
     DaemonBootstrapper daemons,
+    BridgeBuilder bridgeBuilder,
     DiagnosticStore diagnostics)
 {
     private const string BridgePackageId = "rimworldmodmcp.bridge";
@@ -114,16 +115,28 @@ public sealed class TestCycleService(
             createdLinks.Add(new TestLink(testLink, mod));
 
             var bridgeSource = BridgeDirectory();
-            var bridgeState = new BridgeState { State = "unavailable", Reason = "找不到 Bridge 目錄。" };
+            var bridgeState = new BridgeState { State = "unavailable", Reason = "找不到 Bridge 原始碼目錄。" };
             var activeMods = order.Active.ToList();
 
             if (bridgeSource is not null)
             {
-                links.EnsureLink(bridgeLink, bridgeSource);
-                createdLinks.Add(new TestLink(bridgeLink, bridgeSource));
+                // Bridge 必須先建置成 DLL，否則 RimWorld 會載入一個沒有組件的空 Mod，
+                // 診斷就只剩 Player.log 這一條路。
+                var build = bridgeBuilder.Ensure(bridgeSource);
 
-                activeMods.Add(BridgePackageId);
-                bridgeState = new BridgeState { State = "active", PackageId = BridgePackageId };
+                if (build is { Success: true, ModDirectory: not null })
+                {
+                    links.EnsureLink(bridgeLink, build.ModDirectory);
+                    createdLinks.Add(new TestLink(bridgeLink, build.ModDirectory));
+
+                    activeMods.Add(BridgePackageId);
+                    bridgeState = new BridgeState { State = "active", PackageId = BridgePackageId };
+                }
+                else
+                {
+                    // 不靜默降級：把原因寫進場次狀態，讓使用者知道為什麼只有 Player.log 診斷。
+                    bridgeState = new BridgeState { State = "unavailable", Reason = build.Error };
+                }
             }
 
             WriteModsConfig(configDirectory, paths.ModsConfig, activeMods);
@@ -199,16 +212,30 @@ public sealed class TestCycleService(
             return session;
         }
 
-        foreach (var link in session.Links)
+        // 順序很重要：必須先讓遊戲退出，才能移除連結。
+        // RimWorld 執行中會透過這些連結載入 Mod 組件，此時刪除 reparse point
+        // 會因為檔案被佔用而失敗，留下工具自己建立的孤兒連結。
+        //
+        // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
+        // 那個行程的 PID 根本不會被記錄。
+        var gameStopped = terminateGame && session.GamePid is { } gamePid && processes.Terminate(gamePid);
+
+        if (gameStopped && session.GamePid is { } stoppedPid)
         {
-            links.RemoveLink(link.Link, link.Target);
+            WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
         }
 
         var daemonStopped = session.DaemonPid is { } daemonPid && processes.Terminate(daemonPid);
 
-        // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
-        // 那個行程的 PID 根本不會被記錄。
-        var gameStopped = terminateGame && session.GamePid is { } gamePid && processes.Terminate(gamePid);
+        var remaining = new List<TestLink>();
+
+        foreach (var link in session.Links)
+        {
+            if (!links.RemoveLink(link.Link, link.Target))
+            {
+                remaining.Add(link);
+            }
+        }
 
         if (session.SaveData is not null && Directory.Exists(session.SaveData))
         {
@@ -227,6 +254,9 @@ public sealed class TestCycleService(
             State = "stopped",
             PreviousRun = session.RunId,
             Terminated = new TerminationResult { Daemon = daemonStopped, Game = gameStopped },
+            // 沒能移除的連結要留在狀態裡，讓使用者知道 Mods 目錄還有殘留，
+            // 也讓下一次 stop_test 有機會補清。
+            Links = remaining,
         };
 
         sessions.Write(stopped);
@@ -234,6 +264,24 @@ public sealed class TestCycleService(
     }
 
     public TestSession Status() => sessions.Read();
+
+    /// <summary>等待行程真正退出。Kill 是非同步的，立刻去刪檔案會撞上檔案佔用。</summary>
+    private void WaitForExit(int processId, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!processes.IsAlive(processId))
+            {
+                // 行程樹完全放掉檔案控制代碼還需要一點時間。
+                Thread.Sleep(500);
+                return;
+            }
+
+            Thread.Sleep(200);
+        }
+    }
 
     private Process LaunchGame(RimWorldPaths paths, string saveData, bool quickTest, string token)
     {

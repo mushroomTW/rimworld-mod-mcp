@@ -26,7 +26,14 @@ public static class McpHost
         // stdout 屬於 MCP 協定。任何寫到 stdout 的日誌都會讓 JSON-RPC 解析失敗，
         // 所以全部導向 stderr。
         builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
-        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
+        // 預設只報警告，避免干擾。排查問題時可用 RIMWORLD_MOD_MCP_LOG_LEVEL=Debug
+        // 讓工具內部拋出的例外細節出現在 stderr——MCP 協定本身只會回傳
+        // 「An error occurred」這種通用訊息。
+        builder.Logging.SetMinimumLevel(
+            Enum.TryParse<LogLevel>(Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_LOG_LEVEL"), ignoreCase: true, out var level)
+                ? level
+                : LogLevel.Warning);
 
         builder.Services.AddRimWorldCore();
         builder.Services.AddRimWorldIndexing();

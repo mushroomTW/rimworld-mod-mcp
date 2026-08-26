@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using RimWorldModMcp.Core.Locking;
 using RimWorldModMcp.Diagnostics;
 using RimWorldModMcp.Core.Platform;
+using RimWorldModMcp.Core.Workspace;
 using RimWorldModMcp.Indexing.Metadata;
 using RimWorldModMcp.Indexing.Decompilation;
 using RimWorldModMcp.Indexing.Pipeline;
@@ -26,6 +27,9 @@ switch (command)
 
     case "index":
         return BuildIndex();
+
+    case "linkcheck":
+        return LinkCheck(args.Length > 1 ? args[1] : "");
 
     case "decompile":
         return Decompile(args.Length > 1 ? args[1] : "ThingDef");
@@ -217,4 +221,46 @@ static async Task<int> RunDaemon()
         await Console.Error.WriteLineAsync($"連接埠 {locator.BridgePort()} 已被佔用。");
         return DaemonBootstrapper.PortInUseExitCode;
     }
+}
+
+
+// 開發用：診斷一個連結為什麼沒有被清理掉。
+static int LinkCheck(string linkPath)
+{
+    if (string.IsNullOrWhiteSpace(linkPath))
+    {
+        Console.Error.WriteLine("用法：linkcheck <連結路徑>");
+        return 2;
+    }
+
+    var info = new DirectoryInfo(linkPath);
+
+    Console.Error.WriteLine($"路徑        : {linkPath}");
+    Console.Error.WriteLine($"Exists      : {info.Exists}");
+    Console.Error.WriteLine($"Attributes  : {(info.Exists ? info.Attributes.ToString() : "-")}");
+    Console.Error.WriteLine($"ReparsePoint: {info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint)}");
+    Console.Error.WriteLine($"LinkTarget  : {info.LinkTarget ?? "(null)"}");
+
+    try
+    {
+        var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
+        Console.Error.WriteLine($"Resolved    : {resolved?.FullName ?? "(null)"}");
+    }
+    catch (Exception e)
+    {
+        Console.Error.WriteLine($"Resolved    : 例外 {e.GetType().Name}: {e.Message}");
+    }
+
+    Console.Error.WriteLine($"HasOwnedPrefix: {DirectoryLink.HasOwnedPrefix(linkPath)}");
+
+    var session = new TestSessionStore(new StoreDirectories()).Read();
+    Console.Error.WriteLine($"狀態檔 state : {session.State}，記錄的連結數 {session.Links.Count}");
+
+    foreach (var link in session.Links)
+    {
+        Console.Error.WriteLine($"  記錄: {link.Link}");
+        Console.Error.WriteLine($"        -> {link.Target}");
+    }
+
+    return 0;
 }
