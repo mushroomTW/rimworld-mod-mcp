@@ -13,6 +13,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DaemonBootstrapper>();
         services.AddSingleton<BridgeBuilder>();
         services.AddSingleton<DaemonListener>();
+        services.AddSingleton<TestModSetResolver>();
+        services.AddSingleton<TestEnvironmentPreparer>();
+        services.AddSingleton<GameLauncher>();
         services.AddSingleton<TestCycleService>();
 
         return services;

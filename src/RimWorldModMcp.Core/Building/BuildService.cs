@@ -50,11 +50,11 @@ public sealed record BuildResult
 /// 而且那一萬多字元會直接佔掉呼叫端的 context。
 /// </para>
 /// </summary>
-public sealed partial class BuildService(WorkspaceRegistry workspaces, IRimWorldLocator locator)
+public sealed partial class BuildService(IRimWorldLocator locator)
 {
-    public BuildResult Build(string modPath)
+    public BuildResult Build(ValidatedModPath modPath)
     {
-        var mod = workspaces.AllowedMod(modPath);
+        var mod = modPath.Value;
 
         ValidateAbout(mod);
 

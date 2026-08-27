@@ -61,6 +61,19 @@ public sealed class DefXmlScanner
 
         var filePath = Path.GetRelativePath(relativeTo, path).Replace('\\', '/');
 
+        foreach (var record in ParseElements(root, packName, filePath))
+        {
+            yield return record;
+        }
+    }
+
+    /// <summary>
+    /// 從已解析好的 <c>&lt;Defs&gt;</c> 根節點抽出所有 Def。
+    /// 單趟掃描（<see cref="DefDataScan"/>）與逐檔解析共用這一段，
+    /// 解析與抽取才不會有兩份會漂移的實作。
+    /// </summary>
+    internal static IEnumerable<DefRecord> ParseElements(XElement root, string packName, string filePath)
+    {
         foreach (var node in root.Elements())
         {
             yield return Parse(node, packName, filePath);

@@ -53,7 +53,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
 
         _registry.Configure(workspace);
 
-        Assert.Equal(PathGuard.Canonicalize(mod), _registry.AllowedMod(mod));
+        Assert.Equal(PathGuard.Canonicalize(mod), _registry.AllowedMod(mod).Value);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
         var workspace = MakeDirectory("workspace");
         _registry.Configure(workspace);
 
-        Assert.Equal(PathGuard.Canonicalize(workspace), _registry.AllowedMod(workspace));
+        Assert.Equal(PathGuard.Canonicalize(workspace), _registry.AllowedMod(workspace).Value);
     }
 
     [Fact]

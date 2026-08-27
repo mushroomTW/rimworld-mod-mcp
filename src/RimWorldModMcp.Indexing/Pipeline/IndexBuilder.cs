@@ -42,7 +42,6 @@ public sealed class IndexBuilder(
     SourceIndexer sourceIndexer)
 {
     private readonly AssemblySymbolReader _symbolReader = new();
-    private readonly DefXmlScanner _defScanner = new();
 
     /// <summary>全量重建 Def 與符號索引。</summary>
     public IndexBuildResult Rebuild()
@@ -63,6 +62,10 @@ public sealed class IndexBuilder(
         var stopwatch = Stopwatch.StartNew();
         var assemblies = GameAssemblies(paths.ManagedDir);
 
+        // Data/ 只走訪一次：Def 掃描、引用候選與指紋計算共用同一份清單，
+        // 兩萬個檔案不再走三遍、解析兩遍。
+        var packs = DefFileWalker.Walk(paths.DataDir);
+
         using var connection = database.Open();
         using var transaction = connection.BeginTransaction();
 
@@ -71,7 +74,12 @@ public sealed class IndexBuilder(
         DefReferenceRepository.Clear(connection);
         SourceFileRepository.Clear(connection);
 
-        var defCount = DefRepository.Insert(connection, _defScanner.Scan(paths.DataDir));
+        int defCount;
+
+        using (var candidates = new DefReferenceCandidateWriter(connection))
+        {
+            defCount = DefRepository.Insert(connection, DefDataScan.Run(packs, candidates.Write));
+        }
 
         var symbolCount = 0;
         foreach (var assembly in assemblies)
@@ -87,14 +95,13 @@ public sealed class IndexBuilder(
 
         // 引用分析要等 Def 與符號都寫好才能比對。
         var knownDefNames = DefRepository.DefNames(connection);
-        var analyzer = new DefReferenceAnalyzer();
 
-        DefReferenceRepository.Insert(connection, analyzer.FromDefOfFields(connection, knownDefNames));
-        DefReferenceRepository.Insert(connection, analyzer.FromDefXml(paths.DataDir, knownDefNames));
+        DefReferenceRepository.Insert(connection, new DefReferenceAnalyzer().FromDefOfFields(connection, knownDefNames));
+        DefReferenceRepository.ResolveCandidates(connection);
 
         var referenceCount = DefReferenceRepository.Count(connection);
 
-        var computed = fingerprint.Compute(paths);
+        var computed = fingerprint.ComputeFrom(paths, packs);
 
         IndexMetaRepository.Set(connection, "fingerprint", computed ?? string.Empty);
         IndexMetaRepository.Set(connection, "def_count", defCount.ToString());

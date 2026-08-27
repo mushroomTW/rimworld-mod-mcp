@@ -12,6 +12,25 @@ internal sealed record WorkspaceState
 }
 
 /// <summary>
+/// 一條「已通過寫入邊界驗證」的 Mod 路徑。
+///
+/// <para>
+/// 唯一的建構路徑是 <see cref="WorkspaceRegistry.AllowedMod"/>。所有會寫入
+/// 檔案系統的服務 API 一律只接受這個型別、不收 <c>string</c>——新加的服務
+/// 忘記驗證時編譯器會直接拒絕，而不是靠每個人記得呼叫授權點。
+/// </para>
+/// </summary>
+public readonly record struct ValidatedModPath
+{
+    /// <summary>正規化後（含 symlink 解析）的絕對路徑。</summary>
+    public string Value { get; }
+
+    internal ValidatedModPath(string value) => Value = value;
+
+    public override string ToString() => Value;
+}
+
+/// <summary>
 /// 管理使用者登記的 Mod 開發工作區，並強制執行寫入邊界。
 ///
 /// <para>
@@ -52,10 +71,11 @@ public sealed class WorkspaceRegistry(StoreDirectories store)
     }
 
     /// <summary>
-    /// 驗證一個 Mod 路徑落在某個已登記工作區內，回傳正規化後的路徑。
-    /// 不在範圍內就拋出——這是寫入操作的守門點。
+    /// 驗證一個 Mod 路徑落在某個已登記工作區內，回傳帶型別的驗證結果。
+    /// 不在範圍內就拋出——這是寫入操作唯一的守門點，
+    /// <see cref="ValidatedModPath"/> 只能從這裡產生。
     /// </summary>
-    public string AllowedMod(string path)
+    public ValidatedModPath AllowedMod(string path)
     {
         var candidate = PathGuard.Canonicalize(path);
 
@@ -68,7 +88,7 @@ public sealed class WorkspaceRegistry(StoreDirectories store)
         {
             if (PathGuard.IsWithin(candidate, PathGuard.Canonicalize(root)))
             {
-                return candidate;
+                return new ValidatedModPath(candidate);
             }
         }
 

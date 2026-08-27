@@ -16,7 +16,7 @@ public sealed record AssetIssue(string Level, string File, string Message);
 public sealed record AssetImport(string Asset, string Reference);
 
 /// <summary>把圖片與音效匯入 Mod，並驗證格式正確。</summary>
-public sealed class AssetService(WorkspaceRegistry workspaces)
+public sealed class AssetService
 {
     private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg"];
     private static readonly string[] AudioExtensions = [".ogg", ".wav"];
@@ -24,9 +24,9 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
     /// <summary>超過這個大小只警告不阻擋——大檔會拖慢遊戲載入，但不是錯誤。</summary>
     private const long LargeFileBytes = 50L * 1024 * 1024;
 
-    public AssetImport Import(string modPath, string sourcePath, AssetKind kind)
+    public AssetImport Import(ValidatedModPath modPath, string sourcePath, AssetKind kind)
     {
-        var mod = workspaces.AllowedMod(modPath);
+        var mod = modPath.Value;
         var source = Path.GetFullPath(sourcePath);
 
         if (!File.Exists(source))
@@ -74,9 +74,9 @@ public sealed class AssetService(WorkspaceRegistry workspaces)
     }
 
     /// <summary>檢查 Mod 內所有資產的副檔名、檔案簽名與大小。</summary>
-    public IReadOnlyList<AssetIssue> Validate(string modPath)
+    public IReadOnlyList<AssetIssue> Validate(ValidatedModPath modPath)
     {
-        var mod = workspaces.AllowedMod(modPath);
+        var mod = modPath.Value;
         var issues = new List<AssetIssue>();
 
         foreach (var folder in (ReadOnlySpan<string>)["Textures", "Sounds"])

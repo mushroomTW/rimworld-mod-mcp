@@ -6,6 +6,9 @@ using RimWorldModMcp.Indexing.Storage;
 
 namespace RimWorldModMcp.Indexing.Semantics;
 
+/// <summary>一筆尚未經名冊過濾的 Def XML 引用候選。</summary>
+public sealed record DefReferenceCandidate(string DefName, string FilePath, int Line, string Context);
+
 /// <summary>
 /// 找出 Def 被引用的位置。
 ///
@@ -69,7 +72,7 @@ public sealed class DefReferenceAnalyzer
     }
 
     /// <summary>
-    /// 掃描 Def XML 之間的交叉引用。
+    /// 從已解析的 <c>&lt;Defs&gt;</c> 根節點收集 Def XML 交叉引用的<b>候選</b>。
     ///
     /// <para>
     /// Def 彼此以 defName 相互指涉——<c>&lt;costList&gt;&lt;Steel&gt;10&lt;/Steel&gt;</c>、
@@ -77,51 +80,16 @@ public sealed class DefReferenceAnalyzer
     /// <c>&lt;ParentName="BaseGun"&gt;</c> 等等。這些都是結構化位置，
     /// 元素名稱本身就是語境，不需要靠字串比對猜測。
     /// </para>
+    /// <para>
+    /// 這裡只做形狀過濾、不比對名冊：完整的 defName 名冊要等整個 Data/
+    /// 掃完才存在，而單趟掃描的重點正是不重讀第二遍。候選由呼叫端寫進
+    /// SQLite 暫存表，最後以一次 join 過濾（見
+    /// <see cref="Storage.DefReferenceRepository.ResolveCandidates"/>）。
+    /// </para>
     /// </summary>
-    public IReadOnlyList<DefReference> FromDefXml(string dataDirectory, ISet<string> knownDefNames)
+    internal static void CollectCandidates(XElement root, string filePath, Action<DefReferenceCandidate> emit)
     {
-        var references = new List<DefReference>();
-
-        foreach (var pack in Directory.GetDirectories(dataDirectory).Order())
-        {
-            var defsRoot = Path.Combine(pack, "Defs");
-
-            if (!Directory.Exists(defsRoot))
-            {
-                continue;
-            }
-
-            foreach (var file in Directory.EnumerateFiles(defsRoot, "*.xml", SearchOption.AllDirectories))
-            {
-                ScanFile(file, dataDirectory, knownDefNames, references);
-            }
-        }
-
-        return references;
-    }
-
-    private static void ScanFile(string path, string relativeTo, ISet<string> knownDefNames, List<DefReference> references)
-    {
-        XDocument document;
-
-        try
-        {
-            using var stream = File.OpenRead(path);
-            document = XDocument.Load(stream, LoadOptions.SetLineInfo);
-        }
-        catch (Exception e) when (e is IOException or XmlException or UnauthorizedAccessException)
-        {
-            return;
-        }
-
-        if (document.Root is null || document.Root.Name.LocalName != "Defs")
-        {
-            return;
-        }
-
-        var filePath = Path.GetRelativePath(relativeTo, path).Replace('\\', '/');
-
-        foreach (var element in document.Root.Descendants())
+        foreach (var element in root.Descendants())
         {
             // 自己的 defName 宣告不算引用。
             if (element.Name.LocalName == "defName")
@@ -130,9 +98,9 @@ public sealed class DefReferenceAnalyzer
             }
 
             // 情況一：元素名稱本身就是 defName，例如 <costList><Steel>10</Steel>。
-            if (knownDefNames.Contains(element.Name.LocalName))
+            if (IsPlausibleDefName(element.Name.LocalName))
             {
-                Add(references, element.Name.LocalName, filePath, element, ElementPath(element));
+                emit(new DefReferenceCandidate(element.Name.LocalName, filePath, Line(element), ElementPath(element)));
             }
 
             // 情況二：元素的文字內容是 defName，例如 <li>Smithing</li>。
@@ -140,33 +108,50 @@ public sealed class DefReferenceAnalyzer
             {
                 var value = element.Value.Trim();
 
-                if (value.Length > 0 && knownDefNames.Contains(value))
+                if (value.Length > 0 && IsPlausibleDefName(value))
                 {
-                    Add(references, value, filePath, element, ElementPath(element));
+                    emit(new DefReferenceCandidate(value, filePath, Line(element), ElementPath(element)));
                 }
             }
 
             // 情況三：ParentName 屬性指向抽象 Def 的 Name。
             var parentName = element.Attribute("ParentName")?.Value;
 
-            if (parentName is not null && knownDefNames.Contains(parentName))
+            if (parentName is not null && IsPlausibleDefName(parentName))
             {
-                Add(references, parentName, filePath, element, "ParentName");
+                emit(new DefReferenceCandidate(parentName, filePath, Line(element), "ParentName"));
             }
         }
     }
 
-    private static void Add(List<DefReference> references, string defName, string filePath, XElement element, string context)
-    {
-        var line = element is IXmlLineInfo info && info.HasLineInfo() ? info.LineNumber : 0;
+    private static int Line(XElement element)
+        => element is IXmlLineInfo info && info.HasLineInfo() ? info.LineNumber : 0;
 
-        references.Add(new DefReference(
-            DefName: defName,
-            FilePath: filePath,
-            Line: line,
-            SourceKind: DefReferenceSource.DefXml,
-            Context: context,
-            Confidence: DefReferenceConfidence.Exact));
+    /// <summary>
+    /// defName 的形狀檢查：英數、底線、連字號，且至少含一個字母。
+    /// 這只是把「10」「0.5」「true」與長句子擋在暫存表之外的粗篩，
+    /// 精確過濾靠最後的名冊 join。
+    /// </summary>
+    private static bool IsPlausibleDefName(string value)
+    {
+        if (value.Length is < 2 or > 128)
+        {
+            return false;
+        }
+
+        var hasLetter = false;
+
+        foreach (var c in value)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not ('_' or '-'))
+            {
+                return false;
+            }
+
+            hasLetter |= char.IsAsciiLetter(c);
+        }
+
+        return hasLetter;
     }
 
     /// <summary>組出可讀的語境字串，例如 <c>ThingDef/costList/Steel</c>。</summary>

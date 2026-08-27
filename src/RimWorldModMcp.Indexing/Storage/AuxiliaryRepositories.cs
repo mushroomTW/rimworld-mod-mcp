@@ -223,12 +223,89 @@ public static class DefReferenceRepository
         return (long)command.ExecuteScalar()!;
     }
 
+    /// <summary>
+    /// 把暫存表裡的引用候選以 defName 名冊過濾後寫進 <c>def_reference</c>，
+    /// 然後丟掉暫存表。
+    ///
+    /// <para>
+    /// 候選在單趟掃描期間逐筆落進 TEMP 表而不是留在記憶體——形狀過濾後
+    /// 仍是十萬到百萬等級，整批 List 會吃掉數百 MB；讓 SQLite 管記憶體，
+    /// 過濾用一次 join 完成。
+    /// </para>
+    /// </summary>
+    public static void ResolveCandidates(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO def_reference (def_name, file_path, line, source_kind, context, confidence)
+            SELECT c.def_name, c.file_path, c.line, 'def_xml', c.context, 'exact'
+            FROM def_ref_candidate c
+            WHERE EXISTS (SELECT 1 FROM def d WHERE d.def_name = c.def_name)
+            ON CONFLICT DO NOTHING;
+            DROP TABLE def_ref_candidate;
+            """;
+        command.ExecuteNonQuery();
+    }
+
     internal static string SourceKindText(DefReferenceSource source) => source switch
     {
         DefReferenceSource.DefXml => "def_xml",
         DefReferenceSource.GameSource => "game_source",
         _ => "mod_source",
     };
+}
+
+/// <summary>
+/// 引用候選的暫存表寫入器。建構時建立 TEMP 表並備妥 prepared statement，
+/// 之後逐筆寫入；表的收尾（過濾＋清除）由
+/// <see cref="DefReferenceRepository.ResolveCandidates"/> 負責。
+/// </summary>
+public sealed class DefReferenceCandidateWriter : IDisposable
+{
+    private readonly SqliteCommand _insert;
+    private readonly SqliteParameter _name;
+    private readonly SqliteParameter _path;
+    private readonly SqliteParameter _line;
+    private readonly SqliteParameter _context;
+
+    public DefReferenceCandidateWriter(SqliteConnection connection)
+    {
+        using (var create = connection.CreateCommand())
+        {
+            create.CommandText = """
+                DROP TABLE IF EXISTS def_ref_candidate;
+                CREATE TEMP TABLE def_ref_candidate (
+                  def_name  TEXT NOT NULL,
+                  file_path TEXT NOT NULL,
+                  line      INTEGER NOT NULL,
+                  context   TEXT NOT NULL
+                );
+                """;
+            create.ExecuteNonQuery();
+        }
+
+        _insert = connection.CreateCommand();
+        _insert.CommandText = """
+            INSERT INTO def_ref_candidate (def_name, file_path, line, context)
+            VALUES ($name, $path, $line, $context);
+            """;
+
+        _name = _insert.CreateParameter("$name");
+        _path = _insert.CreateParameter("$path");
+        _line = _insert.CreateParameter("$line");
+        _context = _insert.CreateParameter("$context");
+    }
+
+    public void Write(Semantics.DefReferenceCandidate candidate)
+    {
+        _name.Value = candidate.DefName;
+        _path.Value = candidate.FilePath;
+        _line.Value = candidate.Line;
+        _context.Value = candidate.Context;
+        _insert.ExecuteNonQuery();
+    }
+
+    public void Dispose() => _insert.Dispose();
 }
 
 /// <summary>Def 引用的查詢結果。</summary>

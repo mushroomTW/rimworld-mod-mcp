@@ -61,7 +61,7 @@ public sealed class WorkspaceTools(
         [Description("Mod 目錄的路徑，必須在已登記的工作區內。")]
         string path) => ToolGuard.Run(() =>
     {
-        var result = builds.Build(path);
+        var result = builds.Build(workspaces.AllowedMod(path));
 
         return new BuildModResult
         {
@@ -94,7 +94,7 @@ public sealed class WorkspaceTools(
         [Description("Mod 目錄的路徑。")]
         string path) => ToolGuard.Run(() =>
     {
-        var checkpoint = checkpoints.Create(path);
+        var checkpoint = checkpoints.Create(workspaces.AllowedMod(path));
 
         return new CheckpointResult
         {
@@ -110,7 +110,7 @@ public sealed class WorkspaceTools(
         [Description("Mod 目錄的路徑。")]
         string path) => ToolGuard.Run(() =>
     {
-        var items = checkpoints.List(path);
+        var items = checkpoints.List(workspaces.AllowedMod(path));
 
         return new ListCheckpointsResult
         {
@@ -136,7 +136,7 @@ public sealed class WorkspaceTools(
             throw new ModelContextProtocol.McpException("還原快照會覆蓋現有內容，需要 confirm=true。");
         }
 
-        var (restored, safety) = checkpoints.Restore(path, checkpoint_id);
+        var (restored, safety) = checkpoints.Restore(workspaces.AllowedMod(path), checkpoint_id);
 
         return new RestoreCheckpointResult
         {
@@ -156,7 +156,7 @@ public sealed class WorkspaceTools(
         [Description("資產類別：Texture 接受 png/jpg/jpeg，Sound 接受 ogg/wav。")]
         AssetKind kind) => ToolGuard.Run(() =>
     {
-        var result = assets.Import(path, source_path, kind);
+        var result = assets.Import(workspaces.AllowedMod(path), source_path, kind);
 
         return new ImportAssetResult
         {
@@ -171,7 +171,7 @@ public sealed class WorkspaceTools(
         [Description("Mod 目錄的路徑。")]
         string path) => ToolGuard.Run(() =>
     {
-        var issues = assets.Validate(path);
+        var issues = assets.Validate(workspaces.AllowedMod(path));
 
         return new ValidateAssetsResult
         {

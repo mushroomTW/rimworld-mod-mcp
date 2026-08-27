@@ -17,7 +17,7 @@ public sealed record Checkpoint(string Id, string Path, DateTime CreatedUtc);
 /// 這裡讓兩邊對稱，還原時保留被排除的目錄不動。
 /// </para>
 /// </summary>
-public sealed partial class CheckpointService(StoreDirectories store, WorkspaceRegistry workspaces)
+public sealed partial class CheckpointService(StoreDirectories store)
 {
     /// <summary>建置產物與版本控制目錄不進快照，也不在還原時被刪除。</summary>
     private static readonly string[] ExcludedFolders = ["bin", "obj", ".git", ".vs"];
@@ -30,9 +30,9 @@ public sealed partial class CheckpointService(StoreDirectories store, WorkspaceR
     [GeneratedRegex(@"^\d{8}-\d{6}-\d{3}-[0-9a-f]{6}$")]
     private static partial Regex CheckpointIdPattern { get; }
 
-    public Checkpoint Create(string modPath)
+    public Checkpoint Create(ValidatedModPath modPath)
     {
-        var mod = workspaces.AllowedMod(modPath);
+        var mod = modPath.Value;
         var root = SnapshotRoot(mod);
 
         Directory.CreateDirectory(root);
@@ -48,9 +48,9 @@ public sealed partial class CheckpointService(StoreDirectories store, WorkspaceR
         return new Checkpoint(id, target, now);
     }
 
-    public IReadOnlyList<Checkpoint> List(string modPath)
+    public IReadOnlyList<Checkpoint> List(ValidatedModPath modPath)
     {
-        var mod = workspaces.AllowedMod(modPath);
+        var mod = modPath.Value;
         var root = SnapshotRoot(mod);
 
         if (!Directory.Exists(root))
@@ -64,9 +64,9 @@ public sealed partial class CheckpointService(StoreDirectories store, WorkspaceR
     }
 
     /// <summary>還原快照。會先自動建立一份還原前的快照，以免誤操作無法回頭。</summary>
-    public (string Restored, string PreRestoreCheckpoint) Restore(string modPath, string checkpointId)
+    public (string Restored, string PreRestoreCheckpoint) Restore(ValidatedModPath modPath, string checkpointId)
     {
-        var mod = workspaces.AllowedMod(modPath);
+        var mod = modPath.Value;
 
         if (!CheckpointIdPattern.IsMatch(checkpointId))
         {
@@ -80,7 +80,7 @@ public sealed partial class CheckpointService(StoreDirectories store, WorkspaceR
             throw new DirectoryNotFoundException($"找不到快照：{checkpointId}");
         }
 
-        var safety = Create(mod);
+        var safety = Create(modPath);
 
         try
         {

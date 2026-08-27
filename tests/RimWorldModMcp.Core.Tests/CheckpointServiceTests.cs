@@ -6,7 +6,9 @@ namespace RimWorldModMcp.Core.Tests;
 public sealed class CheckpointServiceTests : IDisposable
 {
     private readonly string _root;
-    private readonly string _mod;
+    private readonly string _modDirectory;
+    private readonly ValidatedModPath _mod;
+    private readonly WorkspaceRegistry _workspaces;
     private readonly CheckpointService _checkpoints;
 
     public CheckpointServiceTests()
@@ -14,14 +16,17 @@ public sealed class CheckpointServiceTests : IDisposable
         _root = Path.Combine(Path.GetTempPath(), "rwmm-ckpt-" + Guid.NewGuid().ToString("n")[..12]);
 
         var store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));
-        var workspaces = new WorkspaceRegistry(store);
+        _workspaces = new WorkspaceRegistry(store);
 
         var workspace = Path.Combine(_root, "Workspace");
-        _mod = Path.Combine(workspace, "MyMod");
-        Directory.CreateDirectory(_mod);
-        workspaces.Configure(workspace);
+        _modDirectory = Path.Combine(workspace, "MyMod");
+        Directory.CreateDirectory(_modDirectory);
+        _workspaces.Configure(workspace);
 
-        _checkpoints = new CheckpointService(store, workspaces);
+        // ValidatedModPath 只能由 WorkspaceRegistry 產生——測試也走同一條路。
+        _mod = _workspaces.AllowedMod(_modDirectory);
+
+        _checkpoints = new CheckpointService(store);
     }
 
     public void Dispose()
@@ -49,7 +54,7 @@ public sealed class CheckpointServiceTests : IDisposable
     [Fact]
     public void CreateThenRestoreRoundTripsContent()
     {
-        var file = Path.Combine(_mod, "Defs", "Things.xml");
+        var file = Path.Combine(_modDirectory, "Defs", "Things.xml");
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, "original");
 
@@ -60,7 +65,7 @@ public sealed class CheckpointServiceTests : IDisposable
         var (restored, safety) = _checkpoints.Restore(_mod, checkpoint.Id);
 
         Assert.Equal("original", File.ReadAllText(file));
-        Assert.Equal(_mod, restored);
+        Assert.Equal(_mod.Value, restored);
 
         // 還原前會自動建立安全快照，讓誤操作可以回頭。
         Assert.Contains(_checkpoints.List(_mod), c => c.Id == safety);
@@ -76,14 +81,14 @@ public sealed class CheckpointServiceTests : IDisposable
             return;
         }
 
-        File.WriteAllText(Path.Combine(_mod, "About.xml"), "<ModMetaData />");
+        File.WriteAllText(Path.Combine(_modDirectory, "About.xml"), "<ModMetaData />");
 
         var checkpoint = _checkpoints.Create(_mod);
 
-        var upper = char.IsLower(_mod[0])
-            ? char.ToUpperInvariant(_mod[0]) + _mod[1..]
-            : char.ToLowerInvariant(_mod[0]) + _mod[1..];
+        var upper = char.IsLower(_modDirectory[0])
+            ? char.ToUpperInvariant(_modDirectory[0]) + _modDirectory[1..]
+            : char.ToLowerInvariant(_modDirectory[0]) + _modDirectory[1..];
 
-        Assert.Contains(_checkpoints.List(upper), c => c.Id == checkpoint.Id);
+        Assert.Contains(_checkpoints.List(_workspaces.AllowedMod(upper)), c => c.Id == checkpoint.Id);
     }
 }

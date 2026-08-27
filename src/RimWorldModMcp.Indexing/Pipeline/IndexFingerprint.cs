@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using RimWorldModMcp.Core.Paths;
+using RimWorldModMcp.Indexing.Defs;
 
 namespace RimWorldModMcp.Indexing.Pipeline;
 
@@ -47,20 +48,21 @@ public sealed class IndexFingerprint
             }
         }
 
-        var computed = ComputeUncached(paths);
-
-        lock (_cacheGate)
-        {
-            _cachedValue = computed;
-            _cachedKey = cacheKey;
-            _cachedAtUtc = DateTime.UtcNow;
-        }
-
-        return computed;
+        return ComputeFrom(paths, DefFileWalker.Walk(paths.DataDir));
     }
 
-    private static string ComputeUncached(RimWorldPaths paths)
+    /// <summary>
+    /// 用已走訪好的清單計算指紋，讓 Rebuild 不必為指紋再掃一次 Data/。
+    /// 清單必須來自 <see cref="DefFileWalker.Walk"/>——兩條路徑共用同一個
+    /// 走訪來源，雜湊輸入才保證一致。
+    /// </summary>
+    internal string? ComputeFrom(RimWorldPaths paths, IReadOnlyList<DefPack> packs)
     {
+        if (paths.ManagedDir is null || paths.DataDir is null)
+        {
+            return null;
+        }
+
         var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
         if (paths.InstallRoot is not null)
@@ -68,32 +70,33 @@ public sealed class IndexFingerprint
             AppendFile(digest, Path.Combine(paths.InstallRoot, "Version.txt"));
         }
 
-        foreach (var assembly in Directory.GetFiles(paths.ManagedDir!, "Assembly-CSharp*.dll").Order())
+        foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order())
         {
             AppendFile(digest, assembly);
         }
 
-        foreach (var pack in Directory.GetDirectories(paths.DataDir!).Order())
+        foreach (var pack in packs)
         {
-            var defsRoot = Path.Combine(pack, "Defs");
-
-            if (!Directory.Exists(defsRoot))
-            {
-                continue;
-            }
-
-            Append(digest, Path.GetFileName(pack));
+            Append(digest, pack.Name);
 
             // 逐一納入 Def 檔案的相對路徑、大小與寫入時間。
             // 這樣新增、刪除或修改任何一個 Def 檔都會改變指紋。
-            foreach (var file in Directory.EnumerateFiles(defsRoot, "*.xml", SearchOption.AllDirectories).Order())
+            foreach (var file in pack.Files)
             {
-                var info = new FileInfo(file);
-                Append(digest, $"{Path.GetRelativePath(paths.DataDir!, file).Replace('\\', '/')}:{info.Length}:{info.LastWriteTimeUtc.Ticks}");
+                Append(digest, $"{file.RelativePath}:{file.Length}:{file.LastWriteTicks}");
             }
         }
 
-        return Convert.ToHexStringLower(digest.GetHashAndReset());
+        var computed = Convert.ToHexStringLower(digest.GetHashAndReset());
+
+        lock (_cacheGate)
+        {
+            _cachedValue = computed;
+            _cachedKey = paths.ManagedDir + "\n" + paths.DataDir;
+            _cachedAtUtc = DateTime.UtcNow;
+        }
+
+        return computed;
     }
 
     private static void AppendFile(IncrementalHash digest, string path)
