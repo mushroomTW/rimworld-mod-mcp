@@ -289,13 +289,3 @@ public sealed record DefUsageSummary
     [JsonPropertyName("confidence")]
     public required string Confidence { get; init; }
 }
-
-/// <summary>工作區登記結果。</summary>
-public sealed record ConfigureWorkspaceResult
-{
-    [JsonPropertyName("workspace")]
-    public required string Workspace { get; init; }
-
-    [JsonPropertyName("registered")]
-    public required IReadOnlyList<string> Registered { get; init; }
-}

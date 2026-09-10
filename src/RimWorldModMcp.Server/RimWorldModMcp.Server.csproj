@@ -18,6 +18,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>rimworld;mcp;modding;model-context-protocol</PackageTags>
+    <!-- 標記為官方 MCP Server 套件類型 -->
+    <PackageType>McpServer</PackageType>
     <!-- 只裝了較新 runtime 的機器也要能執行。 -->
     <RollForward>latestMajor</RollForward>
   </PropertyGroup>
@@ -43,6 +45,7 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
+    <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 

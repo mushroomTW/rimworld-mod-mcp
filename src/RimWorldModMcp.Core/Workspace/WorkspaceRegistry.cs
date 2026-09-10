@@ -1,15 +1,4 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using RimWorldModMcp.Core.Paths;
-
 namespace RimWorldModMcp.Core.Workspace;
-
-/// <summary>已登記工作區的持久化格式。</summary>
-internal sealed record WorkspaceState
-{
-    [JsonPropertyName("roots")]
-    public List<string> Roots { get; init; } = [];
-}
 
 /// <summary>
 /// 一條「已通過寫入邊界驗證」的 Mod 路徑。
@@ -31,47 +20,51 @@ public readonly record struct ValidatedModPath
 }
 
 /// <summary>
-/// 管理使用者登記的 Mod 開發工作區，並強制執行寫入邊界。
+/// 持有本次啟動信任的 Mod 開發工作區，並強制執行寫入邊界。
 ///
 /// <para>
-/// 只有位於已登記工作區內的路徑可以被修改。這是本工具唯一的寫入授權來源。
+/// 工作區只從啟動參數（<c>--workspace</c>）給定，不落地、不能在執行期擴張。
+/// 信任範圍等於 MCP client 設定裡寫的那幾行——改設定即生效，沒有殘留狀態，
+/// 也沒有任何工具能在對話中放寬邊界。這是本工具唯一的寫入授權來源。
 /// </para>
 /// </summary>
-public sealed class WorkspaceRegistry(StoreDirectories store)
+public sealed class WorkspaceRegistry
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private readonly IReadOnlyList<string> _roots;
 
-    /// <summary>目前已登記且仍然存在的工作區根目錄。</summary>
-    public IReadOnlyList<string> Roots()
+    /// <summary>
+    /// 每一條路徑都會被正規化；不存在的目錄直接拋出，讓設定錯誤在啟動時就浮現，
+    /// 而不是等到第一次建置才以「不在工作區內」的形式出現。
+    /// </summary>
+    public WorkspaceRegistry(IEnumerable<string> roots)
     {
-        var state = ReadState();
+        var comparer = StringComparer.FromComparison(Platform.PathText.Comparison);
+        var canonical = new SortedSet<string>(comparer);
 
-        // 已經被刪掉的目錄直接濾掉，不要讓失效的登記卡住後續判定。
-        return [.. state.Roots.Where(Directory.Exists)];
-    }
-
-    /// <summary>登記一個工作區。重複登記同一個目錄是冪等的。</summary>
-    public string Configure(string path)
-    {
-        var root = PathGuard.Canonicalize(path);
-
-        if (!Directory.Exists(root))
+        foreach (var root in roots)
         {
-            throw new DirectoryNotFoundException($"工作區不是目錄：{root}");
+            var path = PathGuard.Canonicalize(root);
+
+            if (!Directory.Exists(path))
+            {
+                throw new DirectoryNotFoundException($"工作區不是目錄：{path}");
+            }
+
+            canonical.Add(path);
         }
 
-        var comparer = StringComparer.FromComparison(Platform.PathText.Comparison);
-        var roots = new SortedSet<string>(Roots(), comparer) { root };
+        _roots = [.. canonical];
+    }
 
-        var file = store.WorkspacesFile;
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        AtomicJson.Write(file, new WorkspaceState { Roots = [.. roots] }, JsonOptions);
-
-        return root;
+    /// <summary>目前信任且仍然存在的工作區根目錄。</summary>
+    public IReadOnlyList<string> Roots()
+    {
+        // 啟動後被刪掉的目錄直接濾掉，不要讓失效的登記卡住後續判定。
+        return [.. _roots.Where(Directory.Exists)];
     }
 
     /// <summary>
-    /// 驗證一個 Mod 路徑落在某個已登記工作區內，回傳帶型別的驗證結果。
+    /// 驗證一個 Mod 路徑落在某個信任的工作區內，回傳帶型別的驗證結果。
     /// 不在範圍內就拋出——這是寫入操作唯一的守門點，
     /// <see cref="ValidatedModPath"/> 只能從這裡產生。
     /// </summary>
@@ -86,25 +79,19 @@ public sealed class WorkspaceRegistry(StoreDirectories store)
 
         foreach (var root in Roots())
         {
-            if (PathGuard.IsWithin(candidate, PathGuard.Canonicalize(root)))
+            if (PathGuard.IsWithin(candidate, root))
             {
                 return new ValidatedModPath(candidate);
             }
         }
 
-        throw new UnauthorizedAccessException("模組路徑不在已登記的工作區內；請先呼叫 configure_workspace。");
+        throw new UnauthorizedAccessException(OutsideWorkspaceMessage);
     }
 
-    private WorkspaceState ReadState()
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<WorkspaceState>(File.ReadAllText(store.WorkspacesFile)) ?? new WorkspaceState();
-        }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
-        {
-            // 讀不到或內容壞掉一律當成「還沒登記過任何工作區」，不要讓工具整個無法啟動。
-            return new WorkspaceState();
-        }
-    }
+    /// <summary>
+    /// 邊界違規的提示。信任範圍不能在對話中擴張，所以訊息指向的是設定檔，
+    /// 而不是某個可以補呼叫的工具。
+    /// </summary>
+    internal const string OutsideWorkspaceMessage =
+        "模組路徑不在信任的工作區內。工作區由 MCP client 設定的啟動參數 --workspace <路徑> 給定，請修改設定後重新啟動。";
 }

@@ -32,17 +32,13 @@ public sealed class StoreDirectories
         _cacheRoot = cacheRoot;
     }
 
-    /// <summary>狀態根目錄（工作區登記、鎖、測試狀態、診斷、快照）。</summary>
+    /// <summary>狀態根目錄（鎖、測試狀態、診斷）。</summary>
     public string DataHome => EnsureExists(_dataRoot);
 
     /// <summary>快取根目錄（索引資料庫、反編譯結果）。</summary>
     public string CacheHome => EnsureExists(_cacheRoot);
 
-    public string WorkspacesFile => Path.Combine(DataHome, "workspaces.json");
-
     public string LocksDirectory => Path.Combine(DataHome, "locks");
-
-    public string SnapshotsDirectory => Path.Combine(DataHome, "snapshots");
 
     public string TestStatusFile => Path.Combine(DataHome, "test-status.json");
 

@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
-using RimWorldModMcp.Core.Assets;
 using RimWorldModMcp.Core.Building;
 using RimWorldModMcp.Core.Workspace;
 
@@ -9,34 +8,17 @@ namespace RimWorldModMcp.Server.Tools;
 
 #pragma warning disable IDE1006 // 參數名刻意使用 snake_case，見 IndexTools 的說明。
 
-/// <summary>Mod 開發工作區、建置與資產的工具。</summary>
+/// <summary>Mod 骨架建立與建置的工具。工作區由啟動參數 --workspace 給定，不在對話中登記。</summary>
 [McpServerToolType]
 public sealed class WorkspaceTools(
     WorkspaceRegistry workspaces,
     ModScaffolder scaffolder,
-    CheckpointService checkpoints,
-    BuildService builds,
-    AssetService assets)
+    BuildService builds)
 {
-    [McpServerTool(Name = "configure_workspace", UseStructuredContent = true)]
-    [Description("登記一個 Mod 開發工作區。只有已登記工作區內的路徑可以被修改，所以建立或修改 Mod 前必須先呼叫這個。")]
-    public ConfigureWorkspaceResult ConfigureWorkspace(
-        [Description("工作區根目錄的絕對路徑。")]
-        string path) => ToolGuard.Run(() =>
-    {
-        var workspace = workspaces.Configure(path);
-
-        return new ConfigureWorkspaceResult
-        {
-            Workspace = workspace,
-            Registered = workspaces.Roots(),
-        };
-    });
-
     [McpServerTool(Name = "create_mod", UseStructuredContent = true, Idempotent = false)]
-    [Description("在已登記的工作區裡建立一個新 Mod 骨架，含 About.xml 與標準目錄結構。")]
+    [Description("在信任的工作區裡建立一個新 Mod 骨架，含 About.xml 與標準目錄結構。C# 骨架的 csproj 已設定好本工具建置時注入的遊戲組件參考，請用它而不是手寫。")]
     public CreateModResult CreateMod(
-        [Description("已登記的工作區根目錄。")]
+        [Description("工作區根目錄，必須是啟動參數 --workspace 給定的路徑本身。")]
         string workspace,
         [Description("Mod 名稱，也會作為資料夾名稱。")]
         string name,
@@ -58,7 +40,7 @@ public sealed class WorkspaceTools(
     [McpServerTool(Name = "build_mod", UseStructuredContent = true)]
     [Description("驗證 XML Mod，或建置 C# Mod 並把產出的 DLL 部署到 Assemblies。失敗時回傳結構化的編譯診斷。")]
     public BuildModResult BuildMod(
-        [Description("Mod 目錄的路徑，必須在已登記的工作區內。")]
+        [Description("Mod 目錄的路徑，必須在啟動參數 --workspace 給定的工作區內。")]
         string path) => ToolGuard.Run(() =>
     {
         var result = builds.Build(workspaces.AllowedMod(path));
@@ -85,104 +67,6 @@ public sealed class WorkspaceTools(
             })],
             ErrorCount = result.Diagnostics.Count(d => d.Severity == "error"),
             WarningCount = result.Diagnostics.Count(d => d.Severity == "warning"),
-        };
-    });
-
-    [McpServerTool(Name = "create_checkpoint", UseStructuredContent = true, Idempotent = false)]
-    [Description("為 Mod 建立一份本機快照，之後可以還原。建置產物與 .git 不會進快照。")]
-    public CheckpointResult CreateCheckpoint(
-        [Description("Mod 目錄的路徑。")]
-        string path) => ToolGuard.Run(() =>
-    {
-        var checkpoint = checkpoints.Create(workspaces.AllowedMod(path));
-
-        return new CheckpointResult
-        {
-            Id = checkpoint.Id,
-            Path = checkpoint.Path,
-            CreatedUtc = checkpoint.CreatedUtc,
-        };
-    });
-
-    [McpServerTool(Name = "list_checkpoints", UseStructuredContent = true, ReadOnly = true)]
-    [Description("列出一個 Mod 的所有快照，由新到舊。")]
-    public ListCheckpointsResult ListCheckpoints(
-        [Description("Mod 目錄的路徑。")]
-        string path) => ToolGuard.Run(() =>
-    {
-        var items = checkpoints.List(workspaces.AllowedMod(path));
-
-        return new ListCheckpointsResult
-        {
-            Results = [.. items.Select(c => new CheckpointResult { Id = c.Id, Path = c.Path, CreatedUtc = c.CreatedUtc })],
-            Count = items.Count,
-        };
-    });
-
-    [McpServerTool(Name = "restore_checkpoint", UseStructuredContent = true, Destructive = true)]
-    [Description("把 Mod 還原到指定快照。這會覆蓋現有內容，所以需要 confirm=true；還原前會自動再建一份快照。")]
-    public RestoreCheckpointResult RestoreCheckpoint(
-        [Description("Mod 目錄的路徑。")]
-        string path,
-        [Description("要還原的快照 ID。")]
-        string checkpoint_id,
-        [Description("必須明確傳 true 才會執行。")]
-        bool confirm = false) => ToolGuard.Run(() =>
-    {
-        if (!confirm)
-        {
-            // 這是「補一個參數就能重試」的情境，訊息必須能送達呼叫端，
-            // 所以直接用 McpException 而不是領域例外。
-            throw new ModelContextProtocol.McpException("還原快照會覆蓋現有內容，需要 confirm=true。");
-        }
-
-        var (restored, safety) = checkpoints.Restore(workspaces.AllowedMod(path), checkpoint_id);
-
-        return new RestoreCheckpointResult
-        {
-            Restored = restored,
-            RestoredFrom = checkpoint_id,
-            PreRestoreCheckpoint = safety,
-        };
-    });
-
-    [McpServerTool(Name = "import_mod_asset", UseStructuredContent = true, Idempotent = false)]
-    [Description("把圖片或音效複製到 Mod 的 Textures/Sounds 目錄，並回傳 RimWorld 使用的引用路徑。")]
-    public ImportAssetResult ImportModAsset(
-        [Description("Mod 目錄的路徑。")]
-        string path,
-        [Description("來源檔案的絕對路徑。")]
-        string source_path,
-        [Description("資產類別：Texture 接受 png/jpg/jpeg，Sound 接受 ogg/wav。")]
-        AssetKind kind) => ToolGuard.Run(() =>
-    {
-        var result = assets.Import(workspaces.AllowedMod(path), source_path, kind);
-
-        return new ImportAssetResult
-        {
-            Asset = result.Asset,
-            Reference = result.Reference,
-        };
-    });
-
-    [McpServerTool(Name = "validate_mod_assets", UseStructuredContent = true, ReadOnly = true)]
-    [Description("檢查 Mod 內資產的副檔名、檔案簽名與大小。副檔名對但內容不符的檔案會讓遊戲載入失敗。")]
-    public ValidateAssetsResult ValidateModAssets(
-        [Description("Mod 目錄的路徑。")]
-        string path) => ToolGuard.Run(() =>
-    {
-        var issues = assets.Validate(workspaces.AllowedMod(path));
-
-        return new ValidateAssetsResult
-        {
-            Results = [.. issues.Select(i => new AssetIssueSummary
-            {
-                Level = i.Level,
-                File = i.File,
-                Message = i.Message,
-            })],
-            Count = issues.Count,
-            ErrorCount = issues.Count(i => i.Level == "error"),
         };
     });
 }
@@ -260,78 +144,4 @@ public sealed record BuildDiagnosticSummary
 
     [JsonPropertyName("column")]
     public int? Column { get; init; }
-}
-
-/// <summary>一份快照。</summary>
-public sealed record CheckpointResult
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
-
-    [JsonPropertyName("path")]
-    public required string Path { get; init; }
-
-    [JsonPropertyName("created_utc")]
-    public required DateTime CreatedUtc { get; init; }
-}
-
-/// <summary>快照清單。</summary>
-public sealed record ListCheckpointsResult
-{
-    [JsonPropertyName("results")]
-    public required IReadOnlyList<CheckpointResult> Results { get; init; }
-
-    [JsonPropertyName("count")]
-    public required int Count { get; init; }
-}
-
-/// <summary>還原快照的結果。</summary>
-public sealed record RestoreCheckpointResult
-{
-    [JsonPropertyName("restored")]
-    public required string Restored { get; init; }
-
-    [JsonPropertyName("restored_from")]
-    public required string RestoredFrom { get; init; }
-
-    /// <summary>還原前自動建立的安全快照，可用來回到還原之前的狀態。</summary>
-    [JsonPropertyName("pre_restore_checkpoint")]
-    public required string PreRestoreCheckpoint { get; init; }
-}
-
-/// <summary>匯入資產的結果。</summary>
-public sealed record ImportAssetResult
-{
-    [JsonPropertyName("asset")]
-    public required string Asset { get; init; }
-
-    /// <summary>RimWorld 引用這個資產時用的路徑（不含副檔名）。</summary>
-    [JsonPropertyName("reference")]
-    public required string Reference { get; init; }
-}
-
-/// <summary>資產檢查結果。</summary>
-public sealed record ValidateAssetsResult
-{
-    [JsonPropertyName("results")]
-    public required IReadOnlyList<AssetIssueSummary> Results { get; init; }
-
-    [JsonPropertyName("count")]
-    public required int Count { get; init; }
-
-    [JsonPropertyName("error_count")]
-    public required int ErrorCount { get; init; }
-}
-
-/// <summary>一筆資產問題。</summary>
-public sealed record AssetIssueSummary
-{
-    [JsonPropertyName("level")]
-    public required string Level { get; init; }
-
-    [JsonPropertyName("file")]
-    public required string File { get; init; }
-
-    [JsonPropertyName("message")]
-    public required string Message { get; init; }
 }

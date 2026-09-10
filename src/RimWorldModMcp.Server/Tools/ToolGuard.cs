@@ -7,8 +7,8 @@ namespace RimWorldModMcp.Server.Tools;
 ///
 /// <para>
 /// MCP SDK 只會把 <see cref="McpException"/> 的訊息傳給呼叫端，其他例外一律變成
-/// 「An error occurred invoking ...」。工具層精心撰寫的錯誤訊息（「請先呼叫
-/// configure_workspace」「需要 confirm=true」）正是給 LLM 呼叫端自我修正用的，
+/// 「An error occurred invoking ...」。工具層精心撰寫的錯誤訊息（「不在信任的
+/// 工作區內」「需要 confirm=true」）正是給 LLM 呼叫端自我修正用的，
 /// 不經過這裡轉換，最需要提示的對象反而什麼都看不到。
 /// </para>
 /// </summary>

@@ -3,10 +3,10 @@
   "mcpServers": {
     "rimworld": {
       "command": "rimworld-mod-mcp",
-      "args": ["stdio"],
+      "args": ["stdio", "--workspace", "C:/path/to/your/mods"],
       "env": {
         "RIMWORLD_MOD_MCP_BRIDGE_PORT": "49461",
-        "RIMWORLD_MOD_MCP_GAME_PATH": "D:\Games\RimWorld"
+        "RIMWORLD_MOD_MCP_GAME_PATH": "D:/Games/RimWorld"
       }
     }
   }

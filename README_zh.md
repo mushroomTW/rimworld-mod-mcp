@@ -28,6 +28,8 @@ C# Bridge 會參考偵測到的 RimWorld 組件；本 repository 不包含任何
 
 ## 安裝
 
+作為 dotnet tool 全域安裝：
+
 ```bash
 dotnet tool install -g RimWorldModMcp
 ```
@@ -39,29 +41,53 @@ dotnet pack src/RimWorldModMcp.Server -c Release -o ./nupkg
 dotnet tool install -g RimWorldModMcp --add-source ./nupkg
 ```
 
+### 打包為獨立單一執行檔（免安裝 .NET 10 Runtime）
+
+若希望在未安裝 .NET 10 的環境執行，或直接以單一執行檔分發，可發佈為 Self-Contained 單一可執行檔：
+
+```bash
+# Windows (x64)
+dotnet publish src/RimWorldModMcp.Server -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
+
+# macOS (Apple Silicon)
+dotnet publish src/RimWorldModMcp.Server -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
+
+# Linux (x64)
+dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
+```
+
+> **注意**：發佈產物包含單一執行檔與 `bridge/` 目錄。若需執行 `run_test_cycle`（遊戲內隔離測試），請保持 `bridge/` 目錄與執行檔位於同層；其餘核心功能（Def 搜尋、反編譯、符號索引）皆已完全內嵌於單一執行檔內。
+
 ## MCP client 設定
 
-安裝後 `rimworld-mod-mcp` 會在 PATH 上，設定不需要絕對路徑：
+安裝為 dotnet tool 後 `rimworld-mod-mcp` 會在 PATH 上，設定不需要絕對路徑：
 
 ```json
 {
   "mcpServers": {
     "rimworld": {
       "command": "rimworld-mod-mcp",
-      "args": ["stdio"]
+      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
     }
   }
 }
 ```
 
+`--workspace` 指定 Mod 開發工作區，可重複多次。**這是本工具唯一的寫入授權來源**：只有這些目錄內的路徑能被建立、建置或測試，改設定即生效，對話中沒有任何工具能放寬它。不給 `--workspace` 也能啟動，但只剩唯讀工具可用。
+
 範本在 [examples/](examples/)：[Claude Code](examples/claude-code.mcp.json)、[Codex](examples/codex-mcp.toml)、[自訂埠與遊戲路徑](examples/custom-port.mcp.json)。
 
-不想全域安裝的話，也可以直接指向建置產物——見 [local-build.mcp.json](examples/local-build.mcp.json)：
+若使用獨立單一執行檔發佈（或本機建置產物），也可以直接指向該執行檔路徑——見 [local-build.mcp.json](examples/local-build.mcp.json)：
 
-```bash
-dotnet build -c Release
-# 然後把 client 的 command 指向
-# src/RimWorldModMcp.Server/bin/Release/net10.0/RimWorldModMcp.Server.exe
+```json
+{
+  "mcpServers": {
+    "rimworld": {
+      "command": "C:\\path\\to\\publish\\RimWorldModMcp.Server.exe",
+      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+    }
+  }
+}
 ```
 
 ## 首次使用
@@ -69,9 +95,7 @@ dotnet build -c Release
 1. 在 MCP client 設定好 server。
 2. 呼叫 `rimworld_status`，確認 RimWorld 已被偵測到。
 3. 呼叫一次 `rebuild_index`。Def 與符號索引數秒完成即可使用；原始碼全文索引會在背景繼續，完成前 `search_source` 會回報 `source_indexed: false`。
-4. 建立、修改、建置或測試 Mod 之前，先呼叫 `configure_workspace`。
-
-**只有位於已登記工作區內的路徑可以被修改。** 這是本工具唯一的寫入邊界。
+**只有位於 `--workspace` 給定工作區內的路徑可以被修改。** 這是本工具唯一的寫入邊界。
 
 ## 工具
 
@@ -96,18 +120,14 @@ dotnet build -c Release
 | `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。 |
 | `search_installed_mod_source` | 搜尋一個 Mod 的原始碼。 |
 
-### 工作區、建置與資產
+### 建置
 
 | 工具 | 用途 |
 | --- | --- |
-| `configure_workspace` | 登記 Mod 開發工作區。 |
-| `create_mod` | 建立 Mod 骨架，可含 C# 專案。 |
-| `build_mod` | 驗證 XML Mod 或建置 C# Mod 並部署 DLL。 |
-| `create_checkpoint` | 建立本機快照。 |
-| `list_checkpoints` | 列出快照。 |
-| `restore_checkpoint` | 還原快照，需要 `confirm: true`。 |
-| `import_mod_asset` | 匯入圖片或音效。 |
-| `validate_mod_assets` | 檢查資產的副檔名、檔案簽名與大小。 |
+| `create_mod` | 建立 Mod 骨架，可含 C# 專案；csproj 已設定好遊戲組件參考。 |
+| `build_mod` | 驗證 XML Mod 或建置 C# Mod 並部署 DLL，編譯錯誤以結構化診斷回傳。 |
+
+工具集刻意只保留 AI coding agent 自己做不到的事：查詢遊戲與其他 Mod 的 Def 與反編譯原始碼、建置、在隔離環境啟動遊戲測試。複製檔案、建目錄、版本快照這類 agent 原生就能做的事不提供工具——版本管理請用 Git。
 
 ### 測試與診斷
 
@@ -141,10 +161,10 @@ dotnet build -c Release
 
 ## 安全與隱私
 
-- 所有寫入限制在已登記的工作區內。
+- 所有寫入限制在啟動參數 `--workspace` 給定的工作區內；信任範圍不能在執行期擴張。
 - 沒有任何外部網路通訊。遊戲檔、反編譯結果、索引與診斷都只存在本機。
 - Bridge 只在 `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` 存在時啟用，且只連 `127.0.0.1`。每個測試場次使用一次性 token；token 不會被寫入診斷紀錄，也不會出現在工具回應中。
-- 破壞性操作（`restore_checkpoint`、`stop_test`）需要明確的 `confirm: true`。
+- 破壞性操作（`stop_test`）需要明確的 `confirm: true`。
 
 ## 環境變數
 

@@ -1,4 +1,3 @@
-using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
 using RimWorldModMcp.Core.Workspace;
 
@@ -7,14 +6,10 @@ namespace RimWorldModMcp.Core.Tests;
 public sealed class WorkspaceRegistryTests : IDisposable
 {
     private readonly string _root;
-    private readonly StoreDirectories _store;
-    private readonly WorkspaceRegistry _registry;
 
     public WorkspaceRegistryTests()
     {
         _root = Path.Combine(Path.GetTempPath(), "rwmm-ws-" + Guid.NewGuid().ToString("n")[..12]);
-        _store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));
-        _registry = new WorkspaceRegistry(_store);
     }
 
     public void Dispose()
@@ -45,24 +40,24 @@ public sealed class WorkspaceRegistryTests : IDisposable
     }
 
     [Fact]
-    public void ConfiguredWorkspaceAllowsPathsInsideIt()
+    public void TrustedWorkspaceAllowsPathsInsideIt()
     {
         var workspace = MakeDirectory("workspace");
         var mod = Path.Combine(workspace, "MyMod");
         Directory.CreateDirectory(mod);
 
-        _registry.Configure(workspace);
+        var registry = new WorkspaceRegistry([workspace]);
 
-        Assert.Equal(PathGuard.Canonicalize(mod), _registry.AllowedMod(mod).Value);
+        Assert.Equal(PathGuard.Canonicalize(mod), registry.AllowedMod(mod).Value);
     }
 
     [Fact]
     public void WorkspaceRootItselfIsAllowed()
     {
         var workspace = MakeDirectory("workspace");
-        _registry.Configure(workspace);
+        var registry = new WorkspaceRegistry([workspace]);
 
-        Assert.Equal(PathGuard.Canonicalize(workspace), _registry.AllowedMod(workspace).Value);
+        Assert.Equal(PathGuard.Canonicalize(workspace), registry.AllowedMod(workspace).Value);
     }
 
     [Fact]
@@ -71,10 +66,22 @@ public sealed class WorkspaceRegistryTests : IDisposable
         var workspace = MakeDirectory("workspace");
         var outside = MakeDirectory("elsewhere");
 
-        _registry.Configure(workspace);
+        var registry = new WorkspaceRegistry([workspace]);
 
-        var error = Assert.Throws<UnauthorizedAccessException>(() => _registry.AllowedMod(outside));
-        Assert.Contains("已登記的工作區", error.Message, StringComparison.Ordinal);
+        var error = Assert.Throws<UnauthorizedAccessException>(() => registry.AllowedMod(outside));
+        Assert.Contains("--workspace", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NoWorkspaceMeansNothingIsWritable()
+    {
+        var mod = MakeDirectory("mod");
+
+        // 沒給 --workspace 就只剩唯讀工具能用，這是刻意的預設。
+        var registry = new WorkspaceRegistry([]);
+
+        Assert.Empty(registry.Roots());
+        Assert.Throws<UnauthorizedAccessException>(() => registry.AllowedMod(mod));
     }
 
     [Fact]
@@ -84,10 +91,10 @@ public sealed class WorkspaceRegistryTests : IDisposable
         MakeDirectory("secrets");
         Directory.CreateDirectory(Path.Combine(workspace, "MyMod"));
 
-        _registry.Configure(workspace);
+        var registry = new WorkspaceRegistry([workspace]);
 
         var traversal = Path.Combine(workspace, "MyMod", "..", "..", "secrets");
-        Assert.Throws<UnauthorizedAccessException>(() => _registry.AllowedMod(traversal));
+        Assert.Throws<UnauthorizedAccessException>(() => registry.AllowedMod(traversal));
     }
 
     /// <summary>
@@ -112,9 +119,9 @@ public sealed class WorkspaceRegistryTests : IDisposable
         var escape = Path.Combine(workspace, "escape");
         new DirectoryLink().EnsureLink(escape, outside);
 
-        _registry.Configure(workspace);
+        var registry = new WorkspaceRegistry([workspace]);
 
-        Assert.Throws<UnauthorizedAccessException>(() => _registry.AllowedMod(escape));
+        Assert.Throws<UnauthorizedAccessException>(() => registry.AllowedMod(escape));
     }
 
     [Fact]
@@ -123,29 +130,27 @@ public sealed class WorkspaceRegistryTests : IDisposable
         var workspace = MakeDirectory("workspace");
         var sibling = MakeDirectory("workspace-evil");
 
-        _registry.Configure(workspace);
+        var registry = new WorkspaceRegistry([workspace]);
 
         // 字串前綴比對會誤放這個目錄，必須以路徑分隔符為邊界。
-        Assert.Throws<UnauthorizedAccessException>(() => _registry.AllowedMod(sibling));
+        Assert.Throws<UnauthorizedAccessException>(() => registry.AllowedMod(sibling));
     }
 
     [Fact]
-    public void ConfigureIsIdempotentAndPersists()
+    public void DuplicateRootsCollapseToOne()
     {
         var workspace = MakeDirectory("workspace");
 
-        _registry.Configure(workspace);
-        _registry.Configure(workspace);
+        // 同一個目錄給兩次（例如一次帶尾端分隔符）只算一條。
+        var registry = new WorkspaceRegistry([workspace, workspace + Path.DirectorySeparatorChar]);
 
-        Assert.Single(_registry.Roots());
-
-        // 換一個實例讀，確認真的落到磁碟上。
-        Assert.Single(new WorkspaceRegistry(_store).Roots());
+        Assert.Single(registry.Roots());
     }
 
     [Fact]
-    public void MissingDirectoryIsRejected()
+    public void MissingDirectoryIsRejectedAtConstruction()
     {
-        Assert.Throws<DirectoryNotFoundException>(() => _registry.Configure(Path.Combine(_root, "nope")));
+        // 設定打錯路徑要在啟動時就失敗，不能靜默變成「沒有工作區」。
+        Assert.Throws<DirectoryNotFoundException>(() => new WorkspaceRegistry([Path.Combine(_root, "nope")]));
     }
 }

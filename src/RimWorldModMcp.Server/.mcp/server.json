@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "description": "本機執行的 RimWorld Mod 開發 MCP server：索引遊戲的 Def 與 C# API、建置 Mod、在隔離環境測試。",
+  "name": "rimworld-mod-mcp",
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "identifier": "RimWorldModMcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "stdio",
+          "valueHint": "stdio",
+          "description": "以 stdio 傳輸執行 MCP server。"
+        },
+        {
+          "type": "named",
+          "name": "--workspace",
+          "description": "信任的 Mod 開發工作區根目錄；只有這些目錄內的路徑能被建立、建置或測試。可重複指定多個。",
+          "isRequired": false,
+          "isRepeated": true,
+          "valueHint": "path"
+        }
+      ],
+      "environmentVariables": []
+    }
+  ]
+}

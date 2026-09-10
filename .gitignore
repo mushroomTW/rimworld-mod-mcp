@@ -9,3 +9,6 @@ bridge/Assemblies/
 .vs/
 .idea/
 .omc/
+
+# 單一執行檔發佈產物，以 GitHub Release 分發，不進版控。
+publish/

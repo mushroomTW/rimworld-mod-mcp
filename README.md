@@ -28,6 +28,8 @@ The C# bridge references the RimWorld assemblies it detects; this repository con
 
 ## Installation
 
+As a global dotnet tool:
+
 ```bash
 dotnet tool install -g RimWorldModMcp
 ```
@@ -39,29 +41,53 @@ dotnet pack src/RimWorldModMcp.Server -c Release -o ./nupkg
 dotnet tool install -g RimWorldModMcp --add-source ./nupkg
 ```
 
+### Publishing as a standalone single executable (no .NET 10 Runtime required)
+
+To run without installing .NET 10 or to distribute as a standalone executable, publish as a self-contained single file:
+
+```bash
+# Windows (x64)
+dotnet publish src/RimWorldModMcp.Server -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
+
+# macOS (Apple Silicon)
+dotnet publish src/RimWorldModMcp.Server -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
+
+# Linux (x64)
+dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
+```
+
+> **Note**: The publish output contains the single executable and the `bridge/` directory. Keep the `bridge/` directory alongside the executable if you need `run_test_cycle` (isolated in-game testing); all other core features (Def search, decompilation, symbol indexing) are fully embedded inside the executable.
+
 ## MCP client configuration
 
-After installation `rimworld-mod-mcp` is on your PATH, so no absolute paths are needed:
+When installed as a dotnet tool, `rimworld-mod-mcp` is on your PATH, so no absolute paths are needed:
 
 ```json
 {
   "mcpServers": {
     "rimworld": {
       "command": "rimworld-mod-mcp",
-      "args": ["stdio"]
+      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
     }
   }
 }
 ```
 
+`--workspace` names a mod development workspace and may be repeated. **It is the tool's only source of write authorization**: only paths inside these directories can be created, built, or tested; changing the config is all it takes, and no tool can widen it mid-conversation. The server starts without `--workspace`, but then only read-only tools are usable.
+
 Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp.json), [Codex](examples/codex-mcp.toml), [custom port and game path](examples/custom-port.mcp.json).
 
-If you would rather not install globally, point the client straight at the build output — see [local-build.mcp.json](examples/local-build.mcp.json):
+If you use the standalone executable (or want to point to local build output), point the command directly to the executable path — see [local-build.mcp.json](examples/local-build.mcp.json):
 
-```bash
-dotnet build -c Release
-# then set the client's command to
-# src/RimWorldModMcp.Server/bin/Release/net10.0/RimWorldModMcp.Server.exe
+```json
+{
+  "mcpServers": {
+    "rimworld": {
+      "command": "C:\\path\\to\\publish\\RimWorldModMcp.Server.exe",
+      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+    }
+  }
+}
 ```
 
 ## First use
@@ -69,9 +95,7 @@ dotnet build -c Release
 1. Configure the server in your MCP client.
 2. Call `rimworld_status` to confirm RimWorld was detected.
 3. Call `rebuild_index` once. Def and symbol indexing finishes in seconds and is immediately usable; the source-code full-text index continues in the background, and `search_source` reports `source_indexed: false` until it completes.
-4. Call `configure_workspace` before creating, modifying, building, or testing a mod.
-
-**Only paths inside a registered workspace can be modified.** This is the tool's single write boundary.
+**Only paths inside a `--workspace` directory can be modified.** This is the tool's single write boundary.
 
 ## Tools
 
@@ -96,18 +120,14 @@ dotnet build -c Release
 | `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. |
 | `search_installed_mod_source` | Search one mod's source. |
 
-### Workspace, build, and assets
+### Build
 
 | Tool | Purpose |
 | --- | --- |
-| `configure_workspace` | Register a mod development workspace. |
-| `create_mod` | Create a mod skeleton, optionally with a C# project. |
-| `build_mod` | Validate an XML mod, or build a C# mod and deploy its DLL. |
-| `create_checkpoint` | Create a local snapshot. |
-| `list_checkpoints` | List snapshots. |
-| `restore_checkpoint` | Restore a snapshot; requires `confirm: true`. |
-| `import_mod_asset` | Import an image or sound. |
-| `validate_mod_assets` | Check asset extensions, file signatures, and size. |
+| `create_mod` | Create a mod skeleton, optionally with a C# project whose csproj already references the game assemblies. |
+| `build_mod` | Validate an XML mod, or build a C# mod and deploy its DLL; compiler errors come back as structured diagnostics. |
+
+The tool set deliberately covers only what an AI coding agent cannot do on its own: querying Defs and decompiled source from the game and other mods, building, and launching the game in an isolated test session. Copying files, creating directories, and snapshots are things the agent already does natively, so no tools are provided for them — use Git for version control.
 
 ### Testing and diagnostics
 
@@ -141,10 +161,10 @@ Once tier 1 completes, Def search, symbol lookup, inheritance chains, and `read_
 
 ## Security and privacy
 
-- All writes are confined to registered workspaces.
+- All writes are confined to the workspaces given by the `--workspace` startup argument; the trusted set cannot grow at runtime.
 - No external network communication. Game files, decompiled output, indexes, and diagnostics stay local.
 - The bridge activates only when `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` is present and connects only to `127.0.0.1`. Each test session uses a single-use token; the token is never written to diagnostic records and never appears in tool responses.
-- Destructive operations (`restore_checkpoint`, `stop_test`) require an explicit `confirm: true`.
+- Destructive operations (`stop_test`) require an explicit `confirm: true`.
 
 ## Environment variables
 

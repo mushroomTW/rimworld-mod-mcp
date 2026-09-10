@@ -1,4 +1,3 @@
-using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Workspace;
 
 namespace RimWorldModMcp.Core.Tests;
@@ -7,7 +6,6 @@ public sealed class ModScaffolderTests : IDisposable
 {
     private readonly string _root;
     private readonly string _workspace;
-    private readonly WorkspaceRegistry _registry;
     private readonly ModScaffolder _scaffolder;
 
     public ModScaffolderTests()
@@ -16,11 +14,7 @@ public sealed class ModScaffolderTests : IDisposable
         _workspace = Path.Combine(_root, "workspace");
         Directory.CreateDirectory(_workspace);
 
-        var store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));
-        _registry = new WorkspaceRegistry(store);
-        _scaffolder = new ModScaffolder(_registry);
-
-        _registry.Configure(_workspace);
+        _scaffolder = new ModScaffolder(new WorkspaceRegistry([_workspace]));
     }
 
     public void Dispose()
@@ -99,7 +93,7 @@ public sealed class ModScaffolderTests : IDisposable
         Assert.Throws<UnauthorizedAccessException>(() => _scaffolder.Create(other, "Mod", "author.mod", withCode: false));
     }
 
-    /// <summary>workspace 參數必須是已登記的根目錄本身，不接受它底下的子目錄。</summary>
+    /// <summary>workspace 參數必須是信任的根目錄本身，不接受它底下的子目錄。</summary>
     [Fact]
     public void SubdirectoryOfARegisteredRootIsRejected()
     {
