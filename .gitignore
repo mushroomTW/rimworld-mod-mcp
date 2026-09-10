@@ -12,3 +12,7 @@ bridge/Assemblies/
 
 # 單一執行檔發佈產物，以 GitHub Release 分發，不進版控。
 publish/
+
+# README 的「從原始碼安裝」步驟會把 nupkg 打包到這裡，不進版控。
+nupkg/
+*.nupkg
