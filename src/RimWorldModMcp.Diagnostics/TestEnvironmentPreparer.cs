@@ -23,7 +23,7 @@ public sealed record PreparedEnvironment(
 /// </para>
 /// </summary>
 public sealed class TestEnvironmentPreparer(
-    IDirectoryLink links,
+    DirectoryLink links,
     StoreDirectories store,
     BridgeBuilder bridgeBuilder)
 {
@@ -96,7 +96,7 @@ public sealed class TestEnvironmentPreparer(
         }
     }
 
-    /// <summary>移除一條連結。語意見 <see cref="IDirectoryLink.RemoveLink"/>。</summary>
+    /// <summary>移除一條連結。語意見 <see cref="DirectoryLink.RemoveLink"/>。</summary>
     public LinkRemoval RemoveLink(TestLink link) => links.RemoveLink(link.Link, link.Target);
 
     /// <summary>回滾用：逐一移除，結果不回報（呼叫端正在處理更早的失敗）。</summary>

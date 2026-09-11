@@ -22,7 +22,7 @@ public sealed record ModAssemblyInfo(string Name, string Path, int SymbolCount, 
 /// </summary>
 public sealed class ModInspectionService(
     IndexDatabase database,
-    IMemberDecompiler decompiler,
+    MemberDecompiler decompiler,
     CriticalSectionLock locks,
     SourceQueryService sourceQueries)
 {

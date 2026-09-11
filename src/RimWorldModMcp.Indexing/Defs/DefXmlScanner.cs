@@ -1,76 +1,14 @@
-using System.Xml;
 using System.Xml.Linq;
 using RimWorldModMcp.Indexing.Model;
 
 namespace RimWorldModMcp.Indexing.Defs;
 
-/// <summary>掃描並解析 RimWorld 的 Def XML。</summary>
-public sealed class DefXmlScanner
+/// <summary>解析 RimWorld 的 Def XML 元素。</summary>
+internal static class DefXmlScanner
 {
     /// <summary>
-    /// 掃描 <c>Data/</c> 底下所有 pack（Core 與各 DLC）的 Def 定義。
-    /// </summary>
-    public IEnumerable<DefRecord> Scan(string dataDirectory)
-    {
-        foreach (var pack in Directory.GetDirectories(dataDirectory).Order())
-        {
-            var defsRoot = Path.Combine(pack, "Defs");
-
-            if (!Directory.Exists(defsRoot))
-            {
-                continue;
-            }
-
-            var packName = Path.GetFileName(pack);
-
-            foreach (var file in Directory.EnumerateFiles(defsRoot, "*.xml", SearchOption.AllDirectories))
-            {
-                foreach (var record in ParseFile(file, dataDirectory, packName))
-                {
-                    yield return record;
-                }
-            }
-        }
-    }
-
-    /// <summary>解析單一 XML 檔中的所有 Def。無法解析的檔案會被安靜略過。</summary>
-    public IEnumerable<DefRecord> ParseFile(string path, string relativeTo, string packName)
-    {
-        XDocument document;
-
-        try
-        {
-            // 用檔案串流讓 XML 宣告決定編碼——RimWorld 的 Def 檔有些帶 BOM、
-            // 有些是 UTF-16，用 ReadAllText 再 Parse 會在那些檔案上失敗。
-            using var stream = File.OpenRead(path);
-            document = XDocument.Load(stream, LoadOptions.None);
-        }
-        catch (Exception e) when (e is IOException or XmlException or UnauthorizedAccessException)
-        {
-            yield break;
-        }
-
-        var root = document.Root;
-
-        // 只有根節點是 <Defs> 的才是定義檔。Patches/ 底下的 PatchOperation、
-        // About.xml、語言檔都會在這裡被擋掉。
-        if (root is null || root.Name.LocalName != "Defs")
-        {
-            yield break;
-        }
-
-        var filePath = Path.GetRelativePath(relativeTo, path).Replace('\\', '/');
-
-        foreach (var record in ParseElements(root, packName, filePath))
-        {
-            yield return record;
-        }
-    }
-
-    /// <summary>
     /// 從已解析好的 <c>&lt;Defs&gt;</c> 根節點抽出所有 Def。
-    /// 單趟掃描（<see cref="DefDataScan"/>）與逐檔解析共用這一段，
-    /// 解析與抽取才不會有兩份會漂移的實作。
+    /// 供單趟掃描（<see cref="DefDataScan"/>）使用。
     /// </summary>
     internal static IEnumerable<DefRecord> ParseElements(XElement root, string packName, string filePath)
     {

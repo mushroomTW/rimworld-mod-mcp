@@ -43,7 +43,4 @@ public static class Utf8Text
         truncated = true;
         return value[..charsRead];
     }
-
-    /// <summary>把使用者提供的位元組上限鉗制到 [<paramref name="min"/>, <paramref name="max"/>]。</summary>
-    public static int Clamp(int requested, int min, int max) => Math.Clamp(requested, min, max);
 }

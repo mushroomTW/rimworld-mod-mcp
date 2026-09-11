@@ -22,7 +22,7 @@ public sealed class IndexTools(
     IndexBuilder builder,
     SourceIndexer sourceIndexer,
     SourceQueryService sourceQueries,
-    IMemberDecompiler decompiler)
+    MemberDecompiler decompiler)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("回報偵測到的 RimWorld 安裝路徑與索引狀態。開始任何工作前先呼叫這個確認環境就緒。")]
@@ -163,7 +163,7 @@ public sealed class IndexTools(
 
                 if (source is not null)
                 {
-                    body = Utf8Text.Truncate(source, Utf8Text.Clamp(max_bytes, 256, 32768), out var wasTruncated);
+                    body = Utf8Text.Truncate(source, Math.Clamp(max_bytes, 256, 32768), out var wasTruncated);
                     truncated = wasTruncated;
                 }
             }

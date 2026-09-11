@@ -185,7 +185,7 @@ public sealed class DefRepository
             command.Parameters.AddWithValue("$type", defType);
         }
 
-        return ReadHits(command, includeXml: true, Utf8Text.Clamp(maxBytes, 1024, 262144));
+        return ReadHits(command, includeXml: true, Math.Clamp(maxBytes, 1024, 262144));
     }
 
     public static long Count(SqliteConnection connection)

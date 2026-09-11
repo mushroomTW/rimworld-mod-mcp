@@ -19,7 +19,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StoreDirectories>();
         services.AddSingleton<IRimWorldLocator, RimWorldLocator>();
         services.AddSingleton<IProcessHost, ProcessHost>();
-        services.AddSingleton<IDirectoryLink, DirectoryLink>();
+        services.AddSingleton<DirectoryLink>();
         services.AddSingleton<CriticalSectionLock>();
         services.AddSingleton(new WorkspaceRegistry(workspaces));
         services.AddSingleton<ModScaffolder>();

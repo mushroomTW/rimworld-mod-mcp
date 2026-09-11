@@ -89,7 +89,7 @@ public sealed class SymbolRepository
 
         command.Parameters.AddWithValue("$name", name);
         command.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
-        command.Parameters.AddWithValue("$limit", Utf8Text.Clamp(limit, 1, 100));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
 
         return ReadHits(command);
     }
@@ -155,7 +155,7 @@ public sealed class SymbolRepository
             """;
 
         command.Parameters.AddWithValue("$needle", $"%|{FtsQuery.LikeLiteral(baseTypeFqn)}|%");
-        command.Parameters.AddWithValue("$limit", Utf8Text.Clamp(limit, 1, 500));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
 
         return ReadHits(command);
     }

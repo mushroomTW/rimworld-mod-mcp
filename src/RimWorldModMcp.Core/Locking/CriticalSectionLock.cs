@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using RimWorldModMcp.Core.Paths;
@@ -62,7 +63,7 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 
                 var record = new LockRecord
                 {
-                    Token = Convert.ToHexString(RandomBytes(18)).ToLowerInvariant(),
+                    Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(18)).ToLowerInvariant(),
                     ProcessId = Environment.ProcessId,
                     CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     StartTimeUtc = processes.StartTimeUtc(Environment.ProcessId),
@@ -203,13 +204,6 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
         }
-    }
-
-    private static byte[] RandomBytes(int count)
-    {
-        var bytes = new byte[count];
-        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
-        return bytes;
     }
 
     private sealed class Holder(CriticalSectionLock owner, string name, string token) : IDisposable

@@ -93,7 +93,7 @@ public sealed partial class BuildService(IRimWorldLocator locator)
 
     private BuildResult BuildProject(string mod, string project)
     {
-        var startInfo = new ProcessStartInfo(DotnetExecutable())
+        var startInfo = new ProcessStartInfo(DotnetHost.Executable())
         {
             WorkingDirectory = mod,
             UseShellExecute = false,
@@ -185,8 +185,6 @@ public sealed partial class BuildService(IRimWorldLocator locator)
             Message = message,
         };
     }
-
-    private static string DotnetExecutable() => DotnetHost.Executable();
 
     private static void ValidateAbout(string mod)
     {

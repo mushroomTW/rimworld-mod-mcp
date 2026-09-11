@@ -3,33 +3,7 @@ using System.Runtime.InteropServices;
 namespace RimWorldModMcp.Core.Platform;
 
 /// <summary>
-/// 在 RimWorld 的 Mods 目錄底下建立與移除指向工作區的目錄連結。
-///
-/// <para>
-/// Windows 走 junction（見 <see cref="WindowsJunction"/>，免管理員權限），
-/// macOS 與 Linux 走 symbolic link。
-/// </para>
-/// </summary>
-public interface IDirectoryLink
-{
-    /// <summary>
-    /// 確保 <paramref name="linkPath"/> 是一個指向 <paramref name="targetPath"/> 的連結。
-    /// 已經是就直接返回（冪等）；被其他東西占用則拋出，絕不覆寫。
-    /// </summary>
-    void EnsureLink(string linkPath, string targetPath);
-
-    /// <summary>此路徑是否為「本工具建立、且指向指定目標」的連結。</summary>
-    bool IsOwnedLink(string linkPath, string targetPath);
-
-    /// <summary>
-    /// 移除本工具建立的連結。不是本工具建立的、或指向別處的，一律不動作。
-    /// <b>只移除連結本身，永遠不會碰到目標目錄的內容。</b>
-    /// </summary>
-    LinkRemoval RemoveLink(string linkPath, string targetPath);
-}
-
-/// <summary>
-/// <see cref="IDirectoryLink.RemoveLink"/> 的結果。
+/// <see cref="DirectoryLink.RemoveLink"/> 的結果。
 ///
 /// <para>
 /// 「已消失」與「存在但我們拒絕碰」必須能區分：把後者當成功，
@@ -48,8 +22,15 @@ public enum LinkRemoval
     Failed,
 }
 
-/// <inheritdoc cref="IDirectoryLink"/>
-public sealed class DirectoryLink : IDirectoryLink
+/// <summary>
+/// 在 RimWorld 的 Mods 目錄底下建立與移除指向工作區的目錄連結。
+///
+/// <para>
+/// Windows 走 junction（見 <see cref="WindowsJunction"/>，免管理員權限），
+/// macOS 與 Linux 走 symbolic link。
+/// </para>
+/// </summary>
+public sealed class DirectoryLink
 {
     /// <summary>本工具建立的連結一律帶這個前綴，是三重防線的第一重。</summary>
     public const string LinkPrefix = "RimWorldModMcp-";

@@ -8,17 +8,8 @@ using ICSharpCode.Decompiler.TypeSystem;
 
 namespace RimWorldModMcp.Indexing.Decompilation;
 
-/// <summary>依需求把單一成員或整個組件反編譯成 C# 原始碼。</summary>
-public interface IMemberDecompiler
-{
-    /// <summary>反編譯單一成員（型別、方法、屬性、欄位）。</summary>
-    string? DecompileMember(string assemblyPath, int metadataToken);
-
-    /// <summary>反編譯整個組件，逐檔回傳。</summary>
-    IEnumerable<(string Path, string Text)> DecompileAll(string assemblyPath, CancellationToken cancellationToken = default);
-}
-
 /// <summary>
+/// 依需求把單一成員或整個組件反編譯成 C# 原始碼。
 /// 以 ICSharpCode.Decompiler 實作的反編譯器。
 ///
 /// <para>
@@ -27,7 +18,7 @@ public interface IMemberDecompiler
 /// 錯誤是真的例外，而且可以精確到「只反編譯這一個方法」。
 /// </para>
 /// </summary>
-public sealed class MemberDecompiler : IMemberDecompiler, IDisposable
+public sealed class MemberDecompiler : IDisposable
 {
     // CSharpDecompiler 不是 thread-safe，每個組件各自持有一個實例並在使用時上鎖。
     private readonly ConcurrentDictionary<string, Lazy<DecompilerHandle>> _handles = new(StringComparer.OrdinalIgnoreCase);
