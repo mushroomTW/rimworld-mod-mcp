@@ -34,9 +34,14 @@ public sealed class TestCycleService(
     DaemonBootstrapper daemons,
     DiagnosticStore diagnostics)
 {
-    public TestSession Start(string modPath, IReadOnlyList<string>? companionMods, bool quickTest)
+    public TestSession Start(
+        string modPath,
+        IReadOnlyList<string>? companionMods,
+        bool quickTest,
+        IReadOnlyList<string>? seedConfig = null)
     {
         var mod = PathText.ResolveDirectory(modPath);
+        var seedFiles = ResolveSeedConfig(seedConfig);
         var paths = locator.Detect();
 
         if (paths.Executable is null || paths.ModsDir is null)
@@ -83,7 +88,7 @@ public sealed class TestCycleService(
                 throw new InvalidOperationException("RimWorld 正在執行中。請先關閉遊戲再開始測試。");
             }
 
-            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token);
+            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles);
 
             diagnostics.Clear();
 
@@ -152,6 +157,33 @@ public sealed class TestCycleService(
         {
             locks.Release("test", lockToken);
         }
+    }
+
+    /// <summary>進臨界區之前就把設定檔路徑驗證完，缺檔不該走到佈置環境才失敗。</summary>
+    private static IReadOnlyList<string> ResolveSeedConfig(IReadOnlyList<string>? seedConfig)
+    {
+        if (seedConfig is null || seedConfig.Count == 0)
+        {
+            return [];
+        }
+
+        var resolved = new List<string>(seedConfig.Count);
+
+        foreach (var entry in seedConfig)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(entry, nameof(seedConfig));
+
+            var full = Path.GetFullPath(PathText.ExpandUser(entry));
+
+            if (!File.Exists(full))
+            {
+                throw new FileNotFoundException($"seed_config 的檔案不存在：{full}", full);
+            }
+
+            resolved.Add(full);
+        }
+
+        return resolved;
     }
 
     /// <summary>停止測試場次並清理。</summary>

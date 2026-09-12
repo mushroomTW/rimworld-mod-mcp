@@ -39,7 +39,8 @@ public sealed class TestEnvironmentPreparer(
         string packageId,
         RimWorldPaths paths,
         IReadOnlyList<string> orderedActiveMods,
-        string token)
+        string token,
+        IReadOnlyList<string> seedConfigFiles)
     {
         var createdLinks = new List<TestLink>();
 
@@ -51,7 +52,8 @@ public sealed class TestEnvironmentPreparer(
             var configDirectory = Path.Combine(saveData, "Config");
             Directory.CreateDirectory(configDirectory);
 
-            var testLink = Path.Combine(paths.ModsDir!, DirectoryLink.LinkPrefix + "Test-" + packageId);
+            var testFolderName = DirectoryLink.LinkPrefix + "Test-" + packageId;
+            var testLink = Path.Combine(paths.ModsDir!, testFolderName);
             links.EnsureLink(testLink, modPath);
             createdLinks.Add(new TestLink(testLink, modPath));
 
@@ -83,6 +85,7 @@ public sealed class TestEnvironmentPreparer(
 
             WriteModsConfig(configDirectory, paths.ModsConfig, activeMods);
             CopyPrefs(configDirectory, paths.PrefsXml);
+            SeedConfig(configDirectory, seedConfigFiles, testFolderName);
             WriteBridgeToken(token);
 
             return new PreparedEnvironment(saveData, createdLinks, activeMods, bridgeState);
@@ -229,6 +232,53 @@ public sealed class TestEnvironmentPreparer(
         {
             // 沒有 Prefs.xml 也能跑，只是遊戲會用預設值。
         }
+    }
+
+    /// <summary>
+    /// 把呼叫端指定的設定檔（通常是受測 Mod 的 ModSettings）複製進隔離環境的 Config 目錄。
+    /// 只寫 ModsConfig.xml 的話，每場測試都是「全新安裝」的設定值，
+    /// 依賴特定設定才會觸發的路徑永遠測不到。
+    /// </summary>
+    private static void SeedConfig(string configDirectory, IReadOnlyList<string> files, string testFolderName)
+    {
+        foreach (var source in files)
+        {
+            var target = SeedFileName(Path.GetFileName(source), testFolderName);
+
+            if (string.Equals(target, "ModsConfig.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                // 啟用清單是隔離的核心，讓它被覆寫就等於沒隔離。
+                throw new InvalidOperationException($"seed_config 不能覆寫 ModsConfig.xml：{source}");
+            }
+
+            File.Copy(source, Path.Combine(configDirectory, target), overwrite: true);
+        }
+    }
+
+    /// <summary>
+    /// RimWorld 以 <c>Mod_&lt;Mod 資料夾名&gt;_&lt;Mod 類別名&gt;.xml</c> 讀取 ModSettings，
+    /// 而測試場次裡受測 Mod 的資料夾名是臨時連結名——從使用者正式環境複製來的
+    /// 設定檔若不改名，遊戲會當作沒有設定。類別名取最後一個底線之後的部分。
+    /// </summary>
+    public static string SeedFileName(string fileName, string testFolderName)
+    {
+        const string prefix = "Mod_";
+
+        if (!fileName.StartsWith(prefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return fileName;
+        }
+
+        var stem = fileName[prefix.Length..^4];
+        var split = stem.LastIndexOf('_');
+
+        if (split <= 0 || split == stem.Length - 1)
+        {
+            return fileName;
+        }
+
+        return $"{prefix}{testFolderName}_{stem[(split + 1)..]}.xml";
     }
 
     /// <summary>清掉先前場次留下的暫存存檔目錄，避免無限累積。</summary>

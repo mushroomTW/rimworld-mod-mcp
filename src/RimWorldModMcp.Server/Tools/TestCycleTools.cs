@@ -21,8 +21,10 @@ public sealed class TestCycleTools(
         [Description("packageIds of additional mods to enable.")]
         string[]? companion_mods = null,
         [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
-        bool quicktest = true) => ToolGuard.Run(() =>
-        ToResult(testCycle.Start(path, companion_mods, quicktest)));
+        bool quicktest = true,
+        [Description("Config files to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up. ModsConfig.xml is rejected.")]
+        string[]? seed_config = null) => ToolGuard.Run(() =>
+        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config)));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("Report the current test session state, including whether the bridge and diagnostics daemon are healthy.")]
