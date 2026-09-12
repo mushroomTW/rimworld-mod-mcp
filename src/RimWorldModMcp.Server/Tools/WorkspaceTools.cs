@@ -15,15 +15,15 @@ public sealed class WorkspaceTools(
     BuildService builds)
 {
     [McpServerTool(Name = "create_mod", UseStructuredContent = true, Idempotent = false)]
-    [Description("建立新 Mod 骨架，含 About.xml 與標準目錄。C# Mod 一律以 with_code=true 起步：產生的 csproj 已接好 build_mod 注入的遊戲組件參考。")]
+    [Description("Create a new mod skeleton with About.xml and the standard folders. Always start C# mods with with_code=true: the generated csproj is wired to the game assembly references that build_mod injects.")]
     public CreateModResult CreateMod(
-        [Description("要在哪個既有目錄底下建立 Mod 資料夾。")]
+        [Description("Existing directory in which to create the mod folder.")]
         string directory,
-        [Description("Mod 名稱，也會作為資料夾名稱。")]
+        [Description("Mod name; also used as the folder name.")]
         string name,
-        [Description("RimWorld 的 packageId，只能用小寫英數字與 . _ - ，例如 yourname.yourmod。")]
+        [Description("RimWorld packageId: lowercase alphanumerics and . _ - only, e.g. yourname.yourmod.")]
         string package_id,
-        [Description("是否一併產生 C# 專案骨架（net472）。")]
+        [Description("Also generate a C# project skeleton (net472).")]
         bool with_code = false) => ToolGuard.Run(() =>
     {
         var path = scaffolder.Create(directory, name, package_id, with_code);
@@ -37,9 +37,9 @@ public sealed class WorkspaceTools(
     });
 
     [McpServerTool(Name = "build_mod", UseStructuredContent = true)]
-    [Description("驗證 XML Mod，或建置 C# Mod 並把產出的 DLL 部署到 Assemblies。失敗時回傳結構化的編譯診斷。")]
+    [Description("Validate an XML mod, or build a C# mod and deploy the DLL to Assemblies. Failures return structured compiler diagnostics.")]
     public BuildModResult BuildMod(
-        [Description("Mod 目錄的路徑。")]
+        [Description("Path to the mod directory.")]
         string path) => ToolGuard.Run(() =>
     {
         var result = builds.Build(path);

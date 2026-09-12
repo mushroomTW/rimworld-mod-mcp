@@ -14,26 +14,26 @@ public sealed class TestCycleTools(
     DiagnosticStore diagnostics)
 {
     [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, Idempotent = false)]
-    [Description("在隔離的存檔目錄啟動 RimWorld 載入指定 Mod，使用者的存檔與設定原樣保留。C# Mod 先 build_mod；啟動後用 list_test_diagnostics 讀取錯誤。需要遊戲尚未執行。")]
+    [Description("Launch RimWorld with the given mod in an isolated save directory; the user's saves and settings stay untouched. Run build_mod first for C# mods; after launch, read errors with list_test_diagnostics. Requires the game to not be running.")]
     public TestSessionResult RunTestCycle(
-        [Description("要測試的 Mod 目錄。")]
+        [Description("Directory of the mod to test.")]
         string path,
-        [Description("要一併啟用的其他 Mod 的 packageId 清單。")]
+        [Description("packageIds of additional mods to enable.")]
         string[]? companion_mods = null,
-        [Description("是否用 -quicktest 直接進入測試地圖，跳過主選單。")]
+        [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
         bool quicktest = true) => ToolGuard.Run(() =>
         ToResult(testCycle.Start(path, companion_mods, quicktest)));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
-    [Description("回報目前測試場次的狀態，包含 Bridge 與診斷 daemon 是否正常運作。")]
+    [Description("Report the current test session state, including whether the bridge and diagnostics daemon are healthy.")]
     public TestSessionResult TestStatus() => ToolGuard.Run(() => ToResult(testCycle.Status()));
 
     [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true)]
-    [Description("停止測試場次：移除臨時連結、終止診斷 daemon、清理暫存存檔。")]
+    [Description("Stop the test session: remove temporary links, terminate the diagnostics daemon, and clean up the temporary save data.")]
     public TestSessionResult StopTest(
-        [Description("必須明確傳 true 才會執行。")]
+        [Description("Must be explicitly true to proceed.")]
         bool confirm = false,
-        [Description("是否一併終止遊戲行程；否則由使用者自行關閉遊戲。")]
+        [Description("Also terminate the game process; otherwise the user closes the game themselves.")]
         bool terminate_game = false) => ToolGuard.Run(() =>
     {
         if (!confirm)
@@ -46,13 +46,13 @@ public sealed class TestCycleTools(
     });
 
     [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true)]
-    [Description("列出本次測試收集到的錯誤與警告。同一個錯誤會合併並累計次數。")]
+    [Description("List errors and warnings collected in this test session. Identical entries are merged with an occurrence count.")]
     public ListDiagnosticsResult ListTestDiagnostics(
-        [Description("只回傳指定類型：error、warning、diagnostic、loaded_mods 或 performance。")]
+        [Description("Return only this type: error, warning, diagnostic, loaded_mods, or performance.")]
         string? type = null,
-        [Description("每筆內容的字元上限，範圍 100-20000；完整堆疊用 get_test_diagnostic。")]
+        [Description("Character limit per entry, 100-20000. Use get_test_diagnostic for the full stack trace.")]
         int max_text_length = 2000,
-        [Description("最多回傳幾筆，範圍 1-500。")]
+        [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>
     {
         var records = diagnostics.Read();
@@ -81,9 +81,9 @@ public sealed class TestCycleTools(
     });
 
     [McpServerTool(Name = "get_test_diagnostic", UseStructuredContent = true, ReadOnly = true)]
-    [Description("依 hash 取得單一診斷的完整內容，包含未截斷的堆疊。")]
+    [Description("Fetch one diagnostic in full by hash, including the untruncated stack trace.")]
     public DiagnosticSummary GetTestDiagnostic(
-        [Description("診斷的 hash，來自 list_test_diagnostics。")]
+        [Description("The diagnostic hash from list_test_diagnostics.")]
         string diagnostic_hash) => ToolGuard.Run(() =>
     {
         var record = diagnostics.Find(diagnostic_hash)

@@ -13,9 +13,9 @@ namespace RimWorldModMcp.Server.Tools;
 public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection)
 {
     [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true)]
-    [Description("列出使用者安裝的所有 Mod（本機與 Steam Workshop），含相依關係。")]
+    [Description("List all installed mods (local and Steam Workshop) with their dependencies.")]
     public ListModsResult ListInstalledMods(
-        [Description("是否一併列出 Core 與已安裝的 DLC。")]
+        [Description("Also list Core and installed DLCs.")]
         bool include_builtin = false) => ToolGuard.Run(() =>
     {
         var mods = catalog.Installed().ToList();
@@ -33,11 +33,11 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
-    [Description("列出已安裝 Mod 的組件及其符號與原始碼索引數量；尚未索引時會先反編譯並索引。")]
+    [Description("List an installed mod's assemblies with their symbol and source-file index counts; decompiles and indexes first if not yet indexed.")]
     public InspectModResult InspectInstalledMod(
-        [Description("Mod 的 packageId。")]
+        [Description("The mod's packageId.")]
         string package_id,
-        [Description("是否忽略快取強制重新索引。")]
+        [Description("Ignore the cache and re-index.")]
         bool force = false) => ToolGuard.Run(() =>
     {
         var mod = catalog.Find(package_id);
@@ -59,13 +59,13 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "search_installed_mod_source", UseStructuredContent = true)]
-    [Description("以正規表示式搜尋一個已安裝 Mod 的反編譯原始碼。尚未索引時會先自動索引。")]
+    [Description("Regex search over an installed mod's decompiled source. Indexes it first if not yet indexed.")]
     public SearchSourceResult SearchInstalledModSource(
-        [Description("Mod 的 packageId。")]
+        [Description("The mod's packageId.")]
         string package_id,
-        [Description("正規表示式（.NET 語法），一律不分大小寫。")]
+        [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,
-        [Description("最多回傳幾筆，範圍 1-800。")]
+        [Description("Maximum results, 1-800.")]
         int limit = 100) => ToolGuard.Run(() =>
     {
         var mod = catalog.Find(package_id);

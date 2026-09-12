@@ -25,7 +25,7 @@ public sealed class IndexTools(
     MemberDecompiler decompiler)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
-    [Description("開工前先呼叫：回報 RimWorld 安裝路徑偵測結果與索引狀態。detected=false 請使用者設定 RIMWORLD_MOD_MCP_GAME_PATH；index.fresh=false 呼叫 rebuild_index。")]
+    [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.fresh=false, call rebuild_index.")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
@@ -56,9 +56,9 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "rebuild_index", UseStructuredContent = true)]
-    [Description("索引缺失、過期或遊戲更新後呼叫：重建 Def 與 C# 符號索引，數秒內完成即可查詢；原始碼全文索引在背景繼續。")]
+    [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background.")]
     public RebuildIndexResult RebuildIndex(
-        [Description("是否一併在背景建立原始碼全文索引（search_source 需要）。")]
+        [Description("Also build the source full-text index in the background (required by search_source).")]
         bool index_source = true) => ToolGuard.Run(() =>
     {
         var result = builder.Rebuild();
@@ -80,15 +80,15 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true)]
-    [Description("以名稱、標籤或描述搜尋 Def，回傳摘要；完整 XML 用 read_def。")]
+    [Description("Search Defs by name, label, or description; returns summaries. Use read_def for the full XML.")]
     public SearchDefsResult SearchDefs(
-        [Description("搜尋關鍵字。詞尾加 * 表示前綴搜尋，例如 Gun*。")]
+        [Description("Search term. A trailing * means prefix search, e.g. Gun*.")]
         string query,
-        [Description("限定 Def 型別，例如 ThingDef、PawnKindDef。留空表示不限。")]
+        [Description("Restrict to a Def type, e.g. ThingDef or PawnKindDef. Omit for any type.")]
         string? def_type = null,
-        [Description("最多回傳幾筆，範圍 1-200。")]
+        [Description("Maximum results, 1-200.")]
         int limit = 25,
-        [Description("是否附上截斷過的 XML 內容。")]
+        [Description("Include truncated XML content.")]
         bool include_xml = false) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
@@ -104,13 +104,13 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "read_def", UseStructuredContent = true, ReadOnly = true)]
-    [Description("讀取單一 Def 的完整 XML。")]
+    [Description("Read the full XML of a single Def.")]
     public ReadDefResult ReadDef(
-        [Description("Def 的 defName，或抽象 Def 的 Name 屬性值。")]
+        [Description("The defName, or the Name attribute of an abstract Def.")]
         string def_name,
-        [Description("限定 Def 型別。留空表示不限。")]
+        [Description("Restrict to a Def type. Omit for any type.")]
         string? def_type = null,
-        [Description("XML 內容的位元組上限，範圍 1024-262144。")]
+        [Description("Byte limit for the XML content, 1024-262144.")]
         int max_bytes = 65536) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
@@ -124,15 +124,15 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
-    [Description("查詢 C# 符號的簽章、完整繼承鏈與介面實作，可選擇一併反編譯出原始碼。")]
+    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source.")]
     public ReadSymbolResult ReadSymbol(
-        [Description("符號的短名或完整名稱的一部分，例如 ThingDef 或 Verse.ThingDef。")]
+        [Description("Short name or part of the full name, e.g. ThingDef or Verse.ThingDef.")]
         string name,
-        [Description("是否反編譯出原始碼。")]
+        [Description("Include decompiled source.")]
         bool include_body = false,
-        [Description("原始碼節錄的位元組上限，範圍 256-32768。")]
+        [Description("Byte limit for the source excerpt, 256-32768.")]
         int max_bytes = 4096,
-        [Description("最多回傳幾筆，範圍 1-100。")]
+        [Description("Maximum results, 1-100.")]
         int limit = 20) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
@@ -175,11 +175,11 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
-    [Description("列出繼承自指定型別的所有類別，含間接子類。")]
+    [Description("List every class deriving from the given type, including indirect descendants.")]
     public FindDescendantsResult FindDescendants(
-        [Description("基底型別的完整名稱，例如 Verse.ThingComp。")]
+        [Description("Full name of the base type, e.g. Verse.ThingComp.")]
         string base_type,
-        [Description("最多回傳幾筆，範圍 1-500。")]
+        [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
@@ -194,13 +194,13 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "search_source", UseStructuredContent = true, ReadOnly = true)]
-    [Description("以正規表示式搜尋反編譯後的遊戲原始碼。回傳 source_indexed=false 表示背景索引未完成，稍後重試。")]
+    [Description("Regex search over the decompiled game source. source_indexed=false in the result means the background index is still building; retry later.")]
     public SearchSourceResult SearchSource(
-        [Description("正規表示式（.NET 語法），一律不分大小寫。")]
+        [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,
-        [Description("限定檔案路徑樣式，例如 RimWorld/*.cs。留空表示不限。")]
+        [Description("Restrict to a file path pattern, e.g. RimWorld/*.cs. Omit for all files.")]
         string? file_pattern = null,
-        [Description("最多回傳幾筆，範圍 1-800。")]
+        [Description("Maximum results, 1-800.")]
         int limit = 200) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
@@ -222,13 +222,13 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true)]
-    [Description("找出一個 Def 被引用的位置，包含 Def XML 的交叉引用與 C# 的 DefOf 靜態欄位。")]
+    [Description("Find where a Def is referenced: cross-references in Def XML and DefOf static fields in C#.")]
     public FindDefUsagesResult FindDefUsages(
-        [Description("要查詢的 defName。")]
+        [Description("The defName to look up.")]
         string def_name,
-        [Description("限定來源類別：def_xml、game_source 或 mod_source。留空表示不限。")]
+        [Description("Restrict to a source kind: def_xml, game_source, or mod_source. Omit for all.")]
         string? source_kind = null,
-        [Description("最多回傳幾筆，範圍 1-500。")]
+        [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
