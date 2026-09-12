@@ -53,13 +53,44 @@ internal static class DefDataScan
                     continue;
                 }
 
-                foreach (var record in DefXmlScanner.ParseElements(root, pack.Name, file.RelativePath))
+                foreach (var node in root.Elements())
                 {
-                    yield return record;
+                    yield return Parse(node, pack.Name, file.RelativePath);
                 }
 
                 DefReferenceAnalyzer.CollectCandidates(root, file.RelativePath, emitCandidate);
             }
         }
+    }
+
+    private static DefRecord Parse(XElement node, string packName, string filePath)
+    {
+        // 元素標籤名就是 Def 的型別（ThingDef、PawnKindDef…）。
+        var defType = node.Name.LocalName;
+
+        var defName = node.Element("defName")?.Value.Trim();
+        if (string.IsNullOrEmpty(defName))
+        {
+            defName = null;
+        }
+
+        // 抽象 Def 沒有 defName，改用 Name 屬性當繼承錨點。
+        var inheritName = node.Attribute("Name")?.Value;
+        var parentName = node.Attribute("ParentName")?.Value;
+
+        var abstractValue = node.Attribute("Abstract")?.Value ?? "false";
+        var isAbstract = string.Equals(abstractValue, "true", StringComparison.OrdinalIgnoreCase);
+
+        return new DefRecord(
+            Pack: packName,
+            DefType: defType,
+            DefName: defName,
+            InheritName: inheritName,
+            ParentName: parentName,
+            Abstract: isAbstract,
+            Label: node.Element("label")?.Value.Trim() ?? string.Empty,
+            Description: node.Element("description")?.Value.Trim() ?? string.Empty,
+            FilePath: filePath,
+            Xml: node.ToString(SaveOptions.None));
     }
 }

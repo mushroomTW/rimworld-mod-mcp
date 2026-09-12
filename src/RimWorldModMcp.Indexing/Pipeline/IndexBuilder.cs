@@ -36,7 +36,7 @@ public sealed record IndexStatus(
 /// </summary>
 public sealed class IndexBuilder(
     IndexDatabase database,
-    IRimWorldLocator locator,
+    RimWorldLocator locator,
     IndexFingerprint fingerprint,
     CriticalSectionLock locks,
     SourceIndexer sourceIndexer)

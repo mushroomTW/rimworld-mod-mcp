@@ -1,11 +1,17 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using RimWorldModMcp.Core.Locking;
 using RimWorldModMcp.Core.Mods;
 using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
-using RimWorldModMcp.Core.Workspace;
 
 namespace RimWorldModMcp.Diagnostics;
+
+/// <summary>解析完成的測試選集。</summary>
+public sealed record TestModSet(
+    ModInfo Mod,
+    IReadOnlyList<string> ActiveMods,
+    IReadOnlyList<string> SkippedLoadAfter);
 
 /// <summary>
 /// 在隔離環境中啟動 RimWorld 測試開發中的 Mod。
@@ -15,16 +21,12 @@ namespace RimWorldModMcp.Diagnostics;
 /// 自產的 ModsConfig.xml（只啟用這次要測的 Mod 與其相依）、
 /// 以及 Mods 目錄下的臨時連結（不複製檔案，改動立即生效）。
 /// </para>
-/// <para>
-/// 這個類別只負責協調與場次狀態：選集計算在 <see cref="TestModSetResolver"/>、
-/// 環境佈置與拆除在 <see cref="TestEnvironmentPreparer"/>、
-/// 行程生命週期在 <see cref="GameLauncher"/>。
-/// </para>
 /// </summary>
 public sealed class TestCycleService(
-    IRimWorldLocator locator,
+    RimWorldLocator locator,
     IProcessHost processes,
-    TestModSetResolver modSets,
+    ModCatalog catalog,
+    LoadOrderResolver loadOrders,
     TestEnvironmentPreparer environment,
     GameLauncher launcher,
     CriticalSectionLock locks,
@@ -34,7 +36,7 @@ public sealed class TestCycleService(
 {
     public TestSession Start(string modPath, IReadOnlyList<string>? companionMods, bool quickTest)
     {
-        var mod = ModDirectory.Resolve(modPath);
+        var mod = PathText.ResolveDirectory(modPath);
         var paths = locator.Detect();
 
         if (paths.Executable is null || paths.ModsDir is null)
@@ -46,10 +48,9 @@ public sealed class TestCycleService(
             ?? throw new InvalidOperationException("Mod 的 About/About.xml 無效或缺少 packageId。");
 
         var runId = $"{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
-        var modSet = modSets.Resolve(info, companionMods);
+        var modSet = ResolveModSet(info, companionMods);
 
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24))
-            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
 
         // 鎖只保護「檢查單一場次 → 佈置環境 → 啟動遊戲」這段臨界區。
         // 場次開始之後改由狀態檔維持單一場次——否則忘記停止的場次會把鎖
@@ -227,4 +228,34 @@ public sealed class TestCycleService(
     }
 
     public TestSession Status() => sessions.Read();
+
+    private TestModSet ResolveModSet(ModInfo mod, IReadOnlyList<string>? companionMods)
+    {
+        var available = new List<ModInfo>(catalog.BuiltinPacks());
+        available.AddRange(catalog.Installed());
+        available.Add(mod);
+
+        var selected = new List<ModInfo> { mod };
+
+        foreach (var companion in companionMods ?? [])
+        {
+            var match = available.FirstOrDefault(m => m.PackageId == companion.Trim().ToLowerInvariant());
+
+            if (match is null)
+            {
+                throw new KeyNotFoundException($"找不到指定的相伴 Mod：{companion}");
+            }
+
+            selected.Add(match);
+        }
+
+        var order = loadOrders.Resolve(selected, available);
+
+        if (order.Missing.Count > 0)
+        {
+            throw new InvalidOperationException($"缺少必要的相依 Mod：{string.Join("、", order.Missing)}");
+        }
+
+        return new TestModSet(mod, order.Active, order.SkippedLoadAfter);
+    }
 }

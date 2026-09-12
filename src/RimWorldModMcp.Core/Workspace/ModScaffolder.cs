@@ -1,4 +1,5 @@
 using System.Text;
+using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Core.Workspace;
 
@@ -23,7 +24,7 @@ public sealed class ModScaffolder
                 nameof(packageId));
         }
 
-        var modPath = Path.Combine(ModDirectory.Resolve(parentPath), SanitiseFolderName(name));
+        var modPath = Path.Combine(PathText.ResolveDirectory(parentPath), SanitiseFolderName(name));
 
         if (Directory.Exists(modPath) || File.Exists(modPath))
         {

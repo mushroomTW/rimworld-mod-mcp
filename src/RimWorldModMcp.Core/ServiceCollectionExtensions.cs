@@ -14,7 +14,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddRimWorldCore(this IServiceCollection services)
     {
         services.AddSingleton<StoreDirectories>();
-        services.AddSingleton<IRimWorldLocator, RimWorldLocator>();
+        services.AddSingleton<RimWorldLocator>();
         services.AddSingleton<IProcessHost, ProcessHost>();
         services.AddSingleton<DirectoryLink>();
         services.AddSingleton<CriticalSectionLock>();

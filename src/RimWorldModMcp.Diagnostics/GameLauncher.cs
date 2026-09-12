@@ -12,7 +12,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// 全部在這裡，環境佈置歸 <see cref="TestEnvironmentPreparer"/>。
 /// </para>
 /// </summary>
-public sealed class GameLauncher(IRimWorldLocator locator, IProcessHost processes)
+public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes)
 {
     public Process Launch(RimWorldPaths paths, string saveData, bool quickTest, string token)
     {

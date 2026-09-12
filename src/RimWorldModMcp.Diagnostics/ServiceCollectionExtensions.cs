@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using RimWorldModMcp.Core.Paths;
 
 namespace RimWorldModMcp.Diagnostics;
 
@@ -12,8 +13,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DaemonRecordStore>();
         services.AddSingleton<DaemonBootstrapper>();
         services.AddSingleton<BridgeBuilder>();
-        services.AddSingleton<DaemonListener>();
-        services.AddSingleton<TestModSetResolver>();
+        services.AddSingleton(sp => new DaemonListener(
+            sp.GetRequiredService<StoreDirectories>(),
+            sp.GetRequiredService<RimWorldLocator>().BridgePort(),
+            sp.GetRequiredService<DiagnosticStore>(),
+            sp.GetRequiredService<TestSessionStore>(),
+            sp.GetRequiredService<DaemonRecordStore>()));
         services.AddSingleton<TestEnvironmentPreparer>();
         services.AddSingleton<GameLauncher>();
         services.AddSingleton<TestCycleService>();

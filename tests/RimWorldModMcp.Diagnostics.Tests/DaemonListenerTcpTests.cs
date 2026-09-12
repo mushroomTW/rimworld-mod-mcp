@@ -15,13 +15,6 @@ public sealed class DaemonListenerTcpTests : IDisposable
 {
     private const string Token = "tcp-test-token";
 
-    private sealed class FixedPortLocator(int port) : IRimWorldLocator
-    {
-        public RimWorldPaths Detect() => RimWorldPaths.Empty;
-
-        public int BridgePort() => port;
-    }
-
     private readonly string _root;
     private readonly StoreDirectories _store;
     private readonly DiagnosticStore _diagnostics;
@@ -43,7 +36,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
 
         _listener = new DaemonListener(
             _store,
-            new FixedPortLocator(_port),
+            _port,
             _diagnostics,
             new TestSessionStore(_store),
             _records);

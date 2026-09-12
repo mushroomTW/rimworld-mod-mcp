@@ -3,7 +3,7 @@ using RimWorldModMcp.Core.Paths;
 namespace RimWorldModMcp.Core.Mods;
 
 /// <summary>列舉已安裝的 Mod 與內建的 Core／DLC。</summary>
-public sealed class ModCatalog(IRimWorldLocator locator)
+public sealed class ModCatalog(RimWorldLocator locator)
 {
     /// <summary>
     /// 列出使用者安裝的 Mod（本機 Mods 目錄與 Steam Workshop）。

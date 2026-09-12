@@ -16,7 +16,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// </summary>
 public sealed class DaemonListener(
     StoreDirectories store,
-    IRimWorldLocator locator,
+    int bridgePort,
     DiagnosticStore diagnostics,
     TestSessionStore sessions,
     DaemonRecordStore records)
@@ -50,8 +50,7 @@ public sealed class DaemonListener(
     /// </summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        var port = locator.BridgePort();
-        var listener = new TcpListener(IPAddress.Loopback, port);
+        var listener = new TcpListener(IPAddress.Loopback, bridgePort);
 
         listener.Start();
 
@@ -60,7 +59,7 @@ public sealed class DaemonListener(
             records.Write(new DaemonRecord
             {
                 Pid = Environment.ProcessId,
-                Port = port,
+                Port = bridgePort,
                 StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 StartTimeUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
             });

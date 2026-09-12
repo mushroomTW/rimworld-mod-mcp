@@ -21,7 +21,7 @@ public sealed class DaemonListenerTests : IDisposable
         _diagnostics = new DiagnosticStore(_store);
 
         var sessions = new TestSessionStore(_store);
-        _listener = new DaemonListener(_store, new RimWorldLocator(), _diagnostics, sessions, new DaemonRecordStore(_store));
+        _listener = new DaemonListener(_store, RimWorldLocator.DefaultBridgePort, _diagnostics, sessions, new DaemonRecordStore(_store));
     }
 
     public void Dispose()

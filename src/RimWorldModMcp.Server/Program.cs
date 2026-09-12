@@ -1,51 +1,30 @@
-using System.Diagnostics;
-using System.Text.Json;
-using RimWorldModMcp.Core.Paths;
 using System.Net.Sockets;
-using RimWorldModMcp.Core.Locking;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using RimWorldModMcp.Core;
+using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Diagnostics;
-using RimWorldModMcp.Core.Platform;
-using RimWorldModMcp.Core.Workspace;
-using RimWorldModMcp.Indexing.Metadata;
-using RimWorldModMcp.Indexing.Decompilation;
-using RimWorldModMcp.Indexing.Pipeline;
-using RimWorldModMcp.Indexing.Storage;
-using RimWorldModMcp.Indexing.Model;
+using RimWorldModMcp.Indexing;
 
 // stdout 屬於 MCP 協定，除了 JSON-RPC 之外不得寫入任何東西。
-// 開發用的診斷輸出一律走 stderr；正式的 stdio 模式在 Phase 4 接上 MCP host。
+// 開發用的診斷輸出一律走 stderr。
 
 var command = args.Length > 0 ? args[0] : "stdio";
 
-switch (command)
+return command switch
 {
-    case "detect":
-        return Detect();
+    "detect" => Detect(),
+    "stdio" => await RunStdioAsync(args.Length > 0 ? args[1..] : []),
+    "daemon" => await RunDaemon(),
+    _ => UnknownCommand(command),
+};
 
-    case "symbols":
-        return Symbols();
-
-    case "index":
-        return BuildIndex();
-
-    case "linkcheck":
-        return LinkCheck(args.Length > 1 ? args[1] : "");
-
-    case "decompile":
-        return Decompile(args.Length > 1 ? args[1] : "ThingDef");
-
-    case "stdio":
-        // 無參數啟動時 args 是空陣列，args[1..] 會拋 ArgumentOutOfRangeException，
-        // 而「不帶參數」正是 MCP client 設定檔的標準啟動方式。
-        return await RimWorldModMcp.Server.McpHost.RunStdioAsync(args.Length > 0 ? args[1..] : []);
-
-    case "daemon":
-        return await RunDaemon();
-
-    default:
-        await Console.Error.WriteLineAsync(
-            $"未知指令：{command}。可用：stdio（預設）| daemon | detect | index | symbols | decompile");
-        return 2;
+static int UnknownCommand(string command)
+{
+    Console.Error.WriteLine($"未知指令：{command}。可用：stdio（預設）| daemon | detect");
+    return 2;
 }
 
 static int Detect()
@@ -73,136 +52,6 @@ static int Detect()
     return paths.HasManagedAndData ? 0 : 1;
 }
 
-// 開發用：對真實安裝的組件跑一次符號讀取，檢查產出量與耗時。
-static int Symbols()
-{
-    var paths = new RimWorldLocator().Detect();
-
-    if (paths.ManagedDir is null)
-    {
-        Console.Error.WriteLine("找不到 RimWorld 的 Managed 目錄。");
-        return 1;
-    }
-
-    var reader = new AssemblySymbolReader();
-    var total = 0;
-
-    foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "*.dll").Order())
-    {
-        var name = Path.GetFileNameWithoutExtension(assembly);
-
-        // 只看遊戲本體與 DLC，Unity 與 BCL 組件不是索引目標。
-        if (!name.StartsWith("Assembly-CSharp", StringComparison.Ordinal))
-        {
-            continue;
-        }
-
-        var stopwatch = Stopwatch.StartNew();
-        var symbols = reader.Read(assembly);
-        stopwatch.Stop();
-
-        total += symbols.Count;
-
-        var byKind = symbols
-            .GroupBy(s => s.Kind)
-            .OrderByDescending(g => g.Count())
-            .Select(g => $"{g.Key}={g.Count()}");
-
-        Console.Error.WriteLine($"{name}: {symbols.Count} 個符號，{stopwatch.ElapsedMilliseconds} ms");
-        Console.Error.WriteLine("  " + string.Join(", ", byKind));
-
-        var deepest = symbols
-            .Where(s => s.BaseChain is not null)
-            .MaxBy(s => s.BaseChain!.Count(c => c == '|'));
-
-        if (deepest is not null)
-        {
-            Console.Error.WriteLine($"  最深繼承鏈：{deepest.Fqn} : {deepest.BaseChain}");
-        }
-    }
-
-    Console.Error.WriteLine($"合計 {total} 個符號。");
-    return total > 0 ? 0 : 1;
-}
-
-// 開發用：對真實安裝建一次完整索引，驗證管線與耗時。
-static int BuildIndex()
-{
-    var store = new StoreDirectories();
-    var locator = new RimWorldLocator();
-    var processes = new ProcessHost();
-    var database = new IndexDatabase(store);
-    var builder = new IndexBuilder(
-        database,
-        locator,
-        new IndexFingerprint(),
-        new CriticalSectionLock(store, processes),
-        new SourceIndexer(database, locator));
-
-    Console.Error.WriteLine($"索引資料庫：{database.DatabasePath}");
-
-    var result = builder.Rebuild();
-
-    Console.Error.WriteLine($"組件：{string.Join(", ", result.Assemblies)}");
-    Console.Error.WriteLine($"Def：{result.DefCount}，符號：{result.SymbolCount}，引用：{result.ReferenceCount}");
-    Console.Error.WriteLine($"耗時：{result.ElapsedMilliseconds} ms");
-    Console.Error.WriteLine($"指紋：{result.Fingerprint?[..16]}…");
-
-    var status = builder.Status();
-    Console.Error.WriteLine($"新鮮度：{(status.Fresh ? "fresh" : "stale")}，原始碼已索引：{status.SourceIndexed}");
-
-    return result.DefCount > 0 && result.SymbolCount > 0 ? 0 : 1;
-}
-
-// 開發用：從索引查出符號，再按需反編譯它的原始碼。
-static int Decompile(string name)
-{
-    var store = new StoreDirectories();
-    var paths = new RimWorldLocator().Detect();
-
-    if (paths.ManagedDir is null)
-    {
-        Console.Error.WriteLine("找不到 RimWorld 的 Managed 目錄。");
-        return 1;
-    }
-
-    using var connection = new IndexDatabase(store).Open();
-    var hits = SymbolRepository.Read(connection, name, 5);
-
-    if (hits.Count == 0)
-    {
-        Console.Error.WriteLine($"索引中找不到符號：{name}。請先執行 index。");
-        return 1;
-    }
-
-    using var decompiler = new MemberDecompiler();
-
-    foreach (var hit in hits.Take(2))
-    {
-        var assembly = Path.Combine(paths.ManagedDir, hit.Assembly + ".dll");
-
-        var stopwatch = Stopwatch.StartNew();
-        var source = decompiler.DecompileMember(assembly, hit.MetadataToken);
-        stopwatch.Stop();
-
-        Console.Error.WriteLine($"--- {hit.Fqn} [{hit.Kind}] {stopwatch.ElapsedMilliseconds} ms ---");
-        Console.Error.WriteLine($"簽章：{hit.Signature}");
-
-        if (hit.BaseChain.Count > 0)
-        {
-            Console.Error.WriteLine($"繼承鏈：{string.Join(" > ", hit.BaseChain)}");
-        }
-
-        var preview = source is null
-            ? "（反編譯失敗）"
-            : string.Join(Environment.NewLine, source.Split('\n').Take(12));
-
-        Console.Error.WriteLine(preview);
-    }
-
-    return 0;
-}
-
 // 診斷 daemon：接收遊戲內 Bridge 的 NDJSON 並監看 Player.log。
 // 由 run_test_cycle 自動啟動，不需要使用者手動執行。
 static async Task<int> RunDaemon()
@@ -211,7 +60,7 @@ static async Task<int> RunDaemon()
     var locator = new RimWorldLocator();
     var sessions = new TestSessionStore(store);
     var records = new DaemonRecordStore(store);
-    var listener = new DaemonListener(store, locator, new DiagnosticStore(store), sessions, records);
+    var listener = new DaemonListener(store, locator.BridgePort(), new DiagnosticStore(store), sessions, records);
 
     using var cancellation = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
@@ -230,44 +79,42 @@ static async Task<int> RunDaemon()
     }
 }
 
-
-// 開發用：診斷一個連結為什麼沒有被清理掉。
-static int LinkCheck(string linkPath)
+/// <summary>以 stdio 傳輸執行 MCP server。</summary>
+static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellationToken = default)
 {
-    if (string.IsNullOrWhiteSpace(linkPath))
+    // 用 CreateEmptyApplicationBuilder 而不是 CreateApplicationBuilder：
+    // 後者會去讀工作目錄的 appsettings.json，而這個工具以 dotnet tool 安裝時，
+    // 工作目錄是使用者的 Mod 資料夾——會撿到完全不相干的設定檔。
+    var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
     {
-        Console.Error.WriteLine("用法：linkcheck <連結路徑>");
-        return 2;
-    }
+        Args = args,
+    });
 
-    var info = new DirectoryInfo(linkPath);
+    // stdout 屬於 MCP 協定。任何寫到 stdout 的日誌都會讓 JSON-RPC 解析失敗，全部導向 stderr。
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
 
-    Console.Error.WriteLine($"路徑        : {linkPath}");
-    Console.Error.WriteLine($"Exists      : {info.Exists}");
-    Console.Error.WriteLine($"Attributes  : {(info.Exists ? info.Attributes.ToString() : "-")}");
-    Console.Error.WriteLine($"ReparsePoint: {info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint)}");
-    Console.Error.WriteLine($"LinkTarget  : {info.LinkTarget ?? "(null)"}");
+    // 預設只報警告，避免干擾。排查問題時可用 RIMWORLD_MOD_MCP_LOG_LEVEL=Debug
+    builder.Logging.SetMinimumLevel(
+        Enum.TryParse<LogLevel>(Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_LOG_LEVEL"), ignoreCase: true, out var level)
+            ? level
+            : LogLevel.Warning);
 
-    try
-    {
-        var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
-        Console.Error.WriteLine($"Resolved    : {resolved?.FullName ?? "(null)"}");
-    }
-    catch (Exception e)
-    {
-        Console.Error.WriteLine($"Resolved    : 例外 {e.GetType().Name}: {e.Message}");
-    }
+    builder.Services.AddRimWorldCore();
+    builder.Services.AddRimWorldIndexing();
+    builder.Services.AddRimWorldDiagnostics();
 
-    Console.Error.WriteLine($"HasOwnedPrefix: {DirectoryLink.HasOwnedPrefix(linkPath)}");
+    builder.Services
+        .AddMcpServer(options =>
+        {
+            options.ServerInfo = new ModelContextProtocol.Protocol.Implementation
+            {
+                Name = "rimworld-mod-mcp",
+                Version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+            };
+        })
+        .WithStdioServerTransport()
+        .WithToolsFromAssembly();
 
-    var session = new TestSessionStore(new StoreDirectories()).Read();
-    Console.Error.WriteLine($"狀態檔 state : {session.State}，記錄的連結數 {session.Links.Count}");
-
-    foreach (var link in session.Links)
-    {
-        Console.Error.WriteLine($"  記錄: {link.Link}");
-        Console.Error.WriteLine($"        -> {link.Target}");
-    }
-
+    await builder.Build().RunAsync(cancellationToken);
     return 0;
 }

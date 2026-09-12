@@ -1,44 +1,60 @@
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
-using RimWorldModMcp.Core.Workspace;
 
 namespace RimWorldModMcp.Core.Building;
 
 /// <summary>一筆編譯診斷。</summary>
 public sealed record BuildDiagnostic(
-    string Severity,
-    string Code,
-    string Message,
-    string? File,
-    int? Line,
-    int? Column);
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("file")] string? File,
+    [property: JsonPropertyName("line")] int? Line,
+    [property: JsonPropertyName("column")] int? Column);
 
 /// <summary>建置結果。XML-only Mod 與 C# Mod 的欄位不同。</summary>
 public sealed record BuildResult
 {
     /// <summary><c>xml_only</c> 或 <c>csharp</c>。</summary>
+    [JsonPropertyName("kind")]
     public required string Kind { get; init; }
 
+    [JsonPropertyName("success")]
     public required bool Success { get; init; }
 
+    [JsonPropertyName("mod")]
     public required string Mod { get; init; }
 
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
+    [JsonPropertyName("project")]
     public string? Project { get; init; }
 
+    [JsonPropertyName("target_framework")]
     public string? TargetFramework { get; init; }
 
+    [JsonPropertyName("output_directory")]
     public string? OutputDirectory { get; init; }
 
+    [JsonPropertyName("deployed")]
     public IReadOnlyList<string> Deployed { get; init; } = [];
 
+    [JsonPropertyName("diagnostics")]
     public IReadOnlyList<BuildDiagnostic> Diagnostics { get; init; } = [];
 
-    public IReadOnlyList<string> Warnings { get; init; } = [];
+    [JsonPropertyName("error_count")]
+    public int ErrorCount => Diagnostics.Count(d => d.Severity == "error");
 
-    public string? Message { get; init; }
+    [JsonPropertyName("warning_count")]
+    public int WarningCount => Diagnostics.Count(d => d.Severity == "warning");
+
+    [JsonPropertyName("warnings")]
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 }
 
 /// <summary>
@@ -50,11 +66,11 @@ public sealed record BuildResult
 /// 而且那一萬多字元會直接佔掉呼叫端的 context。
 /// </para>
 /// </summary>
-public sealed partial class BuildService(IRimWorldLocator locator)
+public sealed partial class BuildService(RimWorldLocator locator)
 {
     public BuildResult Build(string modPath)
     {
-        var mod = ModDirectory.Resolve(modPath);
+        var mod = PathText.ResolveDirectory(modPath);
 
         ValidateAbout(mod);
 

@@ -17,7 +17,7 @@ namespace RimWorldModMcp.Server.Tools;
 /// <summary>研究 RimWorld 的 Def 與 C# API 的工具。</summary>
 [McpServerToolType]
 public sealed class IndexTools(
-    IRimWorldLocator locator,
+    RimWorldLocator locator,
     IndexDatabase database,
     IndexBuilder builder,
     SourceIndexer sourceIndexer,

@@ -234,7 +234,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
         lock (_gate)
         {
             using var fileLock = AcquireFileLock();
-            AtomicJson.Write(store.DiagnosticsFile, Array.Empty<DiagnosticRecord>(), JsonOptions);
+            AtomicJson.Write(store.DiagnosticsFile, (DiagnosticRecord[])[], JsonOptions);
         }
     }
 

@@ -17,7 +17,7 @@ public sealed record BridgeBuild(bool Success, string? ModDirectory, bool Rebuil
 /// 這樣以 dotnet tool 安裝時也不會去寫安裝目錄。
 /// </para>
 /// </summary>
-public sealed class BridgeBuilder(StoreDirectories store, IRimWorldLocator locator)
+public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locator)
 {
     /// <summary>Bridge 需要的組件：自身加上它自帶的 Harmony。</summary>
     private static readonly string[] RequiredAssemblies = ["RimWorldModMcp.Bridge.dll", "0Harmony.dll"];

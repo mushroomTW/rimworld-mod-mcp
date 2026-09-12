@@ -15,7 +15,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// </para>
 /// </summary>
 public sealed class DaemonBootstrapper(
-    IRimWorldLocator locator,
+    RimWorldLocator locator,
     IProcessHost processes,
     DaemonRecordStore records)
 {

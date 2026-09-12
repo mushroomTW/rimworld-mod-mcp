@@ -27,4 +27,19 @@ public static class PathText
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(home, path.TrimStart('~').TrimStart('/', '\\'));
     }
+
+    /// <summary>把收到的目錄路徑正規化成絕對路徑；不存在或不是目錄就拋出。</summary>
+    public static string ResolveDirectory(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(ExpandUser(path)));
+
+        if (!Directory.Exists(full))
+        {
+            throw new DirectoryNotFoundException($"路徑不存在或不是目錄：{full}");
+        }
+
+        return full;
+    }
 }

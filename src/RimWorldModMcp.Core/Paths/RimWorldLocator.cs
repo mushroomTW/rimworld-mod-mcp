@@ -4,16 +4,7 @@ using RimWorldModMcp.Core.Platform;
 namespace RimWorldModMcp.Core.Paths;
 
 /// <summary>在三個平台上尋找 RimWorld 的安裝位置、設定檔與 Player.log。</summary>
-public interface IRimWorldLocator
-{
-    RimWorldPaths Detect();
-
-    /// <summary>Bridge 與 daemon 共用的 loopback 埠。三處（daemon 綁定、埠探測、注入遊戲的環境變數）必須共用這一個來源。</summary>
-    int BridgePort();
-}
-
-/// <inheritdoc cref="IRimWorldLocator"/>
-public sealed partial class RimWorldLocator : IRimWorldLocator
+public sealed partial class RimWorldLocator
 {
     public const string SteamAppId = "294100";
 

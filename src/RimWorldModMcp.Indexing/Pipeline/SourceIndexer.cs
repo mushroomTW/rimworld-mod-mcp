@@ -21,7 +21,7 @@ public sealed record SourceIndexProgress(bool Running, bool Completed, int Files
 /// 在快取目錄產生的檔案樹，每次 <c>search_source</c> 都要整個掃過一遍。
 /// </para>
 /// </summary>
-public sealed class SourceIndexer(IndexDatabase database, IRimWorldLocator locator)
+public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locator)
 {
     private readonly Lock _gate = new();
     private Task? _current;
