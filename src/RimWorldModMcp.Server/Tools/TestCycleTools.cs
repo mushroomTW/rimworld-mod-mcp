@@ -14,7 +14,7 @@ public sealed class TestCycleTools(
     DiagnosticStore diagnostics)
 {
     [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, Idempotent = false)]
-    [Description("在隔離環境啟動 RimWorld 測試指定的 Mod。使用獨立的存檔目錄，不會動到使用者的存檔與設定。遊戲已在執行時會拒絕啟動。")]
+    [Description("在隔離的存檔目錄啟動 RimWorld 載入指定 Mod，使用者的存檔與設定原樣保留。C# Mod 先 build_mod；啟動後用 list_test_diagnostics 讀取錯誤。需要遊戲尚未執行。")]
     public TestSessionResult RunTestCycle(
         [Description("要測試的 Mod 目錄。")]
         string path,
@@ -29,11 +29,11 @@ public sealed class TestCycleTools(
     public TestSessionResult TestStatus() => ToolGuard.Run(() => ToResult(testCycle.Status()));
 
     [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true)]
-    [Description("停止測試場次：移除臨時連結、終止診斷 daemon、清理暫存存檔。需要 confirm=true。")]
+    [Description("停止測試場次：移除臨時連結、終止診斷 daemon、清理暫存存檔。")]
     public TestSessionResult StopTest(
         [Description("必須明確傳 true 才會執行。")]
         bool confirm = false,
-        [Description("是否一併終止遊戲行程。預設 false，讓使用者自己關閉遊戲。")]
+        [Description("是否一併終止遊戲行程；否則由使用者自行關閉遊戲。")]
         bool terminate_game = false) => ToolGuard.Run(() =>
     {
         if (!confirm)
@@ -50,7 +50,7 @@ public sealed class TestCycleTools(
     public ListDiagnosticsResult ListTestDiagnostics(
         [Description("只回傳指定類型：error、warning、diagnostic、loaded_mods 或 performance。")]
         string? type = null,
-        [Description("每筆內容的字元上限，範圍 100-20000，避免長堆疊灌爆輸出。")]
+        [Description("每筆內容的字元上限，範圍 100-20000；完整堆疊用 get_test_diagnostic。")]
         int max_text_length = 2000,
         [Description("最多回傳幾筆，範圍 1-500。")]
         int limit = 100) => ToolGuard.Run(() =>

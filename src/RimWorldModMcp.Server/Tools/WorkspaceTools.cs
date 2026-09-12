@@ -15,7 +15,7 @@ public sealed class WorkspaceTools(
     BuildService builds)
 {
     [McpServerTool(Name = "create_mod", UseStructuredContent = true, Idempotent = false)]
-    [Description("建立一個新 Mod 骨架，含 About.xml 與標準目錄結構。C# 骨架的 csproj 已設定好本工具建置時注入的遊戲組件參考，請用它而不是手寫。")]
+    [Description("建立新 Mod 骨架，含 About.xml 與標準目錄。C# Mod 一律以 with_code=true 起步：產生的 csproj 已接好 build_mod 注入的遊戲組件參考。")]
     public CreateModResult CreateMod(
         [Description("要在哪個既有目錄底下建立 Mod 資料夾。")]
         string directory,

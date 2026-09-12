@@ -33,7 +33,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
-    [Description("檢視一個已安裝 Mod 的組件，必要時按需反編譯並建立索引。之後就能用 search_installed_mod_source 搜尋它的原始碼。")]
+    [Description("列出已安裝 Mod 的組件及其符號與原始碼索引數量；尚未索引時會先反編譯並索引。")]
     public InspectModResult InspectInstalledMod(
         [Description("Mod 的 packageId。")]
         string package_id,

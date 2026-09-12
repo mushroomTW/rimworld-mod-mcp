@@ -25,7 +25,7 @@ public sealed class IndexTools(
     MemberDecompiler decompiler)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
-    [Description("回報偵測到的 RimWorld 安裝路徑與索引狀態。開始任何工作前先呼叫這個確認環境就緒。")]
+    [Description("開工前先呼叫：回報 RimWorld 安裝路徑偵測結果與索引狀態。detected=false 請使用者設定 RIMWORLD_MOD_MCP_GAME_PATH；index.fresh=false 呼叫 rebuild_index。")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
@@ -56,9 +56,9 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "rebuild_index", UseStructuredContent = true)]
-    [Description("重建 Def 與 C# 符號索引。讀取遊戲的 IL metadata，數秒內完成。原始碼全文索引會在背景繼續進行。")]
+    [Description("索引缺失、過期或遊戲更新後呼叫：重建 Def 與 C# 符號索引，數秒內完成即可查詢；原始碼全文索引在背景繼續。")]
     public RebuildIndexResult RebuildIndex(
-        [Description("是否同時在背景建立原始碼全文索引（search_source 需要）。預設 true。")]
+        [Description("是否一併在背景建立原始碼全文索引（search_source 需要）。")]
         bool index_source = true) => ToolGuard.Run(() =>
     {
         var result = builder.Rebuild();
@@ -80,7 +80,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true)]
-    [Description("以名稱、標籤或描述搜尋已索引的 Def。預設不回傳 XML 內容以節省輸出；需要完整定義請用 read_def。")]
+    [Description("以名稱、標籤或描述搜尋 Def，回傳摘要；完整 XML 用 read_def。")]
     public SearchDefsResult SearchDefs(
         [Description("搜尋關鍵字。詞尾加 * 表示前綴搜尋，例如 Gun*。")]
         string query,
@@ -104,7 +104,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "read_def", UseStructuredContent = true, ReadOnly = true)]
-    [Description("讀取單一 Def 的完整 XML 定義。抽象 Def 請用它的 Name 屬性值查詢。")]
+    [Description("讀取單一 Def 的完整 XML。")]
     public ReadDefResult ReadDef(
         [Description("Def 的 defName，或抽象 Def 的 Name 屬性值。")]
         string def_name,
@@ -128,7 +128,7 @@ public sealed class IndexTools(
     public ReadSymbolResult ReadSymbol(
         [Description("符號的短名或完整名稱的一部分，例如 ThingDef 或 Verse.ThingDef。")]
         string name,
-        [Description("是否反編譯出原始碼。首次呼叫會花數秒初始化反編譯器。")]
+        [Description("是否反編譯出原始碼。")]
         bool include_body = false,
         [Description("原始碼節錄的位元組上限，範圍 256-32768。")]
         int max_bytes = 4096,
@@ -175,7 +175,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
-    [Description("找出所有繼承自指定型別的類別。用來回答「哪些類別繼承 ThingComp」這類問題。")]
+    [Description("列出繼承自指定型別的所有類別，含間接子類。")]
     public FindDescendantsResult FindDescendants(
         [Description("基底型別的完整名稱，例如 Verse.ThingComp。")]
         string base_type,
@@ -194,7 +194,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "search_source", UseStructuredContent = true, ReadOnly = true)]
-    [Description("以正規表示式搜尋反編譯後的遊戲原始碼。需要原始碼索引完成；未完成時 source_indexed 會是 false。")]
+    [Description("以正規表示式搜尋反編譯後的遊戲原始碼。回傳 source_indexed=false 表示背景索引未完成，稍後重試。")]
     public SearchSourceResult SearchSource(
         [Description("正規表示式（.NET 語法），一律不分大小寫。")]
         string pattern,
