@@ -231,17 +231,22 @@ public sealed class TestCycleService(
 
     private TestModSet ResolveModSet(ModInfo mod, IReadOnlyList<string>? companionMods)
     {
-        var available = new List<ModInfo>(catalog.BuiltinPacks());
-        available.AddRange(catalog.Installed());
-        available.Add(mod);
+        // 同一個 packageId 可能同時出現在 Mods\ 與 Workshop，受測 Mod 也可能本來就住在 Mods\ 裡；
+        // 以 packageId 去重，受測 Mod 一律以呼叫者指定的路徑為準。
+        var available = new Dictionary<string, ModInfo>(StringComparer.Ordinal);
+
+        foreach (var installed in catalog.BuiltinPacks().Concat(catalog.Installed()))
+        {
+            available.TryAdd(installed.PackageId, installed);
+        }
+
+        available[mod.PackageId] = mod;
 
         var selected = new List<ModInfo> { mod };
 
         foreach (var companion in companionMods ?? [])
         {
-            var match = available.FirstOrDefault(m => m.PackageId == companion.Trim().ToLowerInvariant());
-
-            if (match is null)
+            if (!available.TryGetValue(companion.Trim().ToLowerInvariant(), out var match))
             {
                 throw new KeyNotFoundException($"找不到指定的相伴 Mod：{companion}");
             }
@@ -249,7 +254,7 @@ public sealed class TestCycleService(
             selected.Add(match);
         }
 
-        var order = loadOrders.Resolve(selected, available);
+        var order = loadOrders.Resolve(selected, [.. available.Values]);
 
         if (order.Missing.Count > 0)
         {
