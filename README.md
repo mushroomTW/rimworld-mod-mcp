@@ -21,8 +21,11 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 
 ## Requirements
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download) (also required to build your mods)
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
 - A legitimately installed copy of RimWorld
+
+> [!NOTE]
+> When running as a self-contained single executable, the server itself does not require a local .NET 10 Runtime. However, a local .NET SDK is still required at runtime for `build_mod` (compiling C# mods) and `run_test_cycle` (compiling the in-game test bridge on the fly).
 
 The C# bridge references the RimWorld assemblies it detects; this repository contains no RimWorld binaries.
 

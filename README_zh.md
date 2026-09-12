@@ -21,8 +21,11 @@
 
 ## 系統需求
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download)（建置使用者的 Mod 也需要）
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
 - 本機已合法安裝的 RimWorld
+
+> [!NOTE]
+> 若使用 Self-Contained 獨立單一執行檔，執行伺服器本體無需安裝 .NET 10 Runtime；但 `build_mod`（編譯 C# Mod）與 `run_test_cycle`（就地即時編譯測試用 Bridge）兩項工具在執行時仍需依賴系統中的 .NET SDK。
 
 C# Bridge 會參考偵測到的 RimWorld 組件；本 repository 不包含任何 RimWorld 二進位檔。
 
