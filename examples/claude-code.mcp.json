@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "rimworld": {
-      "command": "rimworld-mod-mcp",
+    "rimworld-mod-mcp": {
+      "command": "C:\\path\\to\\rimworld-mod-mcp\\src\\RimWorldModMcp.Server\\bin\\Release\\net10.0\\RimWorldModMcp.Server.exe",
       "args": ["stdio"]
     }
   }
