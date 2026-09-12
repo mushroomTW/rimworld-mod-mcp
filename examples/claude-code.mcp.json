@@ -2,7 +2,7 @@
   "mcpServers": {
     "rimworld": {
       "command": "rimworld-mod-mcp",
-      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+      "args": ["stdio"]
     }
   }
 }

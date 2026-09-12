@@ -3,15 +3,15 @@ using System.Text;
 namespace RimWorldModMcp.Core.Workspace;
 
 /// <summary>建立新 Mod 的目錄骨架。</summary>
-public sealed class ModScaffolder(WorkspaceRegistry workspaces)
+public sealed class ModScaffolder
 {
     private static readonly string[] Folders = ["About", "Defs", "Patches", "Textures", "Sounds", "Source"];
 
     /// <summary>
-    /// 在信任的工作區根目錄下建立一個新 Mod。
+    /// 在 <paramref name="parentPath"/> 底下建立一個新 Mod。
     /// </summary>
     /// <param name="withCode">是否一併產生 C# 專案骨架。</param>
-    public string Create(string workspacePath, string name, string packageId, bool withCode)
+    public string Create(string parentPath, string name, string packageId, bool withCode)
     {
         var normalisedId = packageId.Trim().ToLowerInvariant();
 
@@ -23,18 +23,7 @@ public sealed class ModScaffolder(WorkspaceRegistry workspaces)
                 nameof(packageId));
         }
 
-        var workspace = PathGuard.Canonicalize(workspacePath);
-
-        // 必須恰好是信任的根目錄本身，不接受子目錄——避免在別人的 Mod 裡面又建一個 Mod。
-        if (!workspaces.Roots().Any(root => string.Equals(
-                PathGuard.Canonicalize(root),
-                workspace,
-                Platform.PathText.Comparison)))
-        {
-            throw new UnauthorizedAccessException("workspace 必須是啟動參數 --workspace 給定的工作區根目錄本身。");
-        }
-
-        var modPath = Path.Combine(workspace, SanitiseFolderName(name));
+        var modPath = Path.Combine(ModDirectory.Resolve(parentPath), SanitiseFolderName(name));
 
         if (Directory.Exists(modPath) || File.Exists(modPath))
         {

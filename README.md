@@ -67,13 +67,13 @@ When installed as a dotnet tool, `rimworld-mod-mcp` is on your PATH, so no absol
   "mcpServers": {
     "rimworld": {
       "command": "rimworld-mod-mcp",
-      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+      "args": ["stdio"]
     }
   }
 }
 ```
 
-`--workspace` names a mod development workspace and may be repeated. **It is the tool's only source of write authorization**: only paths inside these directories can be created, built, or tested; changing the config is all it takes, and no tool can widen it mid-conversation. The server starts without `--workspace`, but then only read-only tools are usable.
+`create_mod`, `build_mod`, and `run_test_cycle` accept any local directory path; there is no write boundary — scoping writes is left to your MCP client's permission prompts and to you.
 
 Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp.json), [Codex](examples/codex-mcp.toml), [custom port and game path](examples/custom-port.mcp.json).
 
@@ -84,7 +84,7 @@ If you use the standalone executable (or want to point to local build output), p
   "mcpServers": {
     "rimworld": {
       "command": "C:\\path\\to\\publish\\RimWorldModMcp.Server.exe",
-      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+      "args": ["stdio"]
     }
   }
 }
@@ -95,7 +95,6 @@ If you use the standalone executable (or want to point to local build output), p
 1. Configure the server in your MCP client.
 2. Call `rimworld_status` to confirm RimWorld was detected.
 3. Call `rebuild_index` once. Def and symbol indexing finishes in seconds and is immediately usable; the source-code full-text index continues in the background, and `search_source` reports `source_indexed: false` until it completes.
-**Only paths inside a `--workspace` directory can be modified.** This is the tool's single write boundary.
 
 ## Tools
 
@@ -161,7 +160,7 @@ Once tier 1 completes, Def search, symbol lookup, inheritance chains, and `read_
 
 ## Security and privacy
 
-- All writes are confined to the workspaces given by the `--workspace` startup argument; the trusted set cannot grow at runtime.
+- The only tools that write files are `create_mod`, `build_mod`, and `run_test_cycle`, and they write only to the mod directory you pass (test sessions additionally use an isolated temporary save directory). There is no path allow-list; rely on your MCP client's tool-permission prompts.
 - No external network communication. Game files, decompiled output, indexes, and diagnostics stay local.
 - The bridge activates only when `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` is present and connects only to `127.0.0.1`. Each test session uses a single-use token; the token is never written to diagnostic records and never appears in tool responses.
 - Destructive operations (`stop_test`) require an explicit `confirm: true`.

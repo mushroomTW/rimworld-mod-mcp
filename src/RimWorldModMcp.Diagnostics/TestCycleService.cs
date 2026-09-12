@@ -32,9 +32,9 @@ public sealed class TestCycleService(
     DaemonBootstrapper daemons,
     DiagnosticStore diagnostics)
 {
-    public TestSession Start(ValidatedModPath modPath, IReadOnlyList<string>? companionMods, bool quickTest)
+    public TestSession Start(string modPath, IReadOnlyList<string>? companionMods, bool quickTest)
     {
-        var mod = modPath.Value;
+        var mod = ModDirectory.Resolve(modPath);
         var paths = locator.Detect();
 
         if (paths.Executable is null || paths.ModsDir is null)

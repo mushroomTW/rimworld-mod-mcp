@@ -14,7 +14,7 @@ public sealed class ModScaffolderTests : IDisposable
         _workspace = Path.Combine(_root, "workspace");
         Directory.CreateDirectory(_workspace);
 
-        _scaffolder = new ModScaffolder(new WorkspaceRegistry([_workspace]));
+        _scaffolder = new ModScaffolder();
     }
 
     public void Dispose()
@@ -85,22 +85,11 @@ public sealed class ModScaffolderTests : IDisposable
     }
 
     [Fact]
-    public void UnregisteredWorkspaceIsRejected()
+    public void MissingParentDirectoryIsRejected()
     {
-        var other = Path.Combine(_root, "not-registered");
-        Directory.CreateDirectory(other);
+        var missing = Path.Combine(_root, "missing");
 
-        Assert.Throws<UnauthorizedAccessException>(() => _scaffolder.Create(other, "Mod", "author.mod", withCode: false));
-    }
-
-    /// <summary>workspace 參數必須是信任的根目錄本身，不接受它底下的子目錄。</summary>
-    [Fact]
-    public void SubdirectoryOfARegisteredRootIsRejected()
-    {
-        var nested = Path.Combine(_workspace, "nested");
-        Directory.CreateDirectory(nested);
-
-        Assert.Throws<UnauthorizedAccessException>(() => _scaffolder.Create(nested, "Mod", "author.mod", withCode: false));
+        Assert.Throws<DirectoryNotFoundException>(() => _scaffolder.Create(missing, "Mod", "author.mod", withCode: false));
     }
 
     [Fact]
@@ -113,7 +102,7 @@ public sealed class ModScaffolderTests : IDisposable
 
     /// <summary>
     /// 重現端對端測試中遇到的情境：以工具鏈的實際路徑形式（Windows 反斜線、
-    /// 可能帶大小寫差異）登記工作區後立刻建立 Mod。
+    /// 可能帶大小寫差異）建立 Mod。
     /// </summary>
     [Fact]
     public void WorksWithThePathFormTheToolLayerPasses()

@@ -67,13 +67,13 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
   "mcpServers": {
     "rimworld": {
       "command": "rimworld-mod-mcp",
-      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+      "args": ["stdio"]
     }
   }
 }
 ```
 
-`--workspace` 指定 Mod 開發工作區，可重複多次。**這是本工具唯一的寫入授權來源**：只有這些目錄內的路徑能被建立、建置或測試，改設定即生效，對話中沒有任何工具能放寬它。不給 `--workspace` 也能啟動，但只剩唯讀工具可用。
+`create_mod`、`build_mod`、`run_test_cycle` 接受任何本機目錄路徑，不設寫入邊界——寫入範圍的把關交給 MCP client 的權限機制與你自己。
 
 範本在 [examples/](examples/)：[Claude Code](examples/claude-code.mcp.json)、[Codex](examples/codex-mcp.toml)、[自訂埠與遊戲路徑](examples/custom-port.mcp.json)。
 
@@ -84,7 +84,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
   "mcpServers": {
     "rimworld": {
       "command": "C:\\path\\to\\publish\\RimWorldModMcp.Server.exe",
-      "args": ["stdio", "--workspace", "C:/path/to/your/mods"]
+      "args": ["stdio"]
     }
   }
 }
@@ -95,7 +95,6 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 1. 在 MCP client 設定好 server。
 2. 呼叫 `rimworld_status`，確認 RimWorld 已被偵測到。
 3. 呼叫一次 `rebuild_index`。Def 與符號索引數秒完成即可使用；原始碼全文索引會在背景繼續，完成前 `search_source` 會回報 `source_indexed: false`。
-**只有位於 `--workspace` 給定工作區內的路徑可以被修改。** 這是本工具唯一的寫入邊界。
 
 ## 工具
 
@@ -161,7 +160,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 
 ## 安全與隱私
 
-- 所有寫入限制在啟動參數 `--workspace` 給定的工作區內；信任範圍不能在執行期擴張。
+- 會寫入檔案的工具只有 `create_mod`、`build_mod`、`run_test_cycle`，且只寫呼叫時指定的 Mod 目錄（測試場次另外寫入獨立的暫存存檔目錄）。本工具不設路徑白名單，請依賴 MCP client 的工具權限確認。
 - 沒有任何外部網路通訊。遊戲檔、反編譯結果、索引與診斷都只存在本機。
 - Bridge 只在 `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` 存在時啟用，且只連 `127.0.0.1`。每個測試場次使用一次性 token；token 不會被寫入診斷紀錄，也不會出現在工具回應中。
 - 破壞性操作（`stop_test`）需要明確的 `confirm: true`。

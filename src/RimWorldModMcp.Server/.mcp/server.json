@@ -17,14 +17,6 @@
           "value": "stdio",
           "valueHint": "stdio",
           "description": "以 stdio 傳輸執行 MCP server。"
-        },
-        {
-          "type": "named",
-          "name": "--workspace",
-          "description": "信任的 Mod 開發工作區根目錄；只有這些目錄內的路徑能被建立、建置或測試。可重複指定多個。",
-          "isRequired": false,
-          "isRepeated": true,
-          "valueHint": "path"
         }
       ],
       "environmentVariables": []

@@ -11,19 +11,18 @@ namespace RimWorldModMcp.Server.Tools;
 [McpServerToolType]
 public sealed class TestCycleTools(
     TestCycleService testCycle,
-    DiagnosticStore diagnostics,
-    RimWorldModMcp.Core.Workspace.WorkspaceRegistry workspaces)
+    DiagnosticStore diagnostics)
 {
     [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, Idempotent = false)]
     [Description("在隔離環境啟動 RimWorld 測試指定的 Mod。使用獨立的存檔目錄，不會動到使用者的存檔與設定。遊戲已在執行時會拒絕啟動。")]
     public TestSessionResult RunTestCycle(
-        [Description("要測試的 Mod 目錄，必須在啟動參數 --workspace 給定的工作區內。")]
+        [Description("要測試的 Mod 目錄。")]
         string path,
         [Description("要一併啟用的其他 Mod 的 packageId 清單。")]
         string[]? companion_mods = null,
         [Description("是否用 -quicktest 直接進入測試地圖，跳過主選單。")]
         bool quicktest = true) => ToolGuard.Run(() =>
-        ToResult(testCycle.Start(workspaces.AllowedMod(path), companion_mods, quicktest)));
+        ToResult(testCycle.Start(path, companion_mods, quicktest)));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("回報目前測試場次的狀態，包含 Bridge 與診斷 daemon 是否正常運作。")]

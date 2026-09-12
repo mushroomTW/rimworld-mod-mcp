@@ -2,4 +2,4 @@
 # 先執行 dotnet tool install -g RimWorldModMcp，之後指令會在 PATH 上。
 [mcp_servers.rimworld]
 command = "rimworld-mod-mcp"
-args = ["stdio", "--workspace", "C:/path/to/your/mods"]
+args = ["stdio"]

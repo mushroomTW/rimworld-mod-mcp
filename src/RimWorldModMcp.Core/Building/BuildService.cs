@@ -52,9 +52,9 @@ public sealed record BuildResult
 /// </summary>
 public sealed partial class BuildService(IRimWorldLocator locator)
 {
-    public BuildResult Build(ValidatedModPath modPath)
+    public BuildResult Build(string modPath)
     {
-        var mod = modPath.Value;
+        var mod = ModDirectory.Resolve(modPath);
 
         ValidateAbout(mod);
 
