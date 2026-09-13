@@ -26,4 +26,45 @@ public sealed class TestEnvironmentPreparerTests
     {
         Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder));
     }
+
+    private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\Games\RimWorld" : "/opt/rimworld";
+    private static readonly string ModsDir = Path.Combine(Root, "Mods");
+
+    [Fact]
+    public void IsDirectlyUnderModsDirectory_true_for_mod_folder_in_mods()
+    {
+        Assert.True(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(Path.Combine(ModsDir, "RimAgent"), ModsDir));
+    }
+
+    [Fact]
+    public void IsDirectlyUnderModsDirectory_ignores_trailing_separators()
+    {
+        var mod = Path.Combine(ModsDir, "RimAgent") + Path.DirectorySeparatorChar;
+        var mods = ModsDir + Path.DirectorySeparatorChar;
+
+        Assert.True(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(mod, mods));
+    }
+
+    [Fact]
+    public void IsDirectlyUnderModsDirectory_follows_platform_case_rules()
+    {
+        var mod = Path.Combine(Root, "mods", "RimAgent");
+
+        Assert.Equal(!OperatingSystem.IsLinux(), TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(mod, ModsDir));
+    }
+
+    [Fact]
+    public void IsDirectlyUnderModsDirectory_false_for_nested_folder()
+    {
+        Assert.False(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(Path.Combine(ModsDir, "Dev", "RimAgent"), ModsDir));
+    }
+
+    [Fact]
+    public void IsDirectlyUnderModsDirectory_false_for_workshop_and_mods_dir_itself()
+    {
+        var workshop = Path.Combine(Root, "..", "..", "workshop", "content", "294100", "123456");
+
+        Assert.False(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(workshop, ModsDir));
+        Assert.False(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(ModsDir, ModsDir));
+    }
 }

@@ -52,10 +52,21 @@ public sealed class TestEnvironmentPreparer(
             var configDirectory = Path.Combine(saveData, "Config");
             Directory.CreateDirectory(configDirectory);
 
-            var testFolderName = DirectoryLink.LinkPrefix + "Test-" + packageId;
-            var testLink = Path.Combine(paths.ModsDir!, testFolderName);
-            links.EnsureLink(testLink, modPath);
-            createdLinks.Add(new TestLink(testLink, modPath));
+            string testFolderName;
+
+            if (IsDirectlyUnderModsDirectory(modPath, paths.ModsDir!))
+            {
+                // 受測 Mod 本來就住在 Mods/ 底下，RimWorld 自己會掃到它；再建一個連結
+                // 就是兩份同 packageId，遊戲端 ModLister 會直接報 Log.Error。
+                testFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(modPath));
+            }
+            else
+            {
+                testFolderName = DirectoryLink.LinkPrefix + "Test-" + packageId;
+                var testLink = Path.Combine(paths.ModsDir!, testFolderName);
+                links.EnsureLink(testLink, modPath);
+                createdLinks.Add(new TestLink(testLink, modPath));
+            }
 
             var bridgeSource = BridgeDirectory();
             var bridgeState = new BridgeState { State = "unavailable", Reason = "找不到 Bridge 原始碼目錄。" };
@@ -279,6 +290,19 @@ public sealed class TestEnvironmentPreparer(
         }
 
         return $"{prefix}{testFolderName}_{stem[(split + 1)..]}.xml";
+    }
+
+    /// <summary>
+    /// 受測 Mod 是否直接位於 Mods 目錄下（父目錄就是 Mods）。
+    /// 子目錄、Workshop 或其他地方都不算；大小寫依 <see cref="PathText.Comparison"/>，尾斜線忽略。
+    /// </summary>
+    public static bool IsDirectlyUnderModsDirectory(string modPath, string modsDir)
+    {
+        var mod = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modPath));
+        var mods = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modsDir));
+        var parent = Path.GetDirectoryName(mod);
+
+        return parent is not null && string.Equals(parent, mods, PathText.Comparison);
     }
 
     /// <summary>清掉先前場次留下的暫存存檔目錄，避免無限累積。</summary>
