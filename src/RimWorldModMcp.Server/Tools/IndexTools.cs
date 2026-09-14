@@ -124,19 +124,21 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source.")]
+    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. For the whole decompiled file use read_source_file.")]
     public ReadSymbolResult ReadSymbol(
         [Description("Short name or part of the full name, e.g. ThingDef or Verse.ThingDef.")]
         string name,
         [Description("Include decompiled source.")]
         bool include_body = false,
-        [Description("Byte limit for the source excerpt, 256-32768.")]
+        [Description("Byte limit for the source excerpt, 256-262144.")]
         int max_bytes = 4096,
         [Description("Maximum results, 1-100.")]
-        int limit = 20) => ToolGuard.Run(() =>
+        int limit = 20,
+        [Description("Substring of the assembly key to restrict results, e.g. Assembly-CSharp, mod:cj.rimtalk, or 1.6/ to pick one version of a multi-version mod.")]
+        string? assembly = null) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
-        var hits = SymbolRepository.Read(connection, name, limit);
+        var hits = SymbolRepository.Read(connection, name, limit, AssemblyLike(assembly));
 
         if (!include_body)
         {
@@ -163,7 +165,7 @@ public sealed class IndexTools(
 
                 if (source is not null)
                 {
-                    body = Utf8Text.Truncate(source, Math.Clamp(max_bytes, 256, 32768), out var wasTruncated);
+                    body = Utf8Text.Truncate(source, Math.Clamp(max_bytes, 256, 262144), out var wasTruncated);
                     truncated = wasTruncated;
                 }
             }
@@ -173,6 +175,78 @@ public sealed class IndexTools(
 
         return new ReadSymbolResult { Results = results, Count = results.Count };
     });
+
+    [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true)]
+    [Description("Browse the symbol tree without knowing a name: a namespace lists its top-level types and child namespaces; a type lists its members and nested types.")]
+    public ListSymbolsResult ListSymbols(
+        [Description("A namespace (e.g. Verse.AI) or a type's full name (e.g. Verse.ThingDef). Empty string lists the root namespaces.")]
+        string parent = "",
+        [Description("Restrict to a symbol kind: Class, Struct, Interface, Enum, Delegate, Method, Constructor, Property, Field, or Event. Omit for all.")]
+        string? kind = null,
+        [Description("Substring of the assembly key to restrict results, e.g. mod:cj.rimtalk or 1.6/.")]
+        string? assembly = null,
+        [Description("Maximum results, 1-500.")]
+        int limit = 100) => ToolGuard.Run(() =>
+    {
+        string? kindName = null;
+
+        if (!string.IsNullOrEmpty(kind))
+        {
+            if (!Enum.TryParse<RimWorldModMcp.Indexing.Model.SymbolKind>(kind, ignoreCase: true, out var parsed))
+            {
+                throw new ArgumentException($"未知的符號種類：{kind}", nameof(kind));
+            }
+
+            kindName = parsed.ToString();
+        }
+
+        using var connection = database.Open();
+        var assemblyLike = AssemblyLike(assembly);
+        var hits = SymbolRepository.Children(connection, parent, kindName, assemblyLike, limit);
+
+        return new ListSymbolsResult
+        {
+            Parent = parent,
+            Results = [.. hits.Select(ToSummary)],
+            Count = hits.Count,
+            LimitReached = hits.Count >= Math.Clamp(limit, 1, 500),
+            ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
+        };
+    });
+
+    [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true)]
+    [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source, search_installed_mod_source, or list_symbols. Page with start_line = previous end_line + 1.")]
+    public ReadSourceFileResult ReadSourceFile(
+        [Description("Assembly key exactly as returned by a search, e.g. Assembly-CSharp or mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll.")]
+        string assembly,
+        [Description("File path exactly as returned by a search, e.g. Verse/ThingDef.cs.")]
+        string file,
+        [Description("First line to return, 1-based.")]
+        int start_line = 1,
+        [Description("Byte limit for the excerpt, 1024-262144.")]
+        int max_bytes = 65536) => ToolGuard.Run(() =>
+    {
+        using var connection = database.Open();
+        var text = SourceFileRepository.Read(connection, assembly, file)
+            ?? throw new FileNotFoundException($"索引裡沒有這個檔案：{assembly} / {file}");
+
+        var excerpt = SourceExcerpt.Take(text, start_line, Math.Clamp(max_bytes, 1024, 262144));
+
+        return new ReadSourceFileResult
+        {
+            Assembly = assembly,
+            File = file,
+            Text = excerpt.Text,
+            StartLine = excerpt.StartLine,
+            EndLine = excerpt.EndLine,
+            TotalLines = excerpt.TotalLines,
+            Truncated = excerpt.Truncated,
+        };
+    });
+
+    /// <summary>把使用者給的組件鍵片段變成 LIKE 子字串樣式；沒給就不過濾。</summary>
+    private static string? AssemblyLike(string? assembly)
+        => string.IsNullOrEmpty(assembly) ? null : $"%{FtsQuery.LikeLiteral(assembly)}%";
 
     [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
     [Description("List every class deriving from the given type, including indirect descendants.")]
@@ -270,6 +344,7 @@ public sealed class IndexTools(
         ShortName = hit.ShortName,
         Kind = hit.Kind,
         Assembly = hit.Assembly,
+        AssemblyPath = hit.AssemblyPath,
         ParentFqn = hit.ParentFqn,
         Signature = hit.Signature,
         BaseChain = hit.BaseChain,

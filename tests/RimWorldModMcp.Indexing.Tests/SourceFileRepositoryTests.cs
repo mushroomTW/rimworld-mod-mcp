@@ -82,6 +82,15 @@ public sealed class SourceFileRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void ReadReturnsTheFullTextForAnExactKeyAndNullOtherwise()
+    {
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Thing.cs", "hello world");
+
+        Assert.Equal("hello world", SourceFileRepository.Read(_connection, "Assembly-CSharp", "Verse/Thing.cs"));
+        Assert.Null(SourceFileRepository.Read(_connection, "Assembly-CSharp", "Verse/Missing.cs"));
+    }
+
+    [Fact]
     public void ClearRemovesEverything()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "A.cs", "somecontent");

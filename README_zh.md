@@ -109,9 +109,11 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 | `rebuild_index` | 重建 Def 與符號索引。 |
 | `search_defs` | 以名稱、標籤或描述搜尋 Def。 |
 | `read_def` | 讀取單一 Def 的完整 XML。抽象 Def 用它的 `Name` 屬性查。 |
-| `read_symbol` | 查詢符號的簽章、完整繼承鏈與介面，可選擇一併反編譯原始碼。 |
+| `read_symbol` | 查詢符號的簽章、完整繼承鏈與介面，可選擇一併反編譯原始碼。`assembly` 可限定單一組件（或多版本 Mod 的其中一個版本）。 |
+| `list_symbols` | 不靠關鍵字瀏覽：給 namespace 列出其中的頂層型別與子 namespace，給型別列出它的成員。 |
 | `find_descendants` | 找出所有繼承自指定型別的類別。 |
 | `search_source` | 以正規表示式搜尋反編譯後的遊戲原始碼。 |
+| `read_source_file` | 用搜尋結果回傳的 `assembly` 與 `file` 讀取整個反編譯檔（遊戲或 Mod），以行分頁。 |
 | `find_def_usages` | 找出一個 Def 被引用的位置，含 XML 交叉引用與 C# 的 `DefOf` 欄位。 |
 
 ### 已安裝的 Mod
@@ -119,8 +121,8 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 | 工具 | 用途 |
 | --- | --- |
 | `list_installed_mods` | 列出本機與 Workshop 的 Mod。 |
-| `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。 |
-| `search_installed_mod_source` | 搜尋一個 Mod 的原始碼。 |
+| `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。每個組件的鍵為 `mod:<packageId>:<DLL 相對路徑>`，例如 `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`。 |
+| `search_installed_mod_source` | 搜尋一個 Mod 的原始碼。`assembly`（例如 `1.6/`）可只搜其中一個版本的 DLL。 |
 
 ### 建置
 

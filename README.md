@@ -109,9 +109,11 @@ If you use the standalone executable (or want to point to local build output), p
 | `rebuild_index` | Rebuild the Def and symbol indexes. |
 | `search_defs` | Search Defs by name, label, or description. |
 | `read_def` | Read one Def's full XML. Look up abstract Defs by their `Name` attribute. |
-| `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. |
+| `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. `assembly` narrows to one assembly (or one version of a multi-version mod). |
+| `list_symbols` | Browse without a keyword: a namespace lists its top-level types and child namespaces; a type lists its members. |
 | `find_descendants` | Find every class deriving from a given type. |
 | `search_source` | Regex search over decompiled game source. |
+| `read_source_file` | Read a whole decompiled file (game or mod) by the `assembly` and `file` a search returned, paging by line. |
 | `find_def_usages` | Find where a Def is referenced, across XML cross-references and C# `DefOf` fields. |
 
 ### Installed mods
@@ -119,8 +121,8 @@ If you use the standalone executable (or want to point to local build output), p
 | Tool | Purpose |
 | --- | --- |
 | `list_installed_mods` | List local and Workshop mods. |
-| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. |
-| `search_installed_mod_source` | Search one mod's source. |
+| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`. |
+| `search_installed_mod_source` | Search one mod's source. `assembly` (e.g. `1.6/`) restricts to one version's DLL. |
 
 ### Build
 

@@ -33,7 +33,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
-    [Description("List an installed mod's assemblies with their symbol and source-file index counts; decompiles and indexes first if not yet indexed.")]
+    [Description("List an installed mod's assemblies (one per version directory) with their index keys and symbol/source-file counts; decompiles and indexes first if not yet indexed. Pass an assembly key fragment such as 1.6/ to read_symbol or search_installed_mod_source to look at one version only.")]
     public InspectModResult InspectInstalledMod(
         [Description("The mod's packageId.")]
         string package_id,
@@ -49,6 +49,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
             Assemblies = [.. assemblies.Select(a => new ModAssemblySummary
             {
                 Name = a.Name,
+                Assembly = a.Key,
                 Path = a.Path,
                 SymbolCount = a.SymbolCount,
                 SourceFileCount = a.SourceFileCount,
@@ -59,17 +60,19 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "search_installed_mod_source", UseStructuredContent = true)]
-    [Description("Regex search over an installed mod's decompiled source. Indexes it first if not yet indexed.")]
+    [Description("Regex search over an installed mod's decompiled source. Indexes it first if not yet indexed. Use read_source_file with a hit's assembly and file to read the whole file.")]
     public SearchSourceResult SearchInstalledModSource(
         [Description("The mod's packageId.")]
         string package_id,
         [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,
         [Description("Maximum results, 1-800.")]
-        int limit = 100) => ToolGuard.Run(() =>
+        int limit = 100,
+        [Description("Substring of the assembly key to restrict results, e.g. 1.6/ to search one version of a multi-version mod.")]
+        string? assembly = null) => ToolGuard.Run(() =>
     {
         var mod = catalog.Find(package_id);
-        var (hits, indexed) = inspection.SearchSource(mod.PackageId, mod.Path, pattern, limit);
+        var (hits, indexed) = inspection.SearchSource(mod.PackageId, mod.Path, pattern, limit, assembly);
 
         return new SearchSourceResult
         {
@@ -156,6 +159,10 @@ public sealed record ModAssemblySummary
 {
     [JsonPropertyName("name")]
     public required string Name { get; init; }
+
+    /// <summary>索引裡的組件鍵，形式為 mod:&lt;packageId&gt;:&lt;DLL 相對路徑&gt;；查詢工具的 assembly 篩選對它比對。</summary>
+    [JsonPropertyName("assembly")]
+    public required string Assembly { get; init; }
 
     [JsonPropertyName("path")]
     public required string Path { get; init; }

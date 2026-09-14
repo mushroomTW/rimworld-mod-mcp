@@ -181,6 +181,10 @@ public sealed record SymbolSummary
     [JsonPropertyName("assembly")]
     public required string Assembly { get; init; }
 
+    /// <summary>組件檔案的實際路徑；Mod 符號靠它辨認是哪個版本目錄下的 DLL。</summary>
+    [JsonPropertyName("assembly_path")]
+    public string? AssemblyPath { get; init; }
+
     [JsonPropertyName("parent_fqn")]
     public string? ParentFqn { get; init; }
 
@@ -220,6 +224,52 @@ public sealed record FindDescendantsResult
 
     [JsonPropertyName("count")]
     public required int Count { get; init; }
+}
+
+/// <summary>符號瀏覽結果。</summary>
+public sealed record ListSymbolsResult
+{
+    [JsonPropertyName("parent")]
+    public required string Parent { get; init; }
+
+    [JsonPropertyName("results")]
+    public required IReadOnlyList<SymbolSummary> Results { get; init; }
+
+    [JsonPropertyName("count")]
+    public required int Count { get; init; }
+
+    [JsonPropertyName("limit_reached")]
+    public required bool LimitReached { get; init; }
+
+    /// <summary>parent 是 namespace 時，其下一層的子 namespace。</summary>
+    [JsonPropertyName("child_namespaces")]
+    public required IReadOnlyList<string> ChildNamespaces { get; init; }
+}
+
+/// <summary>反編譯檔的一段內容。</summary>
+public sealed record ReadSourceFileResult
+{
+    [JsonPropertyName("assembly")]
+    public required string Assembly { get; init; }
+
+    [JsonPropertyName("file")]
+    public required string File { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+
+    [JsonPropertyName("start_line")]
+    public required int StartLine { get; init; }
+
+    /// <summary>節錄裡最後一個完整行；下一頁從 end_line + 1 開始。</summary>
+    [JsonPropertyName("end_line")]
+    public required int EndLine { get; init; }
+
+    [JsonPropertyName("total_lines")]
+    public required int TotalLines { get; init; }
+
+    [JsonPropertyName("truncated")]
+    public required bool Truncated { get; init; }
 }
 
 /// <summary>原始碼搜尋結果。</summary>

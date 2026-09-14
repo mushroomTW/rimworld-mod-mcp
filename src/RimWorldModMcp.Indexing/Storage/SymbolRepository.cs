@@ -75,14 +75,19 @@ public sealed class SymbolRepository
         command.ExecuteNonQuery();
     }
 
-    /// <summary>依短名精確比對，或以 FQN 子字串比對，查出符號。</summary>
-    public static List<SymbolHit> Read(SqliteConnection connection, string name, int limit)
+    /// <summary>
+    /// 依短名精確比對，或以 FQN 子字串比對，查出符號。
+    /// <paramref name="assemblyLike"/> 是對組件鍵的 LIKE 樣式；多版本 Mod 的同一個類別
+    /// 會在每份 DLL 各出現一次，靠它才能只看其中一份。
+    /// </summary>
+    public static List<SymbolHit> Read(SqliteConnection connection, string name, int limit, string? assemblyLike = null)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
             FROM symbol
-            WHERE short_name = $name OR fqn LIKE $like ESCAPE '\'
+            WHERE (short_name = $name OR fqn LIKE $like ESCAPE '\')
+              {(assemblyLike is null ? "" : "AND assembly LIKE $assembly ESCAPE '\\'")}
             ORDER BY (short_name = $name) DESC, fqn
             LIMIT $limit;
             """;
@@ -91,7 +96,89 @@ public sealed class SymbolRepository
         command.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
 
+        if (assemblyLike is not null)
+        {
+            command.Parameters.AddWithValue("$assembly", assemblyLike);
+        }
+
         return ReadHits(command);
+    }
+
+    /// <summary>
+    /// 列出直接隸屬於 <paramref name="parentFqn"/> 的符號：給 namespace 時得到其中的頂層型別，
+    /// 給型別時得到它的成員與巢狀型別。這是「不知道關鍵字也能瀏覽」的入口。
+    /// </summary>
+    public static List<SymbolHit> Children(
+        SqliteConnection connection, string parentFqn, string? kind, string? assemblyLike, int limit)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
+            FROM symbol
+            WHERE parent_fqn = $parent
+              {(kind is null ? "" : "AND kind = $kind")}
+              {(assemblyLike is null ? "" : "AND assembly LIKE $assembly ESCAPE '\\'")}
+            ORDER BY kind, fqn
+            LIMIT $limit;
+            """;
+
+        command.Parameters.AddWithValue("$parent", parentFqn);
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+
+        if (kind is not null)
+        {
+            command.Parameters.AddWithValue("$kind", kind);
+        }
+
+        if (assemblyLike is not null)
+        {
+            command.Parameters.AddWithValue("$assembly", assemblyLike);
+        }
+
+        return ReadHits(command);
+    }
+
+    /// <summary>
+    /// 列出 <paramref name="parentNamespace"/> 底下一層的子 namespace（空字串代表根）。
+    /// 型別符號的 parent_fqn 就是它的 namespace，所以從型別的 parent 反推即可，
+    /// 不需要另外存 namespace 表。
+    /// </summary>
+    public static List<string> ChildNamespaces(SqliteConnection connection, string parentNamespace, string? assemblyLike)
+    {
+        var prefix = parentNamespace.Length == 0 ? "" : parentNamespace + ".";
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT DISTINCT parent_fqn
+            FROM symbol
+            WHERE kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')
+              -- 巢狀型別的 fqn 是 Outer+Inner，它的 parent 是型別不是 namespace，要排除。
+              AND fqn NOT LIKE '%+%'
+              AND parent_fqn LIKE $like ESCAPE '\'
+              AND parent_fqn <> $parent
+              {(assemblyLike is null ? "" : "AND assembly LIKE $assembly ESCAPE '\\'")};
+            """;
+
+        command.Parameters.AddWithValue("$like", FtsQuery.LikeLiteral(prefix) + "%");
+        command.Parameters.AddWithValue("$parent", parentNamespace);
+
+        if (assemblyLike is not null)
+        {
+            command.Parameters.AddWithValue("$assembly", assemblyLike);
+        }
+
+        var children = new SortedSet<string>(StringComparer.Ordinal);
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            // 只取緊接在 prefix 後的那一段：RimTalk.AI.Clients 對 RimTalk 而言是 RimTalk.AI。
+            var rest = reader.GetString(0)[prefix.Length..];
+            var dot = rest.IndexOf('.');
+            children.Add(prefix + (dot < 0 ? rest : rest[..dot]));
+        }
+
+        return [.. children];
     }
 
     private static List<SymbolHit> ReadHits(SqliteCommand command)

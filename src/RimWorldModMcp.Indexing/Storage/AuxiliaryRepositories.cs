@@ -121,6 +121,16 @@ public static class SourceFileRepository
         command.ExecuteNonQuery();
     }
 
+    /// <summary>讀出一個反編譯檔的完整內容；鍵不存在時回傳 <c>null</c>。</summary>
+    public static string? Read(SqliteConnection connection, string assembly, string path)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT text FROM source_file WHERE assembly = $assembly AND path = $path;";
+        command.Parameters.AddWithValue("$assembly", assembly);
+        command.Parameters.AddWithValue("$path", path);
+        return command.ExecuteScalar() as string;
+    }
+
     public static long Count(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
