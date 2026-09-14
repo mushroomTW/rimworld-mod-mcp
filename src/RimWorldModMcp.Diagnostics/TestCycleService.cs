@@ -9,7 +9,6 @@ namespace RimWorldModMcp.Diagnostics;
 
 /// <summary>解析完成的測試選集。</summary>
 public sealed record TestModSet(
-    ModInfo Mod,
     IReadOnlyList<string> ActiveMods,
     IReadOnlyList<string> SkippedLoadAfter);
 
@@ -293,6 +292,6 @@ public sealed class TestCycleService(
             throw new InvalidOperationException($"缺少必要的相依 Mod：{string.Join("、", order.Missing)}");
         }
 
-        return new TestModSet(mod, order.Active, order.SkippedLoadAfter);
+        return new TestModSet(order.Active, order.SkippedLoadAfter);
     }
 }

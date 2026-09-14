@@ -30,6 +30,8 @@ public static class IndexMetaRepository
 /// <summary>反編譯後的原始碼。存在資料庫裡而不是落地成上萬個檔案。</summary>
 public static class SourceFileRepository
 {
+    private const string PathParam = "$path";
+
     public static void Clear(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
@@ -54,7 +56,7 @@ public static class SourceFileRepository
         {
             find.CommandText = "SELECT id, text FROM source_file WHERE assembly = $assembly AND path = $path;";
             find.Parameters.AddWithValue("$assembly", assembly);
-            find.Parameters.AddWithValue("$path", path);
+            find.Parameters.AddWithValue(PathParam, path);
 
             using var reader = find.ExecuteReader();
             id = reader.Read() ? reader.GetInt64(0) : -1;
@@ -72,7 +74,7 @@ public static class SourceFileRepository
                 INSERT INTO source_fts (source_fts, rowid, path, text) VALUES ('delete', $rowid, $path, $text);
                 """;
             removeFts.Parameters.AddWithValue("$rowid", id);
-            removeFts.Parameters.AddWithValue("$path", path);
+            removeFts.Parameters.AddWithValue(PathParam, path);
             removeFts.Parameters.AddWithValue("$text", previousText!);
             removeFts.ExecuteNonQuery();
 
@@ -90,7 +92,7 @@ public static class SourceFileRepository
                 RETURNING id;
                 """;
             insert.Parameters.AddWithValue("$assembly", assembly);
-            insert.Parameters.AddWithValue("$path", path);
+            insert.Parameters.AddWithValue(PathParam, path);
             insert.Parameters.AddWithValue("$text", text);
 
             id = (long)insert.ExecuteScalar()!;
@@ -99,7 +101,7 @@ public static class SourceFileRepository
         using var fts = connection.CreateCommand();
         fts.CommandText = "INSERT INTO source_fts (rowid, path, text) VALUES ($rowid, $path, $text);";
         fts.Parameters.AddWithValue("$rowid", id);
-        fts.Parameters.AddWithValue("$path", path);
+        fts.Parameters.AddWithValue(PathParam, path);
         fts.Parameters.AddWithValue("$text", text);
         fts.ExecuteNonQuery();
     }

@@ -16,3 +16,7 @@ publish/
 # README 的「從原始碼安裝」步驟會把 nupkg 打包到這裡，不進版控。
 nupkg/
 *.nupkg
+
+# SonarQube 分析暫存目錄
+.sonarqube/
+.scannerwork/

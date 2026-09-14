@@ -90,7 +90,8 @@ public sealed class LoadOrderResolver
         List<string> skippedLoadAfter)
     {
         var ordered = new List<string>();
-        var visited = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
 
         // loadBefore 是 loadAfter 的反向邊：「X loadBefore Y」等價於「Y loadAfter X」。
         // 先反轉成 after-邊，排序時走同一條路徑——否則宣告了 loadBefore 的
@@ -123,7 +124,7 @@ public sealed class LoadOrderResolver
         // Core 一律排第一，即使它不在 available 裡也要列出來——
         // RimWorld 沒有 Core 就無法啟動。
         ordered.Add(CorePackageId);
-        visited[CorePackageId] = true;
+        visited.Add(CorePackageId);
 
         foreach (var id in wanted.Order(StringComparer.Ordinal))
         {
@@ -134,9 +135,9 @@ public sealed class LoadOrderResolver
 
         void Visit(string id)
         {
-            if (visited.ContainsKey(id))
+            if (visited.Contains(id) || !visiting.Add(id))
             {
-                // 已完成（true）：不必重走。進行中（false）：遇到循環——
+                // 已完成（visited）：不必重走。進行中（visiting）：遇到循環——
                 // 注意展開階段用 visited-set 靜默吸收循環、不會拋出，所以
                 // 硬相依的循環也會走到這裡。循環內的順序約束本來就無法全部
                 // 滿足，這裡以確定性的 DFS 順序（外層照字母序迭代）收斂。
@@ -145,10 +146,9 @@ public sealed class LoadOrderResolver
 
             if (!wanted.Contains(id) || !index.TryGetValue(id, out var mod))
             {
+                visiting.Remove(id);
                 return;
             }
-
-            visited[id] = false;
 
             foreach (var dependency in mod.Dependencies)
             {
@@ -177,12 +177,9 @@ public sealed class LoadOrderResolver
                 }
             }
 
-            visited[id] = true;
-
-            if (!ordered.Contains(id, StringComparer.Ordinal))
-            {
-                ordered.Add(id);
-            }
+            visiting.Remove(id);
+            visited.Add(id);
+            ordered.Add(id);
         }
     }
 }

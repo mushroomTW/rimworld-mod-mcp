@@ -42,13 +42,9 @@ public sealed class ProcessHost : IProcessHost
             using var process = Process.GetProcessById(processId);
             return !HasExited(process);
         }
-        catch (ArgumentException)
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
         {
             // 找不到這個 PID：確定已經不存在。
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
             return false;
         }
         catch
@@ -92,19 +88,7 @@ public sealed class ProcessHost : IProcessHost
             process.Kill(entireProcessTree: false);
             return true;
         }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-        catch (Win32Exception)
-        {
-            return false;
-        }
-        catch (NotSupportedException)
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or Win32Exception or NotSupportedException)
         {
             return false;
         }

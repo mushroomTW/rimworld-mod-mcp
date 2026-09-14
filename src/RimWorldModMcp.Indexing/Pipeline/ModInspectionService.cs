@@ -51,7 +51,7 @@ public sealed class ModInspectionService(
 
         foreach (var (key, assembly) in keys)
         {
-            var stamp = Stamp(assembly);
+            var stamp = MemberDecompiler.Stamp(assembly);
             var cached = IndexMetaRepository.Get(connection, $"mod_stamp:{key}");
 
             if (!force && cached == stamp)
@@ -253,12 +253,6 @@ public sealed class ModInspectionService(
 
         transaction.Commit();
         return true;
-    }
-
-    private static string Stamp(string assemblyPath)
-    {
-        var info = new FileInfo(assemblyPath);
-        return $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
     }
 
     private static void ClearAssembly(Microsoft.Data.Sqlite.SqliteConnection connection, string key)

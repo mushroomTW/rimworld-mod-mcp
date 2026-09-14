@@ -34,16 +34,7 @@ public sealed class IndexDatabase(StoreDirectories store)
         lock (_gate)
         {
             SqliteConnection.ClearAllPools();
-
-            foreach (var suffix in (ReadOnlySpan<string>)["", "-wal", "-shm"])
-            {
-                var path = DatabasePath + suffix;
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-
+            DeleteDatabaseFiles();
             _initialised = false;
         }
     }
@@ -147,7 +138,9 @@ public sealed class IndexDatabase(StoreDirectories store)
     {
         using var command = connection.CreateCommand();
         // PRAGMA 不接受參數繫結，這裡的值來自編譯期常數而非使用者輸入。
+#pragma warning disable S2077 // PRAGMA 不支援參數繫結，version 來自內部編譯期常數
         command.CommandText = $"PRAGMA user_version={version};";
+#pragma warning restore S2077
         command.ExecuteNonQuery();
     }
 }

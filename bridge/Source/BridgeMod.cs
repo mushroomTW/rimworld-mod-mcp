@@ -78,6 +78,7 @@ namespace RimWorldModMcp.Bridge
         private const int MaxQueuedLines = 500;
         private const int MaxTextChars = 16000;
         private static Thread? worker;
+        private static volatile bool running = true;
 
         private static TcpClient? client;
         private static StreamWriter? writer;
@@ -122,13 +123,14 @@ namespace RimWorldModMcp.Bridge
 
         private static void Pump()
         {
-            while (true)
+            while (running)
             {
                 string line;
 
                 lock (gate)
                 {
-                    while (queue.Count == 0) System.Threading.Monitor.Wait(gate);
+                    while (running && queue.Count == 0) System.Threading.Monitor.Wait(gate);
+                    if (!running) break;
                     line = queue.Dequeue();
                 }
 

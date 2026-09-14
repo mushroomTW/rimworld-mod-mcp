@@ -86,7 +86,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         {
             // 最多等一小段時間讓當前交易收尾；等不到也沒關係，
             // 呼叫端接下來的資料庫操作會靠 busy_timeout 與已取消的 token 收斂。
-            current.Wait(TimeSpan.FromSeconds(10));
+            current.Wait(TimeSpan.FromSeconds(10), CancellationToken.None);
         }
         catch (AggregateException)
         {

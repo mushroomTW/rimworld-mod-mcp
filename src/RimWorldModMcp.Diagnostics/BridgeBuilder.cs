@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using RimWorldModMcp.Core.Paths;
+using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Diagnostics;
 
@@ -111,59 +112,15 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 
     private static (bool Success, string Output) RunBuild(string project, string managedDirectory)
     {
-        var startInfo = new ProcessStartInfo(Core.Platform.DotnetHost.Executable())
-        {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-
-        startInfo.ArgumentList.Add("build");
-        startInfo.ArgumentList.Add(project);
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add("Release");
-        startInfo.ArgumentList.Add("--nologo");
-
-        // 指向本機安裝的遊戲組件。沒有這個變數時 csproj 會退回公開的參考組件，
-        // 那種組件只有簽章沒有實作，不能拿來實際執行。
-        startInfo.Environment[EnvironmentVariables.ManagedDir] = managedDirectory;
-
         try
         {
-            using var process = Process.Start(startInfo);
-
-            if (process is null)
-            {
-                return (false, "無法啟動 dotnet build。");
-            }
-
-            // 兩條管線必須並行讀取：先讀完 stdout 再讀 stderr 的話，
-            // dotnet build 把 stderr 緩衝區寫滿後雙方永久互等，MCP server 整個掛住。
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-
-            if (!process.WaitForExit(TimeSpan.FromMinutes(10)))
-            {
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
-                {
-                }
-
-                return (false, "Bridge 建置超過 10 分鐘未完成，已強制終止。");
-            }
-
-            var stdout = stdoutTask.GetAwaiter().GetResult();
-            var stderr = stderrTask.GetAwaiter().GetResult();
-
-            var combined = (stderr + Environment.NewLine + stdout).Trim();
+            var execution = DotnetHost.RunBuild(project, managedDirectory: managedDirectory);
+            var combined = (execution.Stderr + Environment.NewLine + execution.Stdout).Trim();
 
             // 錯誤訊息取尾端就好，前面多半是還原套件的雜訊。
-            return (process.ExitCode == 0, combined.Length > 2000 ? combined[^2000..] : combined);
+            return (execution.Success, combined.Length > 2000 ? combined[^2000..] : combined);
         }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or TimeoutException)
         {
             return (false, e.Message);
         }

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace RimWorldModMcp.Core.Platform;
 
 /// <summary>
@@ -30,5 +32,95 @@ public static class DotnetHost
         }
 
         return "dotnet";
+    }
+
+    /// <summary>建置結果與標準輸出。</summary>
+    public sealed record BuildExecution(bool Success, string Stdout, string Stderr, int ExitCode)
+    {
+        public string CombinedOutput
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(Stdout))
+                {
+                    return Stderr;
+                }
+
+                if (string.IsNullOrEmpty(Stderr))
+                {
+                    return Stdout;
+                }
+
+                return Stdout + Environment.NewLine + Stderr;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 執行 dotnet build，包含雙管線平行讀取與逾時安全終止。
+    /// </summary>
+    public static BuildExecution RunBuild(
+        string project,
+        string? workingDirectory = null,
+        string? managedDirectory = null,
+        IEnumerable<string>? extraArgs = null,
+        TimeSpan? timeout = null)
+    {
+        var timeoutValue = timeout ?? TimeSpan.FromMinutes(10);
+        var startInfo = new ProcessStartInfo(Executable())
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+
+        if (workingDirectory is not null)
+        {
+            startInfo.WorkingDirectory = workingDirectory;
+        }
+
+        startInfo.ArgumentList.Add("build");
+        startInfo.ArgumentList.Add(project);
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add("Release");
+        startInfo.ArgumentList.Add("--nologo");
+
+        if (extraArgs is not null)
+        {
+            foreach (var arg in extraArgs)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+        }
+
+        if (managedDirectory is not null)
+        {
+            startInfo.Environment[Paths.EnvironmentVariables.ManagedDir] = managedDirectory;
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("無法啟動 dotnet build。");
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit(timeoutValue))
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                // 行程剛好自行結束或無權限殺除，不影響逾時判定
+            }
+
+            throw new TimeoutException($"dotnet build 超過 {timeoutValue.TotalMinutes:0} 分鐘未完成，已強制終止。");
+        }
+
+        var stdout = stdoutTask.GetAwaiter().GetResult();
+        var stderr = stderrTask.GetAwaiter().GetResult();
+
+        return new BuildExecution(process.ExitCode == 0, stdout, stderr, process.ExitCode);
     }
 }

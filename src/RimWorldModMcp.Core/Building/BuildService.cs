@@ -109,57 +109,28 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
     private BuildResult BuildProject(string mod, string project)
     {
-        var startInfo = new ProcessStartInfo(DotnetHost.Executable())
-        {
-            WorkingDirectory = mod,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-
-        // 用 ArgumentList 而不是組字串，路徑含空格時才不會被拆錯。
-        startInfo.ArgumentList.Add("build");
-        startInfo.ArgumentList.Add(project);
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add("Release");
-        startInfo.ArgumentList.Add("--nologo");
-        // 固定診斷格式，讓輸出可以穩定解析。
-        startInfo.ArgumentList.Add("-consoleLoggerParameters:NoSummary;ForceNoAlign");
-
         var managed = locator.Detect().ManagedDir;
 
-        if (managed is not null)
+        DotnetHost.BuildExecution execution;
+
+        try
         {
-            startInfo.Environment[EnvironmentVariables.ManagedDir] = managed;
+            execution = DotnetHost.RunBuild(
+                project,
+                workingDirectory: mod,
+                managedDirectory: managed,
+                extraArgs: ["-consoleLoggerParameters:NoSummary;ForceNoAlign"],
+                timeout: BuildTimeout);
         }
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("無法啟動 dotnet build。");
-
-        // 兩條管線必須並行讀取。先讀完 stdout 再讀 stderr 的話，
-        // 子行程把 stderr 的緩衝區寫滿（約 4 KB）後會阻塞，雙方永久互等。
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-
-        if (!process.WaitForExit(BuildTimeout))
+        catch (TimeoutException)
         {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
-            {
-                // 行程剛好自己退出了，或無權終止；兩者都不影響回報逾時。
-            }
-
             throw new InvalidOperationException($"dotnet build 超過 {BuildTimeout.TotalMinutes:0} 分鐘未完成，已強制終止。");
         }
 
-        var stdout = stdoutTask.GetAwaiter().GetResult();
-        var stderr = stderrTask.GetAwaiter().GetResult();
-
-        var diagnostics = ParseDiagnostics(stdout + Environment.NewLine + stderr);
-        var success = process.ExitCode == 0;
+        var stdout = execution.Stdout;
+        var stderr = execution.Stderr;
+        var success = execution.Success;
+        var diagnostics = ParseDiagnostics(execution.CombinedOutput);
 
         var frameworks = TargetFrameworks(project);
         var (outputDirectory, deployed) = success ? Deploy(mod, project, frameworks) : (null, []);

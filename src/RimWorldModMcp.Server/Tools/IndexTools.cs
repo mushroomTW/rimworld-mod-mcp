@@ -186,7 +186,7 @@ public sealed class IndexTools(
         [Description("Substring of the assembly key to restrict results, e.g. mod:cj.rimtalk or 1.6/.")]
         string? assembly = null,
         [Description("Maximum results, 1-500.")]
-        int limit = 100) => ToolGuard.Run(() =>
+        int limit = 100)
     {
         string? kindName = null;
 
@@ -200,19 +200,22 @@ public sealed class IndexTools(
             kindName = parsed.ToString();
         }
 
-        using var connection = database.Open();
-        var assemblyLike = AssemblyLike(assembly);
-        var hits = SymbolRepository.Children(connection, parent, kindName, assemblyLike, limit);
-
-        return new ListSymbolsResult
+        return ToolGuard.Run(() =>
         {
-            Parent = parent,
-            Results = [.. hits.Select(ToSummary)],
-            Count = hits.Count,
-            LimitReached = hits.Count >= Math.Clamp(limit, 1, 500),
-            ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
-        };
-    });
+            using var connection = database.Open();
+            var assemblyLike = AssemblyLike(assembly);
+            var hits = SymbolRepository.Children(connection, parent, kindName, assemblyLike, limit);
+
+            return new ListSymbolsResult
+            {
+                Parent = parent,
+                Results = [.. hits.Select(ToSummary)],
+                Count = hits.Count,
+                LimitReached = hits.Count >= Math.Clamp(limit, 1, 500),
+                ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
+            };
+        });
+    }
 
     [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true)]
     [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source, search_installed_mod_source, or list_symbols. Page with start_line = previous end_line + 1.")]

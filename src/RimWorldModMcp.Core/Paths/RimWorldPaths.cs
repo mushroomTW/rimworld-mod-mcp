@@ -36,8 +36,6 @@ public static class EnvironmentVariables
 
     public static string? BridgePort => Read("BRIDGE_PORT");
 
-    public static string? BridgeToken => Read("BRIDGE_TOKEN");
-
     /// <summary>設定注入子行程時要用的變數名。</summary>
     public static string Name(string suffix) => Prefix + suffix;
 

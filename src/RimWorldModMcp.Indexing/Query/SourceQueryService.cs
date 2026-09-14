@@ -176,7 +176,11 @@ public sealed class SourceQueryService
         }
 
         // 連續三個以上的英數字元，且前後沒有 regex 元字元干擾的片段。
-        var matches = Regex.Matches(pattern, @"(?<![\\\[\](){}|*+?.])[A-Za-z_][A-Za-z0-9_]{2,}");
+        var matches = Regex.Matches(
+            pattern,
+            @"(?<![\\\[\](){}|*+?.])[A-Za-z_][A-Za-z0-9_]{2,}",
+            RegexOptions.None,
+            TimeSpan.FromSeconds(1));
 
         return [.. matches
             .Select(m => m.Value)

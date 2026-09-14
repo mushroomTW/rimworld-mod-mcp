@@ -79,7 +79,7 @@ public sealed class ModScaffolder
 
     private static string SanitiseFolderName(string name)
     {
-        var cleaned = new string([.. name.Where(c => !Path.GetInvalidFileNameChars().Contains(c))])
+        var cleaned = string.Concat(name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)))
             .Trim()
             // Windows 不接受結尾是句點或空白的目錄名（建得出來但很多 API 打不開）。
             .TrimEnd('.', ' ');

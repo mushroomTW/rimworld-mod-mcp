@@ -63,7 +63,7 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 
                 var record = new LockRecord
                 {
-                    Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(18)).ToLowerInvariant(),
+                    Token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(18)),
                     ProcessId = Environment.ProcessId,
                     CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     StartTimeUtc = processes.StartTimeUtc(Environment.ProcessId),

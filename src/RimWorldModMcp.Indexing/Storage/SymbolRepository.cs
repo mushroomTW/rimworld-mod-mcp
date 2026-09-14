@@ -7,6 +7,8 @@ namespace RimWorldModMcp.Indexing.Storage;
 /// <summary><c>symbol</c> 與 <c>symbol_fts</c> 的唯一存取點。</summary>
 public sealed class SymbolRepository
 {
+    private const string AssemblyParam = "$assembly";
+
     public static void Clear(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
@@ -30,7 +32,7 @@ public sealed class SymbolRepository
             ON CONFLICT(assembly, metadata_token) DO NOTHING;
             """;
 
-        var assembly = insert.CreateParameter("$assembly");
+        var assembly = insert.CreateParameter(AssemblyParam);
         var assemblyPath = insert.CreateParameter("$path");
         var fqn = insert.CreateParameter("$fqn");
         var shortName = insert.CreateParameter("$short");
@@ -83,11 +85,11 @@ public sealed class SymbolRepository
     public static List<SymbolHit> Read(SqliteConnection connection, string name, int limit, string? assemblyLike = null)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = $"""
+        command.CommandText = """
             SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
             FROM symbol
             WHERE (short_name = $name OR fqn LIKE $like ESCAPE '\')
-              {(assemblyLike is null ? "" : "AND assembly LIKE $assembly ESCAPE '\\'")}
+              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
             ORDER BY (short_name = $name) DESC, fqn
             LIMIT $limit;
             """;
@@ -95,11 +97,7 @@ public sealed class SymbolRepository
         command.Parameters.AddWithValue("$name", name);
         command.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
-
-        if (assemblyLike is not null)
-        {
-            command.Parameters.AddWithValue("$assembly", assemblyLike);
-        }
+        command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
         return ReadHits(command);
     }
@@ -112,28 +110,20 @@ public sealed class SymbolRepository
         SqliteConnection connection, string parentFqn, string? kind, string? assemblyLike, int limit)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = $"""
+        command.CommandText = """
             SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
             FROM symbol
             WHERE parent_fqn = $parent
-              {(kind is null ? "" : "AND kind = $kind")}
-              {(assemblyLike is null ? "" : "AND assembly LIKE $assembly ESCAPE '\\'")}
+              AND ($kind IS NULL OR kind = $kind)
+              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
             ORDER BY kind, fqn
             LIMIT $limit;
             """;
 
         command.Parameters.AddWithValue("$parent", parentFqn);
         command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
-
-        if (kind is not null)
-        {
-            command.Parameters.AddWithValue("$kind", kind);
-        }
-
-        if (assemblyLike is not null)
-        {
-            command.Parameters.AddWithValue("$assembly", assemblyLike);
-        }
+        command.Parameters.AddWithValue("$kind", (object?)kind ?? DBNull.Value);
+        command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
         return ReadHits(command);
     }
@@ -148,7 +138,7 @@ public sealed class SymbolRepository
         var prefix = parentNamespace.Length == 0 ? "" : parentNamespace + ".";
 
         using var command = connection.CreateCommand();
-        command.CommandText = $"""
+        command.CommandText = """
             SELECT DISTINCT parent_fqn
             FROM symbol
             WHERE kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')
@@ -156,16 +146,12 @@ public sealed class SymbolRepository
               AND fqn NOT LIKE '%+%'
               AND parent_fqn LIKE $like ESCAPE '\'
               AND parent_fqn <> $parent
-              {(assemblyLike is null ? "" : "AND assembly LIKE $assembly ESCAPE '\\'")};
+              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\');
             """;
 
         command.Parameters.AddWithValue("$like", FtsQuery.LikeLiteral(prefix) + "%");
         command.Parameters.AddWithValue("$parent", parentNamespace);
-
-        if (assemblyLike is not null)
-        {
-            command.Parameters.AddWithValue("$assembly", assemblyLike);
-        }
+        command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
         var children = new SortedSet<string>(StringComparer.Ordinal);
         using var reader = command.ExecuteReader();

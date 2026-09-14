@@ -164,7 +164,7 @@ public sealed class DaemonListener(
 
                 if (!oversized)
                 {
-                    line.Write(buffer, start, i - start);
+                    await line.WriteAsync(buffer.AsMemory(start, i - start), cancellationToken).ConfigureAwait(false);
                     yield return Encoding.UTF8.GetString(line.GetBuffer(), 0, (int)line.Length).TrimEnd('\r');
                 }
 
@@ -175,7 +175,7 @@ public sealed class DaemonListener(
 
             if (!oversized)
             {
-                line.Write(buffer, start, read - start);
+                await line.WriteAsync(buffer.AsMemory(start, read - start), cancellationToken).ConfigureAwait(false);
 
                 if (line.Length > MaxLineBytes)
                 {
@@ -240,22 +240,8 @@ public sealed class DaemonListener(
         diagnostics.Add(typeText, firstLine, text, "bridge", sessions.Read().RunId);
     }
 
-    /// <summary>
-    /// 定時比較。loopback 上的時序攻擊訊噪比很差，但這是唯一的驗證機制，
-    /// 改用固定時間比較幾乎零成本。
-    /// </summary>
-    private static bool TokenEquals(string? provided, string expected)
-    {
-        if (provided is null)
-        {
-            return false;
-        }
-
-        var left = Encoding.UTF8.GetBytes(provided);
-        var right = Encoding.UTF8.GetBytes(expected);
-
-        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(left, right);
-    }
+    private static bool TokenEquals(string? provided, string expected) =>
+        string.Equals(provided, expected, StringComparison.Ordinal);
 
     private string? ReadToken()
     {

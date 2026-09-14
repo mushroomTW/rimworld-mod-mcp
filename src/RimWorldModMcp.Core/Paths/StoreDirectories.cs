@@ -54,8 +54,6 @@ public sealed class StoreDirectories
 
     public string IndexDatabaseFile => Path.Combine(IndexDirectory, "index.sqlite3");
 
-    public string ModCacheDirectory => Path.Combine(CacheHome, "mods");
-
     private static string DefaultDataRoot() => OperatingSystem.IsWindows()
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppName)
         : Path.Combine(UnixHome(".local", "share"), AppName);

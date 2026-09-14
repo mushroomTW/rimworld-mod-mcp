@@ -143,7 +143,7 @@ public sealed class MemberDecompiler : IDisposable
         }
     }
 
-    private static string Stamp(string assemblyPath)
+    internal static string Stamp(string assemblyPath)
     {
         var info = new FileInfo(assemblyPath);
         return $"{info.Length}:{info.LastWriteTimeUtc.Ticks}";
