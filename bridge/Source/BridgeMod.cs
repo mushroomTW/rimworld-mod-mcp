@@ -40,12 +40,14 @@ namespace RimWorldModMcp.Bridge
     [HarmonyPatch]
     internal static class VerseLogPatch
     {
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S1144:Unused private types or members should be removed", Justification = "Invoked by Harmony via reflection")]
         private static IEnumerable<MethodBase> TargetMethods()
         {
             return typeof(Log).GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(method => method.Name == "Warning" || method.Name == "Error");
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S1144:Unused private types or members should be removed", Justification = "Invoked by Harmony via reflection")]
         private static void Postfix(MethodBase __originalMethod, object[] __args)
         {
             try
@@ -155,8 +157,8 @@ namespace RimWorldModMcp.Bridge
             }
             catch
             {
-                try { if (writer != null) writer.Dispose(); } catch { }
-                try { if (client != null) client.Close(); } catch { }
+                try { if (writer != null) writer.Dispose(); } catch { /* 忽略關閉 writer 過程中的例外。 */ }
+                try { if (client != null) client.Close(); } catch { /* 忽略關閉 client 過程中的例外。 */ }
                 writer = null;
                 client = null;
                 return false;

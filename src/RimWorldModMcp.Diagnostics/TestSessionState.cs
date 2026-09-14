@@ -197,6 +197,7 @@ public sealed class DaemonRecordStore(StoreDirectories store)
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            // 檔案可能已被其他行程刪除或鎖定，盡力清理即可，不阻礙主流程。
         }
     }
 }
