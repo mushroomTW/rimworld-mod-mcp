@@ -7,7 +7,7 @@ namespace RimWorldModMcp.Server.Tools;
 
 #pragma warning disable IDE1006 // 參數名刻意使用 snake_case，見 IndexTools 的說明。
 
-/// <summary>在隔離環境中測試 Mod 並讀取診斷。</summary>
+/// <summary>Tools for testing mods in an isolated session and reading diagnostics.</summary>
 [McpServerToolType]
 public sealed class TestCycleTools(
     TestCycleService testCycle,
@@ -23,8 +23,10 @@ public sealed class TestCycleTools(
         [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
         bool quicktest = true,
         [Description("Config files to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up. ModsConfig.xml is rejected.")]
-        string[]? seed_config = null) => ToolGuard.Run(() =>
-        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config)));
+        string[]? seed_config = null,
+        [Description("Launch as a borderless fullscreen window (rewrites <fullscreen> in the isolated Prefs.xml copy; the user's own Prefs.xml is untouched). Set false to keep whatever the user's Prefs.xml says.")]
+        bool fullscreen = true) => ToolGuard.Run(() =>
+        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config, fullscreen)));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("Report the current test session state, including whether the bridge and diagnostics daemon are healthy.")]
@@ -41,7 +43,7 @@ public sealed class TestCycleTools(
         if (!confirm)
         {
             // 補一個參數就能重試的情境，訊息必須送達呼叫端。
-            throw new ModelContextProtocol.McpException("停止測試會移除連結並終止 daemon，需要 confirm=true。");
+            throw new ModelContextProtocol.McpException("Stopping the test removes the links and terminates the daemon; confirm=true is required.");
         }
 
         return ToResult(testCycle.Stop(terminate_game));
@@ -89,7 +91,7 @@ public sealed class TestCycleTools(
         string diagnostic_hash) => ToolGuard.Run(() =>
     {
         var record = diagnostics.Find(diagnostic_hash)
-            ?? throw new KeyNotFoundException($"找不到診斷：{diagnostic_hash}");
+            ?? throw new KeyNotFoundException($"Diagnostic not found: {diagnostic_hash}");
 
         return ToSummary(record, int.MaxValue);
     });
@@ -129,7 +131,7 @@ public sealed class TestCycleTools(
     };
 }
 
-/// <summary>測試場次的狀態。</summary>
+/// <summary>Test session state.</summary>
 public sealed record TestSessionResult
 {
     [JsonPropertyName("state")]
@@ -144,7 +146,7 @@ public sealed record TestSessionResult
     [JsonPropertyName("active_mods")]
     public IReadOnlyList<string> ActiveMods { get; init; } = [];
 
-    /// <summary>選集中不存在、因此被略過的軟排序目標。</summary>
+    /// <summary>Soft load-after targets absent from the selection, hence skipped.</summary>
     [JsonPropertyName("skipped_load_after")]
     public IReadOnlyList<string> SkippedLoadAfter { get; init; } = [];
 
@@ -163,11 +165,11 @@ public sealed record TestSessionResult
     [JsonPropertyName("bridge_reason")]
     public string? BridgeReason { get; init; }
 
-    /// <summary><c>started</c>、<c>reused</c> 或 <c>unavailable</c>。</summary>
+    /// <summary><c>started</c>, <c>reused</c>, or <c>unavailable</c>.</summary>
     [JsonPropertyName("daemon_state")]
     public string? DaemonState { get; init; }
 
-    /// <summary>daemon 不可用的原因。有值時 Bridge 診斷會失效，只剩 Player.log。</summary>
+    /// <summary>Why the daemon is unavailable. Bridge diagnostics fall back to Player.log when set.</summary>
     [JsonPropertyName("daemon_reason")]
     public string? DaemonReason { get; init; }
 
@@ -184,14 +186,14 @@ public sealed record TestSessionResult
     public bool? TerminatedGame { get; init; }
 
     /// <summary>
-    /// 停止後仍未能移除的連結。通常代表遊戲還在執行中佔用著它們——
-    /// 關閉遊戲後再呼叫一次 stop_test 即可清乾淨。
+    /// Links that could not be removed after stopping. Usually the game still holds them —
+    /// close the game and call stop_test again to finish cleanup.
     /// </summary>
     [JsonPropertyName("links_remaining")]
     public IReadOnlyList<string> LinksRemaining { get; init; } = [];
 }
 
-/// <summary>診斷清單。</summary>
+/// <summary>Diagnostic listing.</summary>
 public sealed record ListDiagnosticsResult
 {
     [JsonPropertyName("results")]
@@ -200,7 +202,7 @@ public sealed record ListDiagnosticsResult
     [JsonPropertyName("count")]
     public required int Count { get; init; }
 
-    /// <summary>過濾後的總筆數；大於 count 時代表有被 limit 截掉的部分。</summary>
+    /// <summary>Filtered total; above count means limit cut some off.</summary>
     [JsonPropertyName("total_count")]
     public required int TotalCount { get; init; }
 
@@ -214,7 +216,7 @@ public sealed record ListDiagnosticsResult
     public required int WarningCount { get; init; }
 }
 
-/// <summary>一筆診斷。</summary>
+/// <summary>One diagnostic.</summary>
 public sealed record DiagnosticSummary
 {
     [JsonPropertyName("hash")]
@@ -232,14 +234,14 @@ public sealed record DiagnosticSummary
     [JsonPropertyName("text_truncated")]
     public required bool TextTruncated { get; init; }
 
-    /// <summary><c>bridge</c> 或 <c>player.log</c>。</summary>
+    /// <summary><c>bridge</c> or <c>player.log</c>.</summary>
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 
     [JsonPropertyName("run_id")]
     public string? RunId { get; init; }
 
-    /// <summary>這個診斷在本次測試中出現的次數。</summary>
+    /// <summary>Occurrence count of this diagnostic in this session.</summary>
     [JsonPropertyName("count")]
     public required int Count { get; init; }
 

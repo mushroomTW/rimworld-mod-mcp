@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
@@ -22,7 +23,7 @@ public sealed record PreparedEnvironment(
 /// <see cref="GameLauncher"/>，協調歸 TestCycleService。
 /// </para>
 /// </summary>
-public sealed class TestEnvironmentPreparer(
+public sealed partial class TestEnvironmentPreparer(
     DirectoryLink links,
     StoreDirectories store,
     BridgeBuilder bridgeBuilder)
@@ -40,7 +41,8 @@ public sealed class TestEnvironmentPreparer(
         RimWorldPaths paths,
         IReadOnlyList<string> orderedActiveMods,
         string token,
-        IReadOnlyList<string> seedConfigFiles)
+        IReadOnlyList<string> seedConfigFiles,
+        bool fullscreen)
     {
         var createdLinks = new List<TestLink>();
 
@@ -69,7 +71,7 @@ public sealed class TestEnvironmentPreparer(
             }
 
             var bridgeSource = BridgeDirectory();
-            var bridgeState = new BridgeState { State = "unavailable", Reason = "找不到 Bridge 原始碼目錄。" };
+            var bridgeState = new BridgeState { State = "unavailable", Reason = "Bridge source directory not found." };
             var activeMods = orderedActiveMods.ToList();
 
             if (bridgeSource is not null)
@@ -97,6 +99,7 @@ public sealed class TestEnvironmentPreparer(
             WriteModsConfig(configDirectory, paths.ModsConfig, activeMods);
             CopyPrefs(configDirectory, paths.PrefsXml);
             SeedConfig(configDirectory, seedConfigFiles, testFolderName);
+            ApplyFullscreen(configDirectory, fullscreen);
             WriteBridgeToken(token);
 
             return new PreparedEnvironment(saveData, createdLinks, activeMods, bridgeState);
@@ -259,12 +262,57 @@ public sealed class TestEnvironmentPreparer(
             if (string.Equals(target, "ModsConfig.xml", StringComparison.OrdinalIgnoreCase))
             {
                 // 啟用清單是隔離的核心，讓它被覆寫就等於沒隔離。
-                throw new InvalidOperationException($"seed_config 不能覆寫 ModsConfig.xml：{source}");
+                throw new InvalidOperationException($"seed_config must not overwrite ModsConfig.xml: {source}");
             }
 
             File.Copy(source, Path.Combine(configDirectory, target), overwrite: true);
         }
     }
+
+    /// <summary>
+    /// 改寫隔離環境 Prefs.xml 的視窗模式。放在 SeedConfig 之後，seed_config 帶進來的
+    /// Prefs.xml 也會被覆寫。只動複本，使用者本人的 Prefs.xml 不受影響。
+    /// </summary>
+    private static void ApplyFullscreen(string configDirectory, bool fullscreen)
+    {
+        var prefs = Path.Combine(configDirectory, "Prefs.xml");
+
+        if (!File.Exists(prefs))
+        {
+            // 沒有 Prefs.xml 可改時交給遊戲預設值，不憑空生一份。
+            return;
+        }
+
+        var original = File.ReadAllText(prefs);
+        var rewritten = WithFullscreen(original, fullscreen);
+
+        if (!ReferenceEquals(original, rewritten))
+        {
+            // RimWorld 自己寫出的 Prefs.xml 是帶 BOM 的 UTF-8，照樣寫回。
+            File.WriteAllText(prefs, rewritten, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        }
+    }
+
+    /// <summary>
+    /// RimWorld（Unity 2022，Windows）的 <c>fullscreen=True</c> 走 FullScreenWindow，
+    /// 也就是無邊框全螢幕視窗；解析度沿用 Prefs 原本的 screenWidth/screenHeight。
+    /// 找不到 <c>&lt;fullscreen&gt;</c> 元素時原樣回傳（同一個字串實例）。
+    /// </summary>
+    public static string WithFullscreen(string prefsXml, bool fullscreen)
+    {
+        var value = fullscreen ? "True" : "False";
+        var match = FullscreenElement().Match(prefsXml);
+
+        if (!match.Success || match.Groups[1].Value == value)
+        {
+            return prefsXml;
+        }
+
+        return string.Concat(prefsXml.AsSpan(0, match.Groups[1].Index), value, prefsXml.AsSpan(match.Groups[1].Index + match.Groups[1].Length));
+    }
+
+    [GeneratedRegex(@"<fullscreen>\s*(True|False)\s*</fullscreen>", RegexOptions.IgnoreCase)]
+    private static partial Regex FullscreenElement();
 
     /// <summary>
     /// RimWorld 以 <c>Mod_&lt;Mod 資料夾名&gt;_&lt;Mod 類別名&gt;.xml</c> 讀取 ModSettings，

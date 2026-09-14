@@ -52,7 +52,7 @@ public sealed class DaemonBootstrapper(
 
         if (process is null)
         {
-            return (Unavailable(port, "無法啟動診斷 daemon 子行程。"), null);
+            return (Unavailable(port, "Could not start the diagnostics daemon subprocess."), null);
         }
 
         var deadline = DateTime.UtcNow + StartupTimeout;
@@ -63,9 +63,9 @@ public sealed class DaemonBootstrapper(
             {
                 // 子行程綁不到埠就會用這個離開碼退出，代表埠被別人佔著。
                 var reason = process.ExitCode == PortInUseExitCode
-                    ? $"連接埠 {port} 被非本服務的程序占用，Bridge 無法回報診斷，本輪僅由 Player.log 提供。"
-                      + $"可設定 RIMWORLD_MOD_MCP_BRIDGE_PORT 改用其他埠。"
-                    : $"診斷 daemon 啟動失敗（離開碼 {process.ExitCode}）。";
+                    ? $"Port {port} is held by a non-service process; the Bridge cannot report diagnostics and this run falls back to Player.log only."
+                      + $" Set RIMWORLD_MOD_MCP_BRIDGE_PORT to use another port."
+                    : $"Diagnostics daemon failed to start (exit code {process.ExitCode}).";
 
                 return (Unavailable(port, reason), null);
             }
@@ -97,7 +97,7 @@ public sealed class DaemonBootstrapper(
             // 行程剛好自己退出了，或無權終止。
         }
 
-        return (Unavailable(port, $"診斷 daemon 在 {StartupTimeout.TotalSeconds} 秒內沒有回報就緒。"), null);
+        return (Unavailable(port, $"Diagnostics daemon did not report ready within {StartupTimeout.TotalSeconds} seconds."), null);
     }
 
     /// <summary>自述檔記錄的啟動時間與實際程序是否吻合（容忍一秒的檔案往返精度差）。</summary>

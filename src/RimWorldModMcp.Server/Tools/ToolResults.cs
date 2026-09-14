@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Server.Tools;
 // 所有欄位名以 JsonPropertyName 明確標成 snake_case，不依賴序列化器的命名策略——
 // schema 與實際輸出必須一致，這是工具契約的一部分。
 
-/// <summary>偵測到的 RimWorld 路徑。</summary>
+/// <summary>Detected RimWorld paths.</summary>
 public sealed record RimWorldStatusResult
 {
     [JsonPropertyName("detected")]
@@ -49,7 +49,7 @@ public sealed record RimWorldStatusResult
     public required IndexStatusPayload Index { get; init; }
 }
 
-/// <summary>索引狀態。</summary>
+/// <summary>Index status.</summary>
 public sealed record IndexStatusPayload
 {
     [JsonPropertyName("fresh")]
@@ -62,8 +62,8 @@ public sealed record IndexStatusPayload
     public required long SymbolCount { get; init; }
 
     /// <summary>
-    /// 反編譯後的原始碼是否已索引完成。
-    /// 為 false 時 <c>search_source</c> 沒有東西可查——那一層是背景執行的。
+    /// Whether the decompiled source is fully indexed.
+    /// When false, <c>search_source</c> has nothing to search yet — that layer builds in the background.
     /// </summary>
     [JsonPropertyName("source_indexed")]
     public required bool SourceIndexed { get; init; }
@@ -72,7 +72,7 @@ public sealed record IndexStatusPayload
     public string? Fingerprint { get; init; }
 }
 
-/// <summary>索引重建的結果。</summary>
+/// <summary>Result of rebuilding the index.</summary>
 public sealed record RebuildIndexResult
 {
     [JsonPropertyName("def_count")]
@@ -94,7 +94,7 @@ public sealed record RebuildIndexResult
     public required bool SourceIndexingStarted { get; init; }
 }
 
-/// <summary>Def 搜尋結果。</summary>
+/// <summary>Def search result.</summary>
 public sealed record SearchDefsResult
 {
     [JsonPropertyName("results")]
@@ -103,12 +103,12 @@ public sealed record SearchDefsResult
     [JsonPropertyName("count")]
     public required int Count { get; init; }
 
-    /// <summary>命中數是否達到上限（代表可能還有更多）。</summary>
+    /// <summary>Whether the hit count reached the limit (more may exist).</summary>
     [JsonPropertyName("limit_reached")]
     public required bool LimitReached { get; init; }
 }
 
-/// <summary>單筆 Def 的摘要。</summary>
+/// <summary>Summary of a single Def.</summary>
 public sealed record DefSummary
 {
     [JsonPropertyName("def_name")]
@@ -132,7 +132,7 @@ public sealed record DefSummary
     [JsonPropertyName("abstract")]
     public required bool Abstract { get; init; }
 
-    /// <summary>抽象 Def 的繼承錨點名稱。</summary>
+    /// <summary>Inheritance anchor name of an abstract Def.</summary>
     [JsonPropertyName("inherit_name")]
     public string? InheritName { get; init; }
 
@@ -146,7 +146,7 @@ public sealed record DefSummary
     public bool? XmlTruncated { get; init; }
 }
 
-/// <summary>完整 Def 定義。</summary>
+/// <summary>Full Def definition.</summary>
 public sealed record ReadDefResult
 {
     [JsonPropertyName("results")]
@@ -156,7 +156,7 @@ public sealed record ReadDefResult
     public required int Count { get; init; }
 }
 
-/// <summary>符號查詢結果。</summary>
+/// <summary>Symbol lookup result.</summary>
 public sealed record ReadSymbolResult
 {
     [JsonPropertyName("results")]
@@ -166,7 +166,7 @@ public sealed record ReadSymbolResult
     public required int Count { get; init; }
 }
 
-/// <summary>單一符號。</summary>
+/// <summary>A single symbol.</summary>
 public sealed record SymbolSummary
 {
     [JsonPropertyName("fqn")]
@@ -181,18 +181,18 @@ public sealed record SymbolSummary
     [JsonPropertyName("assembly")]
     public required string Assembly { get; init; }
 
-    /// <summary>組件檔案的實際路徑；Mod 符號靠它辨認是哪個版本目錄下的 DLL。</summary>
+    /// <summary>Real on-disk path of the assembly file; identifies which version directory a mod symbol's DLL lives in.</summary>
     [JsonPropertyName("assembly_path")]
     public string? AssemblyPath { get; init; }
 
     [JsonPropertyName("parent_fqn")]
     public string? ParentFqn { get; init; }
 
-    /// <summary>由 IL metadata 組出的真實型別簽章。</summary>
+    /// <summary>Real type signature composed from IL metadata.</summary>
     [JsonPropertyName("signature")]
     public required string Signature { get; init; }
 
-    /// <summary>由近到遠的完整基底型別鏈。</summary>
+    /// <summary>Full base-type chain, nearest first.</summary>
     [JsonPropertyName("base_chain")]
     public required IReadOnlyList<string> BaseChain { get; init; }
 
@@ -205,7 +205,7 @@ public sealed record SymbolSummary
     [JsonPropertyName("is_static")]
     public required bool IsStatic { get; init; }
 
-    /// <summary>反編譯出的原始碼。只有在要求時才會填入。</summary>
+    /// <summary>Decompiled source. Only populated on request.</summary>
     [JsonPropertyName("body")]
     public string? Body { get; init; }
 
@@ -213,7 +213,7 @@ public sealed record SymbolSummary
     public bool? BodyTruncated { get; init; }
 }
 
-/// <summary>繼承查詢結果。</summary>
+/// <summary>Inheritance lookup result.</summary>
 public sealed record FindDescendantsResult
 {
     [JsonPropertyName("base_type")]
@@ -226,7 +226,7 @@ public sealed record FindDescendantsResult
     public required int Count { get; init; }
 }
 
-/// <summary>符號瀏覽結果。</summary>
+/// <summary>Symbol browse result.</summary>
 public sealed record ListSymbolsResult
 {
     [JsonPropertyName("parent")]
@@ -241,12 +241,12 @@ public sealed record ListSymbolsResult
     [JsonPropertyName("limit_reached")]
     public required bool LimitReached { get; init; }
 
-    /// <summary>parent 是 namespace 時，其下一層的子 namespace。</summary>
+    /// <summary>When parent is a namespace, its immediate child namespaces.</summary>
     [JsonPropertyName("child_namespaces")]
     public required IReadOnlyList<string> ChildNamespaces { get; init; }
 }
 
-/// <summary>反編譯檔的一段內容。</summary>
+/// <summary>One excerpt of a decompiled file.</summary>
 public sealed record ReadSourceFileResult
 {
     [JsonPropertyName("assembly")]
@@ -261,7 +261,7 @@ public sealed record ReadSourceFileResult
     [JsonPropertyName("start_line")]
     public required int StartLine { get; init; }
 
-    /// <summary>節錄裡最後一個完整行；下一頁從 end_line + 1 開始。</summary>
+    /// <summary>Last complete line in the excerpt; the next page starts at end_line + 1.</summary>
     [JsonPropertyName("end_line")]
     public required int EndLine { get; init; }
 
@@ -272,7 +272,7 @@ public sealed record ReadSourceFileResult
     public required bool Truncated { get; init; }
 }
 
-/// <summary>原始碼搜尋結果。</summary>
+/// <summary>Source search result.</summary>
 public sealed record SearchSourceResult
 {
     [JsonPropertyName("results")]
@@ -284,12 +284,12 @@ public sealed record SearchSourceResult
     [JsonPropertyName("limit_reached")]
     public required bool LimitReached { get; init; }
 
-    /// <summary>原始碼索引尚未完成時為 false，此時結果必然不完整。</summary>
+    /// <summary>False while the source index is still building; results are then necessarily incomplete.</summary>
     [JsonPropertyName("source_indexed")]
     public required bool SourceIndexed { get; init; }
 }
 
-/// <summary>原始碼中的一行命中。</summary>
+/// <summary>One matching line in source.</summary>
 public sealed record SourceMatch
 {
     [JsonPropertyName("assembly")]
@@ -305,7 +305,7 @@ public sealed record SourceMatch
     public required string Text { get; init; }
 }
 
-/// <summary>Def 引用查詢結果。</summary>
+/// <summary>Def reference lookup result.</summary>
 public sealed record FindDefUsagesResult
 {
     [JsonPropertyName("def_name")]
@@ -318,7 +318,7 @@ public sealed record FindDefUsagesResult
     public required int Count { get; init; }
 }
 
-/// <summary>Def 被引用的一個位置。</summary>
+/// <summary>One place a Def is referenced.</summary>
 public sealed record DefUsageSummary
 {
     [JsonPropertyName("file_path")]
@@ -327,15 +327,15 @@ public sealed record DefUsageSummary
     [JsonPropertyName("line")]
     public required int Line { get; init; }
 
-    /// <summary><c>def_xml</c>、<c>game_source</c> 或 <c>mod_source</c>。</summary>
+    /// <summary><c>def_xml</c>, <c>game_source</c>, or <c>mod_source</c>.</summary>
     [JsonPropertyName("source_kind")]
     public required string SourceKind { get; init; }
 
-    /// <summary>引用出現的語境，例如 <c>ThingDef/costList/Steel</c> 或 <c>RimWorld.ThingDefOf.Steel</c>。</summary>
+    /// <summary>Context where the reference appears, e.g. <c>ThingDef/costList/Steel</c> or <c>RimWorld.ThingDefOf.Steel</c>.</summary>
     [JsonPropertyName("context")]
     public string? Context { get; init; }
 
-    /// <summary><c>exact</c>（結構化來源）或 <c>heuristic</c>（字串比對推測）。</summary>
+    /// <summary><c>exact</c> (structured source) or <c>heuristic</c> (string-match guess).</summary>
     [JsonPropertyName("confidence")]
     public required string Confidence { get; init; }
 }

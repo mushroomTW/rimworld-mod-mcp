@@ -27,6 +27,37 @@ public sealed class TestEnvironmentPreparerTests
         Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder));
     }
 
+    private const string Prefs = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <PrefsData>
+          <screenWidth>2560</screenWidth>
+          <fullscreen>False</fullscreen>
+          <uiScale>1.25</uiScale>
+        </PrefsData>
+        """;
+
+    [Fact]
+    public void WithFullscreen_rewrites_only_the_fullscreen_element()
+    {
+        var result = TestEnvironmentPreparer.WithFullscreen(Prefs, fullscreen: true);
+
+        Assert.Equal(Prefs.Replace("<fullscreen>False</fullscreen>", "<fullscreen>True</fullscreen>"), result);
+    }
+
+    [Fact]
+    public void WithFullscreen_returns_same_instance_when_already_matching()
+    {
+        Assert.Same(Prefs, TestEnvironmentPreparer.WithFullscreen(Prefs, fullscreen: false));
+    }
+
+    [Fact]
+    public void WithFullscreen_leaves_prefs_without_the_element_alone()
+    {
+        const string noElement = "<PrefsData><screenWidth>1920</screenWidth></PrefsData>";
+
+        Assert.Same(noElement, TestEnvironmentPreparer.WithFullscreen(noElement, fullscreen: true));
+    }
+
     private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\Games\RimWorld" : "/opt/rimworld";
     private static readonly string ModsDir = Path.Combine(Root, "Mods");
 

@@ -8,7 +8,7 @@ namespace RimWorldModMcp.Server.Tools;
 
 #pragma warning disable IDE1006 // 參數名刻意使用 snake_case，見 IndexTools 的說明。
 
-/// <summary>Mod 骨架建立與建置的工具。</summary>
+/// <summary>Tools for creating and building mods.</summary>
 [McpServerToolType]
 public sealed class WorkspaceTools(
     ModScaffolder scaffolder,
@@ -43,7 +43,7 @@ public sealed class WorkspaceTools(
         string path) => ToolGuard.Run(() => builds.Build(path));
 }
 
-/// <summary>建立 Mod 的結果。</summary>
+/// <summary>Result of creating a mod.</summary>
 public sealed record CreateModResult
 {
     [JsonPropertyName("mod")]

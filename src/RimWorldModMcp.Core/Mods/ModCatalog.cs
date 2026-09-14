@@ -66,7 +66,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
         var normalised = packageId.Trim().ToLowerInvariant();
 
         return Installed().FirstOrDefault(m => m.PackageId == normalised)
-            ?? throw new KeyNotFoundException($"找不到已安裝 Mod：{packageId}");
+            ?? throw new KeyNotFoundException($"Installed mod not found: {packageId}");
     }
 
     private static bool IsCore(string directory)

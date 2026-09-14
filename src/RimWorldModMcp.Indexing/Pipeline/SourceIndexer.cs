@@ -106,7 +106,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
             if (paths.ManagedDir is null)
             {
-                throw new DirectoryNotFoundException("找不到 RimWorld 的 Managed 目錄。");
+                throw new DirectoryNotFoundException("RimWorld Managed directory not found.");
             }
 
             using var decompiler = new MemberDecompiler();
@@ -150,7 +150,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         catch (OperationCanceledException)
         {
             stopwatch.Stop();
-            return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, "已取消"));
+            return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, "cancelled"));
         }
         catch (Exception e)
         {

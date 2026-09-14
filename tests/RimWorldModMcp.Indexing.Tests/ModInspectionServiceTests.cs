@@ -70,6 +70,18 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.All(assemblies, a => Assert.True(a.SymbolCount > 0));
     }
 
+    [Fact]
+    public void LockNameIsPerPackageAndFilesystemSafe()
+    {
+        var a = ModInspectionService.LockName("brrainz.framework");
+        var b = ModInspectionService.LockName("other.Mod");
+
+        Assert.NotEqual(a, b);
+        Assert.StartsWith("mod-index-", a, StringComparison.Ordinal);
+        Assert.DoesNotContain("/", a);
+        Assert.DoesNotContain("\\", a);
+    }
+
     /// <summary>同一個類別在兩份 DLL 各有一筆；帶版本片段篩選後只剩一筆。</summary>
     [Fact]
     public void AssemblyFilterPicksOneVersion()

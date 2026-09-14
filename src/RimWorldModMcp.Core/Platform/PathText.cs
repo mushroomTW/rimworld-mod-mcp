@@ -37,7 +37,7 @@ public static class PathText
 
         if (!Directory.Exists(full))
         {
-            throw new DirectoryNotFoundException($"路徑不存在或不是目錄：{full}");
+            throw new DirectoryNotFoundException($"Path does not exist or is not a directory: {full}");
         }
 
         return full;

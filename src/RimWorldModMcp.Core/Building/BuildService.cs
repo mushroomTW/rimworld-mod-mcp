@@ -7,7 +7,7 @@ using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Core.Building;
 
-/// <summary>一筆編譯診斷。</summary>
+/// <summary>One compiler diagnostic.</summary>
 public sealed record BuildDiagnostic(
     [property: JsonPropertyName("severity")] string Severity,
     [property: JsonPropertyName("code")] string Code,
@@ -16,10 +16,10 @@ public sealed record BuildDiagnostic(
     [property: JsonPropertyName("line")] int? Line,
     [property: JsonPropertyName("column")] int? Column);
 
-/// <summary>建置結果。XML-only Mod 與 C# Mod 的欄位不同。</summary>
+/// <summary>Build result. XML-only and C# mods populate different fields.</summary>
 public sealed record BuildResult
 {
-    /// <summary><c>xml_only</c> 或 <c>csharp</c>。</summary>
+    /// <summary><c>xml_only</c> or <c>csharp</c>.</summary>
     [JsonPropertyName("kind")]
     public required string Kind { get; init; }
 
@@ -92,13 +92,13 @@ public sealed partial class BuildService(RimWorldLocator locator)
                 Kind = "xml_only",
                 Success = true,
                 Mod = mod,
-                Message = "XML-only Mod 結構有效，無需 C# 建置。",
+                Message = "XML-only mod is valid; no C# build needed.",
             };
         }
 
         if (projects.Length > 1)
         {
-            throw new InvalidOperationException("Source 下必須恰有一個 .csproj，才可安全建置。");
+            throw new InvalidOperationException("Source must contain exactly one .csproj to build safely.");
         }
 
         return BuildProject(mod, projects[0]);
@@ -124,7 +124,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
         }
         catch (TimeoutException)
         {
-            throw new InvalidOperationException($"dotnet build 超過 {BuildTimeout.TotalMinutes:0} 分鐘未完成，已強制終止。");
+            throw new InvalidOperationException($"dotnet build did not finish within {BuildTimeout.TotalMinutes:0} minutes and was terminated.");
         }
 
         var stdout = execution.Stdout;
@@ -139,12 +139,12 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
         if (success && deployed.Count == 0)
         {
-            warnings.Add($"建置回報成功，但在輸出目錄下找不到任何 DLL；請確認 csproj 的 TargetFramework 與 OutputPath 設定。");
+            warnings.Add($"Build reported success but no DLL was found in the output directory; check the csproj TargetFramework and OutputPath settings.");
         }
 
         if (managed is null)
         {
-            warnings.Add("未偵測到 RimWorld 的 Managed 目錄，遊戲組件參考可能無法解析。");
+            warnings.Add("RimWorld Managed directory not detected; game assembly references may not resolve.");
         }
 
         // 失敗但一筆診斷都沒解析到（MSBuild 崩潰、SDK 版本問題等非標準輸出）時，
@@ -155,7 +155,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
         {
             var combined = (stdout + Environment.NewLine + stderr).Trim();
             var tail = combined.Length > 4000 ? combined[^4000..] : combined;
-            message = "建置失敗且無法解析出結構化診斷，原始輸出尾段：" + Utf8Text.Truncate(tail, 4000, out _);
+            message = "Build failed with no parsable structured diagnostics; tail of raw output: " + Utf8Text.Truncate(tail, 4000, out _);
         }
 
         return new BuildResult
@@ -186,17 +186,17 @@ public sealed partial class BuildService(RimWorldLocator locator)
         }
         catch (Exception e) when (e is IOException or System.Xml.XmlException)
         {
-            throw new InvalidOperationException($"About.xml 無效：{e.Message}");
+            throw new InvalidOperationException($"Invalid About.xml: {e.Message}");
         }
 
         if (document.Root?.Name.LocalName != "ModMetaData")
         {
-            throw new InvalidOperationException("About.xml 的根節點必須是 ModMetaData。");
+            throw new InvalidOperationException("About.xml root must be ModMetaData.");
         }
 
         if (string.IsNullOrWhiteSpace(document.Root.Element("packageId")?.Value))
         {
-            throw new InvalidOperationException("About.xml 缺少 packageId。");
+            throw new InvalidOperationException("About.xml is missing packageId.");
         }
     }
 

@@ -22,7 +22,7 @@ public sealed class ModScaffolder
         if (normalisedId.Length == 0 || !normalisedId.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
         {
             throw new ArgumentException(
-                "package_id 只能包含小寫英數字與 . _ - ，例如 yourname.yourmod。",
+                "package_id allows only lowercase alphanumerics and . _ -, e.g. yourname.yourmod.",
                 nameof(packageId));
         }
 
@@ -30,7 +30,7 @@ public sealed class ModScaffolder
 
         if (Directory.Exists(modPath) || File.Exists(modPath))
         {
-            throw new IOException($"目標已存在：{modPath}");
+            throw new IOException($"Target already exists: {modPath}");
         }
 
         Directory.CreateDirectory(modPath);
@@ -88,7 +88,7 @@ public sealed class ModScaffolder
 
         if (cleaned.Length == 0)
         {
-            throw new ArgumentException("name 不能是空的或只有非法字元。", nameof(name));
+            throw new ArgumentException("name must not be empty or all illegal characters.", nameof(name));
         }
 
         // "." 與 ".." 是路徑導航元件；目前雖然會被「目標已存在」擋下，
@@ -96,7 +96,7 @@ public sealed class ModScaffolder
         if (cleaned is "." or ".." ||
             ReservedNames.Contains(Path.GetFileNameWithoutExtension(cleaned), StringComparer.OrdinalIgnoreCase))
         {
-            throw new ArgumentException($"name 不能是保留名稱：{cleaned}", nameof(name));
+            throw new ArgumentException($"name must not be a reserved name: {cleaned}", nameof(name));
         }
 
         return cleaned;

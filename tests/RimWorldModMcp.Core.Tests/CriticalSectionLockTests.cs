@@ -31,7 +31,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         locks.Acquire("index");
 
         var error = Assert.Throws<InvalidOperationException>(() => locks.Acquire("index"));
-        Assert.Contains("已有進行中", error.Message, StringComparison.Ordinal);
+        Assert.Contains("already in progress", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

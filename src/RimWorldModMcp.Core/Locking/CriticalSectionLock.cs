@@ -102,12 +102,12 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
                     continue;
                 }
 
-                var holder = existing?.ProcessId.ToString() ?? "未知";
-                throw new InvalidOperationException($"已有進行中的 {name} 工作（持有者 PID {holder}）。");
+                var holder = existing?.ProcessId.ToString() ?? "unknown";
+                throw new InvalidOperationException($"A {name} job is already in progress (holder PID {holder}).");
             }
         }
 
-        throw new InvalidOperationException($"已有進行中的 {name} 工作。");
+        throw new InvalidOperationException($"A {name} job is already in progress.");
     }
 
     /// <summary>釋放鎖。token 不符時什麼都不做——避免誤刪別人接管後的鎖。</summary>

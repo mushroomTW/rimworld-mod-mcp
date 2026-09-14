@@ -112,17 +112,17 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 | `read_symbol` | 查詢符號的簽章、完整繼承鏈與介面，可選擇一併反編譯原始碼。`assembly` 可限定單一組件（或多版本 Mod 的其中一個版本）。 |
 | `list_symbols` | 不靠關鍵字瀏覽：給 namespace 列出其中的頂層型別與子 namespace，給型別列出它的成員。 |
 | `find_descendants` | 找出所有繼承自指定型別的類別。 |
-| `search_source` | 以正規表示式搜尋反編譯後的遊戲原始碼。 |
-| `read_source_file` | 用搜尋結果回傳的 `assembly` 與 `file` 讀取整個反編譯檔（遊戲或 Mod），以行分頁。 |
-| `find_def_usages` | 找出一個 Def 被引用的位置，含 XML 交叉引用與 C# 的 `DefOf` 欄位。 |
+| `search_source` | 以正規表示式（.NET 語法，一律不分大小寫）搜尋反編譯後的遊戲原始碼。優先用簡單字面量（`CurTimeSpeed`）；`a|b` 取聯集。 |
+| `read_source_file` | 用搜尋結果回傳的 `assembly` 與 `file` 讀取整個反編譯檔（遊戲或 Mod），以行分頁（`start_line`＋`max_bytes`）。空結果先看 `source_indexed`。 |
+| `find_def_usages` | 找出一個 Def 被引用的位置，含 XML 交叉引用與 C# 的 `DefOf` 欄位。手寫 `Languages/` 翻譯前先用它驗證欄位。 |
 
 ### 已安裝的 Mod
 
 | 工具 | 用途 |
 | --- | --- |
-| `list_installed_mods` | 列出本機與 Workshop 的 Mod。 |
-| `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。每個組件的鍵為 `mod:<packageId>:<DLL 相對路徑>`，例如 `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`。 |
-| `search_installed_mod_source` | 搜尋一個 Mod 的原始碼。`assembly`（例如 `1.6/`）可只搜其中一個版本的 DLL。 |
+| `list_installed_mods` | 列出本機與 Workshop 的 Mod。清單大時用 `package_id` 過濾、`limit`／`offset` 分頁。 |
+| `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。鎖以 `packageId` 為單位，大 Mod 首次索引數分鐘也不會擋到別的 Mod。每個組件的鍵為 `mod:<packageId>:<DLL 相對路徑>`，例如 `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`。 |
+| `search_installed_mod_source` | 搜尋一個 Mod 的原始碼。`assembly`（例如 `1.6/`）可只搜其中一個版本的 DLL。若 Mod 自帶 `Source/` 目錄，直接 grep 磁碟更快更完整。 |
 
 ### 建置
 
@@ -137,7 +137,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 
 | 工具 | 用途 |
 | --- | --- |
-| `run_test_cycle` | 在隔離環境啟動 RimWorld 測試 Mod。 |
+| `run_test_cycle` | 在隔離環境啟動 RimWorld 測試 Mod。遊戲內手感（時間流速、渲染顯示）這類靜態分析測不到的驗收正是它的主場。 |
 | `test_status` | 目前場次的狀態，含 Bridge 與 daemon 是否正常。 |
 | `stop_test` | 停止場次並清理，需要 `confirm: true`。 |
 | `list_test_diagnostics` | 列出收集到的錯誤與警告。 |

@@ -43,7 +43,7 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
         startInfo.Environment[EnvironmentVariables.Name("BRIDGE_PORT")] = locator.BridgePort().ToString();
 
         return Process.Start(startInfo)
-            ?? throw new InvalidOperationException("無法啟動 RimWorld。");
+            ?? throw new InvalidOperationException("Could not start RimWorld.");
     }
 
     /// <summary>是否有任何同名的 RimWorld 行程在執行（含使用者自己開的）。</summary>

@@ -54,10 +54,10 @@ internal static partial class WindowsJunction
 
             if (error == ErrorAlreadyExists)
             {
-                throw new IOException($"拒絕覆寫既有路徑：{linkPath}");
+                throw new IOException($"Refusing to overwrite existing path: {linkPath}");
             }
 
-            throw new Win32Exception(error, $"無法建立 junction 目錄：{linkPath}");
+            throw new Win32Exception(error, $"Could not create junction directory: {linkPath}");
         }
 
         try
@@ -126,7 +126,7 @@ internal static partial class WindowsJunction
 
         if (handle.IsInvalid)
         {
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"無法開啟 junction 目錄以寫入 reparse point：{linkPath}");
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"Could not open junction directory to write reparse point: {linkPath}");
         }
 
         var ok = DeviceIoControl(
@@ -141,7 +141,7 @@ internal static partial class WindowsJunction
 
         if (!ok)
         {
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"設定 junction reparse point 失敗：{linkPath} -> {targetPath}");
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"Failed to set junction reparse point: {linkPath} -> {targetPath}");
         }
     }
 

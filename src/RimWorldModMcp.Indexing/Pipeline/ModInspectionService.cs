@@ -38,8 +38,10 @@ public sealed class ModInspectionService(
     {
         var assemblies = FindAssemblies(modPath);
 
-        // 併發呼叫會同時反編譯並寫入同一組鍵，必須序列化。
-        using var _ = locks.Hold("mod-index", new Dictionary<string, string> { ["package_id"] = packageId });
+        // 依 packageId 分鎖：不同 Mod 的反編譯互不阻塞，大 Mod（Framework 等）
+        // 長時間佔用時，小 Mod 的查詢仍可並行；同一個 Mod 的併發仍序列化，
+        // 避免同時反編譯並寫入同一組鍵。
+        using var _ = locks.Hold(LockName(packageId), new Dictionary<string, string> { ["package_id"] = packageId });
 
         var results = new List<ModAssemblyInfo>(assemblies.Count);
         using var connection = database.Open();
@@ -67,19 +69,23 @@ public sealed class ModInspectionService(
                 continue;
             }
 
-            using var transaction = connection.BeginTransaction();
-
-            ClearAssembly(connection, key);
-
+            // 反編譯與符號讀取是分鐘級的 CPU/IO 工作，先在交易外算完，
+            // 再用短交易只包 DB 寫入。否則分鎖後兩個 Mod 並行索引時，
+            // 先進者長時間持有寫交易，後進者超過 busy_timeout（5s）即 SQLITE_BUSY。
             var symbols = _symbolReader.Read(assembly)
                 .Select(s => s with { Assembly = key, AssemblyPath = assembly })
                 .ToList();
 
-            SymbolRepository.Insert(connection, symbols);
-
+            var sources = decompiler.DecompileAll(assembly).ToList();
             var sourceCount = 0;
 
-            foreach (var (path, text) in decompiler.DecompileAll(assembly))
+            using var transaction = connection.BeginTransaction();
+
+            ClearAssembly(connection, key);
+
+            SymbolRepository.Insert(connection, symbols);
+
+            foreach (var (path, text) in sources)
             {
                 SourceFileRepository.Insert(connection, key, path, text);
                 sourceCount++;
@@ -162,6 +168,29 @@ public sealed class ModInspectionService(
         SymbolRepository.RebuildFts(connection);
 
         transaction.Commit();
+    }
+
+    /// <summary>
+    /// 把 packageId 轉成安全的鎖檔名：不同 Mod 互不阻塞，同 Mod 仍序列化。
+    /// 鎖檔名僅用於 <c>CriticalSectionLock</c> 的檔名，需避開路徑分隔字元。
+    /// 非 <c>[a-z0-9._-]</c> 字元一律壓成 <c>_</c>，理論上 <c>foo/bar</c> 與
+    /// <c>foo_bar</c> 會撞到同一個鎖——但 packageId 規範本就是小寫加 <c>._-</c>，
+    /// 實務撞不到；撞到也只是把兩個 Mod 序列化，不影響正確性。
+    /// 輸出不含分隔符，不會跳出鎖目錄（見 <c>CriticalSectionLock.LockPath</c>）。
+    /// </summary>
+    public static string LockName(string packageId)
+    {
+        var builder = new System.Text.StringBuilder(packageId.Length + 10);
+        builder.Append("mod-index-");
+
+        foreach (var c in packageId.Trim().ToLowerInvariant())
+        {
+            builder.Append(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_'
+                ? c
+                : '_');
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>遞迴找出 Mod 目錄下所有 .NET 組件。</summary>

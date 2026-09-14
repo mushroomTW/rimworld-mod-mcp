@@ -6,7 +6,7 @@ using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Diagnostics;
 
-/// <summary>Bridge 準備結果。</summary>
+/// <summary>Bridge preparation result.</summary>
 public sealed record BridgeBuild(bool Success, string? ModDirectory, bool Rebuilt, string? Error);
 
 /// <summary>
@@ -34,14 +34,14 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 
         if (managed is null)
         {
-            return new BridgeBuild(false, null, false, "找不到 RimWorld 的 Managed 目錄，無法建置 Bridge。");
+            return new BridgeBuild(false, null, false, "RimWorld Managed directory not found; cannot build the Bridge.");
         }
 
         var project = Path.Combine(sourceDirectory, SourceDir, "RimWorldModMcp.Bridge.csproj");
 
         if (!File.Exists(project))
         {
-            return new BridgeBuild(false, null, false, $"找不到 Bridge 專案檔：{project}");
+            return new BridgeBuild(false, null, false, $"Bridge project file not found: {project}");
         }
 
         var modDirectory = Path.Combine(store.CacheHome, "bridge");
@@ -70,21 +70,21 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
         {
             // About/ 不存在或檔案被鎖住時，要以設計好的降級訊息回報，
             // 不能讓原始例外逸出成使用者看到的整包堆疊。
-            return new BridgeBuild(false, null, false, $"複製 Bridge 原始碼失敗：{e.Message}");
+            return new BridgeBuild(false, null, false, $"Failed to copy Bridge sources: {e.Message}");
         }
 
         var (success, output) = RunBuild(cachedProject, managed);
 
         if (!success)
         {
-            return new BridgeBuild(false, null, false, $"Bridge 建置失敗：{output}");
+            return new BridgeBuild(false, null, false, $"Bridge build failed: {output}");
         }
 
         var built = FindOutput(cachedProject);
 
         if (built is null)
         {
-            return new BridgeBuild(false, null, false, "Bridge 建置回報成功，但找不到輸出的 DLL。");
+            return new BridgeBuild(false, null, false, "Bridge build reported success but no output DLL was found.");
         }
 
         try
@@ -96,14 +96,14 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return new BridgeBuild(false, null, false, $"複製 Bridge 組件失敗：{e.Message}");
+            return new BridgeBuild(false, null, false, $"Failed to copy Bridge assemblies: {e.Message}");
         }
 
         var missing = RequiredAssemblies.Where(name => !File.Exists(Path.Combine(assemblies, name))).ToList();
 
         if (missing.Count > 0)
         {
-            return new BridgeBuild(false, null, false, $"Bridge 建置後缺少組件：{string.Join("、", missing)}");
+            return new BridgeBuild(false, null, false, $"Bridge build is missing assemblies: {string.Join(", ", missing)}");
         }
 
         File.WriteAllText(stampFile, stamp, new UTF8Encoding(false));

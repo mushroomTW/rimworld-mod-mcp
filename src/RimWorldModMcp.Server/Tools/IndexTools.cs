@@ -14,7 +14,7 @@ namespace RimWorldModMcp.Server.Tools;
 // 不依賴序列化器的命名策略是否套用到參數上。
 #pragma warning disable IDE1006 // 命名樣式
 
-/// <summary>研究 RimWorld 的 Def 與 C# API 的工具。</summary>
+/// <summary>Tools for researching RimWorld Defs and the C# API.</summary>
 [McpServerToolType]
 public sealed class IndexTools(
     RimWorldLocator locator,
@@ -194,7 +194,7 @@ public sealed class IndexTools(
         {
             if (!Enum.TryParse<RimWorldModMcp.Indexing.Model.SymbolKind>(kind, ignoreCase: true, out var parsed))
             {
-                throw new ArgumentException($"未知的符號種類：{kind}", nameof(kind));
+                throw new ArgumentException($"Unknown symbol kind: {kind}", nameof(kind));
             }
 
             kindName = parsed.ToString();
@@ -231,7 +231,7 @@ public sealed class IndexTools(
     {
         using var connection = database.Open();
         var text = SourceFileRepository.Read(connection, assembly, file)
-            ?? throw new FileNotFoundException($"索引裡沒有這個檔案：{assembly} / {file}");
+            ?? throw new FileNotFoundException($"File not in the index: {assembly} / {file}");
 
         var excerpt = SourceExcerpt.Take(text, start_line, Math.Clamp(max_bytes, 1024, 262144));
 
@@ -271,7 +271,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "search_source", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Regex search over the decompiled game source. source_indexed=false in the result means the background index is still building; retry later.")]
+    [Description("Regex search (.NET syntax, case-insensitive) over the decompiled game source. Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. source_indexed=false means the background index is still building; retry later.")]
     public SearchSourceResult SearchSource(
         [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,

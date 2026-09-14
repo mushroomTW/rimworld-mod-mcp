@@ -50,7 +50,7 @@ public sealed class IndexBuilder(
 
         if (paths.ManagedDir is null || paths.DataDir is null)
         {
-            throw new DirectoryNotFoundException("找不到 RimWorld 的 Managed 或 Data 目錄。");
+            throw new DirectoryNotFoundException("RimWorld Managed or Data directory not found.");
         }
 
         // 背景的原始碼索引若還在跑，它會在我們清空 source_file 之後繼續往裡寫、

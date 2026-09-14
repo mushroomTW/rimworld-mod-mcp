@@ -23,7 +23,7 @@ return command switch
 
 static int UnknownCommand(string command)
 {
-    Console.Error.WriteLine($"未知指令：{command}。可用：stdio（預設）| daemon | detect");
+    Console.Error.WriteLine($"Unknown command: {command}. Available: stdio (default) | daemon | detect");
     return 2;
 }
 
@@ -74,7 +74,7 @@ static async Task<int> RunDaemon()
     {
         // 埠已被佔用。以約定的離開碼退出，讓啟動者知道要去讀自述檔判斷
         // 佔用者是不是自己人——由 OS 的 bind 當唯一仲裁者，沒有 TOCTOU 空窗。
-        await Console.Error.WriteLineAsync($"連接埠 {locator.BridgePort()} 已被佔用。");
+        await Console.Error.WriteLineAsync($"Port {locator.BridgePort()} is already in use.");
         return DaemonBootstrapper.PortInUseExitCode;
     }
 }

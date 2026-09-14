@@ -48,7 +48,7 @@ public sealed class DirectoryLink
 
         if (!Directory.Exists(target))
         {
-            throw new DirectoryNotFoundException($"連結目標不存在：{target}");
+            throw new DirectoryNotFoundException($"Link target does not exist: {target}");
         }
 
         // 已經是指向同一個目標的自家連結就什麼都不用做。
@@ -61,7 +61,7 @@ public sealed class DirectoryLink
         // 也可能是指向別處的舊連結。兩種都不允許覆寫。
         if (Directory.Exists(linkPath) || File.Exists(linkPath))
         {
-            throw new IOException($"拒絕覆寫既有路徑：{linkPath}");
+            throw new IOException($"Refusing to overwrite existing path: {linkPath}");
         }
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))

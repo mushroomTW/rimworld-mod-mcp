@@ -38,7 +38,8 @@ public sealed class TestCycleService(
         string modPath,
         IReadOnlyList<string>? companionMods,
         bool quickTest,
-        IReadOnlyList<string>? seedConfig = null)
+        IReadOnlyList<string>? seedConfig = null,
+        bool fullscreen = true)
     {
         var mod = PathText.ResolveDirectory(modPath);
         var seedFiles = ResolveSeedConfig(seedConfig);
@@ -46,11 +47,11 @@ public sealed class TestCycleService(
 
         if (paths.Executable is null || paths.ModsDir is null)
         {
-            throw new DirectoryNotFoundException("找不到 RimWorld 的執行檔或 Mods 目錄。");
+            throw new DirectoryNotFoundException("RimWorld executable or Mods directory not found.");
         }
 
         var info = AboutXml.Parse(mod, "workspace")
-            ?? throw new InvalidOperationException("Mod 的 About/About.xml 無效或缺少 packageId。");
+            ?? throw new InvalidOperationException("The mod's About/About.xml is invalid or missing packageId.");
 
         var runId = $"{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
         var modSet = ResolveModSet(info, companionMods);
@@ -75,7 +76,7 @@ public sealed class TestCycleService(
             if (active.State == "running" && active.GamePid is { } pid && processes.IsAlive(pid))
             {
                 throw new InvalidOperationException(
-                    $"已有進行中的測試場次（run_id={active.RunId}）。請先呼叫 stop_test(confirm=true)。");
+                    $"A test session is already running (run_id={active.RunId}). Call stop_test(confirm=true) first.");
             }
 
             // 上一場次的遊戲崩潰時 Stop() 沒被呼叫，它的連結還躺在使用者的
@@ -85,10 +86,10 @@ public sealed class TestCycleService(
             // 使用者自己開著遊戲時不能動 Mods 目錄——連結會被鎖住，而且會干擾他的存檔。
             if (launcher.IsGameRunning(paths.Executable))
             {
-                throw new InvalidOperationException("RimWorld 正在執行中。請先關閉遊戲再開始測試。");
+                throw new InvalidOperationException("RimWorld is running. Close the game before starting a test.");
             }
 
-            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles);
+            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles, fullscreen);
 
             diagnostics.Clear();
 
@@ -177,7 +178,7 @@ public sealed class TestCycleService(
 
             if (!File.Exists(full))
             {
-                throw new FileNotFoundException($"seed_config 的檔案不存在：{full}", full);
+                throw new FileNotFoundException($"seed_config file does not exist: {full}", full);
             }
 
             resolved.Add(full);
@@ -280,7 +281,7 @@ public sealed class TestCycleService(
         {
             if (!available.TryGetValue(companion.Trim().ToLowerInvariant(), out var match))
             {
-                throw new KeyNotFoundException($"找不到指定的相伴 Mod：{companion}");
+                throw new KeyNotFoundException($"Companion mod not found: {companion}");
             }
 
             selected.Add(match);
@@ -290,7 +291,7 @@ public sealed class TestCycleService(
 
         if (order.Missing.Count > 0)
         {
-            throw new InvalidOperationException($"缺少必要的相依 Mod：{string.Join("、", order.Missing)}");
+            throw new InvalidOperationException($"Missing required mod dependencies: {string.Join(", ", order.Missing)}");
         }
 
         return new TestModSet(order.Active, order.SkippedLoadAfter);

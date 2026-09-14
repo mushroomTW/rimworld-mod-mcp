@@ -41,7 +41,7 @@ public sealed class SourceQueryService
         }
         catch (ArgumentException e)
         {
-            throw new ArgumentException($"無效的搜尋模式：{e.Message}", nameof(pattern));
+            throw new ArgumentException($"Invalid search pattern: {e.Message}", nameof(pattern));
         }
 
         var cap = Math.Clamp(limit, 1, 800);
@@ -92,8 +92,7 @@ public sealed class SourceQueryService
         int limit,
         string? assemblyLike)
     {
-        var keywords = LiteralKeywords(pattern);
-        var match = keywords.Length > 0 ? FtsQuery.Match(string.Join(' ', keywords)) : string.Empty;
+        var match = BuildMatch(pattern);
 
         var sql = match.Length > 0
             ? """
@@ -164,23 +163,104 @@ public sealed class SourceQueryService
     }
 
     /// <summary>
-    /// 從 regex 模式抽出可當全文關鍵字的字面詞。
-    /// 抽不到就回空陣列，呼叫端會退回掃描全部檔案。
+    /// 從 regex 模式建出 FTS5 候選查詢。alternation 的每個分支抽關鍵字後以 OR 相連；
+    /// 若用 AND 相連，只含其中一支的檔案會在候選階段就被濾掉，regex 根本沒機會跑
+    /// ——這是靜默的 false negative。抽不到關鍵字才回空字串，呼叫端退回掃描。
     /// </summary>
-    private static string[] LiteralKeywords(string pattern)
+    private static string BuildMatch(string pattern)
     {
-        // FTS5 的空白是隱含 AND。alternation（TryStartJob|EndCurrentJob）抽出的
-        // 關鍵字若用 AND 相連，只含其中一支的檔案會在候選階段就被濾掉，
-        // regex 根本沒機會跑——這是靜默的 false negative。含 | 就退回全掃。
-        if (pattern.Contains('|'))
+        var branches = SplitAlternation(pattern);
+        var clauses = new List<string>(branches.Count);
+
+        foreach (var branch in branches)
         {
-            return [];
+            var keywords = KeywordsForBranch(branch);
+
+            if (keywords.Length == 0)
+            {
+                continue;
+            }
+
+            clauses.Add(FtsQuery.Match(string.Join(' ', keywords)));
         }
 
-        // 連續三個以上的英數字元，且前後沒有 regex 元字元干擾的片段。
+        // 有任一分支抽不出關鍵字時，若直接用 OR 會漏召回（該分支的候選全丟），
+        // 寧可退回全掃，保證 regex 有機會跑到所有候選。
+        if (clauses.Count != branches.Count)
+        {
+            return string.Empty;
+        }
+
+        return clauses.Count switch
+        {
+            0 => string.Empty,
+            1 => clauses[0],
+            _ => string.Join(" OR ", clauses.Select(c => $"( {c} )")),
+        };
+    }
+
+    /// <summary>
+    /// 按未跳脫且不在 [...] 內的 | 切分支。分組 (a|b) 內的 | 也一併切開：
+    /// 候選階段取聯集只會放大召回，不會造成漏召回。
+    /// </summary>
+    private static List<string> SplitAlternation(string pattern)
+    {
+        var branches = new List<string>();
+        var current = new System.Text.StringBuilder(pattern.Length);
+        var escaped = false;
+        var inClass = false;
+
+        foreach (var c in pattern)
+        {
+            if (escaped)
+            {
+                current.Append(c);
+                escaped = false;
+                continue;
+            }
+
+            switch (c)
+            {
+                case '\\':
+                    current.Append(c);
+                    escaped = true;
+                    break;
+                case '[':
+                    current.Append(c);
+                    inClass = true;
+                    break;
+                case ']':
+                    current.Append(c);
+                    inClass = false;
+                    break;
+                case '|' when !inClass:
+                    branches.Add(current.ToString());
+                    current.Clear();
+                    break;
+                default:
+                    current.Append(c);
+                    break;
+            }
+        }
+
+        branches.Add(current.ToString());
+        return branches;
+    }
+
+    /// <summary>
+    /// 抽出單一分支可當全文關鍵字的字面詞。候選階段只求召回不求精準：
+    /// 先把 regex 元字元換成空白再抽詞，所以 <c>(TryStartJob|EndCurrentJob)</c>、
+    /// <c>void Delete\(\)</c>、<c>\bFoo\b</c> 這類寫法都抽得到關鍵字；
+    /// 最終是否命中仍由 regex 逐行判定，不會產生 false positive。
+    /// </summary>
+    private static string[] KeywordsForBranch(string branch)
+    {
+        var cleaned = Regex.Replace(branch, @"[^\w\s]", " ", RegexOptions.None, TimeSpan.FromSeconds(1));
+
+        // 連續三個以上的英數字元（ASCII 即可，呼應 FTS tokenizer 的切分）。
         var matches = Regex.Matches(
-            pattern,
-            @"(?<![\\\[\](){}|*+?.])[A-Za-z_][A-Za-z0-9_]{2,}",
+            cleaned,
+            @"[A-Za-z_][A-Za-z0-9_]{2,}",
             RegexOptions.None,
             TimeSpan.FromSeconds(1));
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
-  "description": "本機執行的 RimWorld Mod 開發 MCP server：索引遊戲的 Def 與 C# API、建置 Mod、在隔離環境測試。",
+  "description": "Local RimWorld mod development MCP server: indexes game Defs and the C# API, builds mods, tests in an isolated session.",
   "name": "rimworld-mod-mcp",
   "version": "0.1.0",
   "packages": [
@@ -16,7 +16,7 @@
           "type": "positional",
           "value": "stdio",
           "valueHint": "stdio",
-          "description": "以 stdio 傳輸執行 MCP server。"
+          "description": "Run the MCP server over the stdio transport."
         }
       ],
       "environmentVariables": []

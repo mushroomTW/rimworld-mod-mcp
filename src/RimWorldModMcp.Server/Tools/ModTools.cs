@@ -8,15 +8,21 @@ namespace RimWorldModMcp.Server.Tools;
 
 #pragma warning disable IDE1006 // 參數名刻意使用 snake_case，見 IndexTools 的說明。
 
-/// <summary>查看使用者已安裝的 Mod。</summary>
+/// <summary>Tools for inspecting the user's installed mods.</summary>
 [McpServerToolType]
 public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection)
 {
     [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List all installed mods (local and Steam Workshop) with their dependencies.")]
+    [Description("List installed mods (local and Workshop; Core/DLC only with include_builtin). With a known packageId, filter via package_id instead of paging the full list.")]
     public ListModsResult ListInstalledMods(
         [Description("Also list Core and installed DLCs.")]
-        bool include_builtin = false) => ToolGuard.Run(() =>
+        bool include_builtin = false,
+        [Description("Filter by packageId or name substring (case-insensitive).")]
+        string? package_id = null,
+        [Description("Maximum results, 1-1000 (default 1000).")]
+        int limit = 1000,
+        [Description("Skip the first N matches.")]
+        int offset = 0) => ToolGuard.Run(() =>
     {
         var mods = catalog.Installed().ToList();
 
@@ -25,15 +31,31 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
             mods.AddRange(catalog.BuiltinPacks());
         }
 
+        if (!string.IsNullOrWhiteSpace(package_id))
+        {
+            var needle = package_id.Trim();
+            mods = [.. mods.Where(m =>
+                m.PackageId.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                || m.Name.Contains(needle, StringComparison.OrdinalIgnoreCase))];
+        }
+
+        var total = mods.Count;
+        var safeOffset = Math.Max(offset, 0);
+        var safeLimit = Math.Clamp(limit, 1, 1000);
+        var page = mods.Skip(safeOffset).Take(safeLimit).ToList();
+
         return new ListModsResult
         {
-            Results = [.. mods.Select(ToSummary)],
-            Count = mods.Count,
+            Results = [.. page.Select(ToSummary)],
+            Count = page.Count,
+            Total = total,
+            Offset = safeOffset,
+            LimitReached = safeOffset + page.Count < total,
         };
     });
 
     [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
-    [Description("List an installed mod's assemblies (one per version directory) with their index keys and symbol/source-file counts; decompiles and indexes first if not yet indexed. Pass an assembly key fragment such as 1.6/ to read_symbol or search_installed_mod_source to look at one version only.")]
+    [Description("List a mod's assemblies with their index keys and counts; decompiles and indexes on first use. Large mods take minutes but other mods stay searchable. Pass an assembly key fragment such as 1.6/ to scope read_symbol or search_installed_mod_source to one version.")]
     public InspectModResult InspectInstalledMod(
         [Description("The mod's packageId.")]
         string package_id,
@@ -60,7 +82,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "search_installed_mod_source", UseStructuredContent = true)]
-    [Description("Regex search over an installed mod's decompiled source. Indexes it first if not yet indexed. Use read_source_file with a hit's assembly and file to read the whole file.")]
+    [Description("Regex search (.NET syntax, case-insensitive) over an installed mod's decompiled source; indexes on first use. Simple literals work best; a|b matches either branch. Read a hit with read_source_file using its assembly and file.")]
     public SearchSourceResult SearchInstalledModSource(
         [Description("The mod's packageId.")]
         string package_id,
@@ -102,7 +124,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     };
 }
 
-/// <summary>已安裝 Mod 的清單。</summary>
+/// <summary>Installed mod listing. Count is this page's size; Total is the filtered total.</summary>
 public sealed record ListModsResult
 {
     [JsonPropertyName("results")]
@@ -110,9 +132,18 @@ public sealed record ListModsResult
 
     [JsonPropertyName("count")]
     public required int Count { get; init; }
+
+    [JsonPropertyName("total")]
+    public required int Total { get; init; }
+
+    [JsonPropertyName("offset")]
+    public required int Offset { get; init; }
+
+    [JsonPropertyName("limit_reached")]
+    public required bool LimitReached { get; init; }
 }
 
-/// <summary>一個 Mod 的摘要。</summary>
+/// <summary>One mod's summary.</summary>
 public sealed record ModSummary
 {
     [JsonPropertyName("package_id")]
@@ -124,7 +155,7 @@ public sealed record ModSummary
     [JsonPropertyName("path")]
     public required string Path { get; init; }
 
-    /// <summary><c>local</c>、<c>workshop</c>、<c>core</c> 或 <c>expansion</c>。</summary>
+    /// <summary><c>local</c>, <c>workshop</c>, <c>core</c>, or <c>expansion</c>.</summary>
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 
@@ -141,7 +172,7 @@ public sealed record ModSummary
     public required IReadOnlyList<string> SupportedVersions { get; init; }
 }
 
-/// <summary>Mod 檢視結果。</summary>
+/// <summary>Result of inspecting a mod.</summary>
 public sealed record InspectModResult
 {
     [JsonPropertyName("mod")]
@@ -154,13 +185,13 @@ public sealed record InspectModResult
     public required int AssemblyCount { get; init; }
 }
 
-/// <summary>Mod 中的一個組件。</summary>
+/// <summary>One assembly inside a mod.</summary>
 public sealed record ModAssemblySummary
 {
     [JsonPropertyName("name")]
     public required string Name { get; init; }
 
-    /// <summary>索引裡的組件鍵，形式為 mod:&lt;packageId&gt;:&lt;DLL 相對路徑&gt;；查詢工具的 assembly 篩選對它比對。</summary>
+    /// <summary>Index key of the assembly (<c>mod:&lt;packageId&gt;:&lt;relative DLL path&gt;</c>); the query tools' assembly filter matches against it.</summary>
     [JsonPropertyName("assembly")]
     public required string Assembly { get; init; }
 
@@ -173,7 +204,7 @@ public sealed record ModAssemblySummary
     [JsonPropertyName("source_file_count")]
     public required int SourceFileCount { get; init; }
 
-    /// <summary>true 代表沿用既有索引，沒有重新反編譯。</summary>
+    /// <summary>True when the existing index was reused without re-decompiling.</summary>
     [JsonPropertyName("from_cache")]
     public required bool FromCache { get; init; }
 }

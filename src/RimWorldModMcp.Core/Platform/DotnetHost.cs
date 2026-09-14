@@ -99,7 +99,7 @@ public static class DotnetHost
         }
 
         using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("無法啟動 dotnet build。");
+            ?? throw new InvalidOperationException("Could not start dotnet build.");
 
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
@@ -115,7 +115,7 @@ public static class DotnetHost
                 // 行程剛好自行結束或無權限殺除，不影響逾時判定
             }
 
-            throw new TimeoutException($"dotnet build 超過 {timeoutValue.TotalMinutes:0} 分鐘未完成，已強制終止。");
+            throw new TimeoutException($"dotnet build did not finish within {timeoutValue.TotalMinutes:0} minutes and was terminated.");
         }
 
         var stdout = stdoutTask.GetAwaiter().GetResult();

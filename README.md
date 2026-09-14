@@ -112,17 +112,17 @@ If you use the standalone executable (or want to point to local build output), p
 | `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. `assembly` narrows to one assembly (or one version of a multi-version mod). |
 | `list_symbols` | Browse without a keyword: a namespace lists its top-level types and child namespaces; a type lists its members. |
 | `find_descendants` | Find every class deriving from a given type. |
-| `search_source` | Regex search over decompiled game source. |
-| `read_source_file` | Read a whole decompiled file (game or mod) by the `assembly` and `file` a search returned, paging by line. |
-| `find_def_usages` | Find where a Def is referenced, across XML cross-references and C# `DefOf` fields. |
+| `search_source` | Regex search (.NET syntax, always case-insensitive) over decompiled game source. Prefer simple literals (`CurTimeSpeed`); `a|b` matches either branch. |
+| `read_source_file` | Read a whole decompiled file (game or mod) by the `assembly` and `file` a search returned, paging by line (`start_line` + `max_bytes`). Check `source_indexed` before trusting empty results. |
+| `find_def_usages` | Find where a Def is referenced, across XML cross-references and C# `DefOf` fields. Use it to verify translatable fields before hand-writing `Languages/` XML. |
 
 ### Installed mods
 
 | Tool | Purpose |
 | --- | --- |
-| `list_installed_mods` | List local and Workshop mods. |
-| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`. |
-| `search_installed_mod_source` | Search one mod's source. `assembly` (e.g. `1.6/`) restricts to one version's DLL. |
+| `list_installed_mods` | List local and Workshop mods. Filter with `package_id` and page with `limit`/`offset` when the list is large. |
+| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Locks are per-`packageId`, so a large mod (minutes on first run) does not block other mods. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`. |
+| `search_installed_mod_source` | Regex search over an installed mod's decompiled source. `assembly` (e.g. `1.6/`) restricts to one version's DLL. If the mod ships a `Source/` directory, grepping the disk is faster and complete. |
 
 ### Build
 
@@ -137,7 +137,7 @@ The tool set deliberately covers only what an AI coding agent cannot do on its o
 
 | Tool | Purpose |
 | --- | --- |
-| `run_test_cycle` | Launch RimWorld in an isolated session to test a mod. |
+| `run_test_cycle` | Launch RimWorld in an isolated session to test a mod. Use it for in-game acceptance (time-speed feel, rendering) that static analysis cannot cover. |
 | `test_status` | Current session state, including whether the bridge and daemon are healthy. |
 | `stop_test` | Stop the session and clean up; requires `confirm: true`. |
 | `list_test_diagnostics` | List collected errors and warnings. |
