@@ -127,7 +127,7 @@ public sealed class MemberDecompiler : IDisposable
 
             var handle = lazy.Value;
 
-            if (handle.Stamp == stamp)
+            if (handle.FileStamp == stamp)
             {
                 return handle;
             }
@@ -151,11 +151,11 @@ public sealed class MemberDecompiler : IDisposable
 
     private sealed class DecompilerHandle : IDisposable
     {
-        private DecompilerHandle(PEFile file, CSharpDecompiler decompiler, string stamp)
+        private DecompilerHandle(PEFile file, CSharpDecompiler decompiler, string fileStamp)
         {
             File = file;
             Decompiler = decompiler;
-            Stamp = stamp;
+            FileStamp = fileStamp;
         }
 
         internal PEFile File { get; }
@@ -163,7 +163,7 @@ public sealed class MemberDecompiler : IDisposable
         internal CSharpDecompiler Decompiler { get; }
 
         /// <summary>載入當下的檔案大小與時間戳，用於失效判定。</summary>
-        internal string Stamp { get; }
+        internal string FileStamp { get; }
 
         internal Lock Gate { get; } = new();
 

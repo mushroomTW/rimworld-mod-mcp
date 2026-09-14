@@ -175,16 +175,25 @@ public sealed class DaemonListener(
 
             if (!oversized)
             {
-                await line.WriteAsync(buffer.AsMemory(start, read - start), cancellationToken).ConfigureAwait(false);
-
-                if (line.Length > MaxLineBytes)
-                {
-                    // 超長行整行作廢，直到下一個換行為止。
-                    line.SetLength(0);
-                    oversized = true;
-                }
+                oversized = await AppendTrailingChunkAsync(line, buffer.AsMemory(start, read - start), cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    private static async ValueTask<bool> AppendTrailingChunkAsync(
+        MemoryStream line,
+        ReadOnlyMemory<byte> chunk,
+        CancellationToken cancellationToken)
+    {
+        await line.WriteAsync(chunk, cancellationToken).ConfigureAwait(false);
+        if (line.Length > MaxLineBytes)
+        {
+            // 超長行整行作廢，直到下一個換行為止。
+            line.SetLength(0);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>驗證並收下一行 NDJSON。任何一項不通過就安靜丟棄，不中斷連線。</summary>

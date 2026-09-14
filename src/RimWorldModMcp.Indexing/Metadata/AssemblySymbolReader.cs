@@ -18,7 +18,16 @@ namespace RimWorldModMcp.Indexing.Metadata;
 /// </summary>
 public sealed class AssemblySymbolReader
 {
+    private const string AccessPublic = "public";
+    private const string AccessProtectedInternal = "protected internal";
+    private const string AccessInternal = "internal";
+    private const string AccessProtected = "protected";
+    private const string AccessPrivateProtected = "private protected";
+    private const string AccessPrivate = "private";
+
     /// <summary>讀出組件中所有公開可見的型別與成員。</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Preserved as instance method for API compatibility and DI")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "Preserved as instance method for API compatibility and DI")]
     public IReadOnlyList<SymbolRecord> Read(string assemblyPath)
     {
         var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
@@ -187,27 +196,7 @@ public sealed class AssemblySymbolReader
                 continue;
             }
 
-            var accessors = property.GetAccessors();
-            MethodDefinition? getter = accessors.Getter.IsNil ? null : reader.GetMethodDefinition(accessors.Getter);
-            MethodDefinition? setter = accessors.Setter.IsNil ? null : reader.GetMethodDefinition(accessors.Setter);
-            var representative = getter ?? setter;
-
-            var parts = new List<string>();
-            if (getter is not null)
-            {
-                parts.Add("get;");
-            }
-
-            if (setter is not null)
-            {
-                parts.Add("set;");
-            }
-
-            // 屬性的可見度取兩個存取子中較開放的一個——只看 getter 的話，
-            // private get / public set 這種組合會被誤報成 private。
-            var accessibility = MostVisible(
-                getter is null ? null : MethodAccessibility(getter.Value.Attributes),
-                setter is null ? null : MethodAccessibility(setter.Value.Attributes));
+            var (parts, accessibility, isStatic) = AnalyzePropertyAccessors(reader, property);
 
             symbols.Add(new SymbolRecord
             {
@@ -218,10 +207,40 @@ public sealed class AssemblySymbolReader
                 ParentFqn = typeFqn,
                 MetadataToken = MetadataTokens.GetToken(handle),
                 Signature = $"{returnType} {name} {{ {string.Join(' ', parts)} }}",
-                Accessibility = accessibility ?? "private",
-                IsStatic = representative?.Attributes.HasFlag(MethodAttributes.Static) ?? false,
+                Accessibility = accessibility,
+                IsStatic = isStatic,
             });
         }
+    }
+
+    private static (List<string> Parts, string Accessibility, bool IsStatic) AnalyzePropertyAccessors(
+        MetadataReader reader,
+        PropertyDefinition property)
+    {
+        var accessors = property.GetAccessors();
+        MethodDefinition? getter = accessors.Getter.IsNil ? null : reader.GetMethodDefinition(accessors.Getter);
+        MethodDefinition? setter = accessors.Setter.IsNil ? null : reader.GetMethodDefinition(accessors.Setter);
+        var representative = getter ?? setter;
+
+        var parts = new List<string>();
+        if (getter is not null)
+        {
+            parts.Add("get;");
+        }
+
+        if (setter is not null)
+        {
+            parts.Add("set;");
+        }
+
+        // 屬性的可見度取兩個存取子中較開放的一個——只看 getter 的話，
+        // private get / public set 這種組合會被誤報成 private。
+        var accessibility = MostVisible(
+            getter is null ? null : MethodAccessibility(getter.Value.Attributes),
+            setter is null ? null : MethodAccessibility(setter.Value.Attributes)) ?? AccessPrivate;
+
+        var isStatic = representative?.Attributes.HasFlag(MethodAttributes.Static) ?? false;
+        return (parts, accessibility, isStatic);
     }
 
     private static void ReadFields(
@@ -594,41 +613,41 @@ public sealed class AssemblySymbolReader
 
     private static int VisibilityRank(string accessibility) => accessibility switch
     {
-        "public" => 5,
-        "protected internal" => 4,
-        "internal" => 3,
-        "protected" => 2,
-        "private protected" => 1,
+        AccessPublic => 5,
+        AccessProtectedInternal => 4,
+        AccessInternal => 3,
+        AccessProtected => 2,
+        AccessPrivateProtected => 1,
         _ => 0,
     };
 
     private static string TypeAccessibility(TypeAttributes attributes) => (attributes & TypeAttributes.VisibilityMask) switch
     {
-        TypeAttributes.Public or TypeAttributes.NestedPublic => "public",
-        TypeAttributes.NestedFamily => "protected",
-        TypeAttributes.NestedFamORAssem => "protected internal",
-        TypeAttributes.NestedFamANDAssem => "private protected",
-        TypeAttributes.NestedPrivate => "private",
-        _ => "internal",
+        TypeAttributes.Public or TypeAttributes.NestedPublic => AccessPublic,
+        TypeAttributes.NestedFamily => AccessProtected,
+        TypeAttributes.NestedFamORAssem => AccessProtectedInternal,
+        TypeAttributes.NestedFamANDAssem => AccessPrivateProtected,
+        TypeAttributes.NestedPrivate => AccessPrivate,
+        _ => AccessInternal,
     };
 
     private static string MethodAccessibility(MethodAttributes attributes) => (attributes & MethodAttributes.MemberAccessMask) switch
     {
-        MethodAttributes.Public => "public",
-        MethodAttributes.Family => "protected",
-        MethodAttributes.FamORAssem => "protected internal",
-        MethodAttributes.FamANDAssem => "private protected",
-        MethodAttributes.Assembly => "internal",
-        _ => "private",
+        MethodAttributes.Public => AccessPublic,
+        MethodAttributes.Family => AccessProtected,
+        MethodAttributes.FamORAssem => AccessProtectedInternal,
+        MethodAttributes.FamANDAssem => AccessPrivateProtected,
+        MethodAttributes.Assembly => AccessInternal,
+        _ => AccessPrivate,
     };
 
     private static string FieldAccessibility(FieldAttributes attributes) => (attributes & FieldAttributes.FieldAccessMask) switch
     {
-        FieldAttributes.Public => "public",
-        FieldAttributes.Family => "protected",
-        FieldAttributes.FamORAssem => "protected internal",
-        FieldAttributes.FamANDAssem => "private protected",
-        FieldAttributes.Assembly => "internal",
-        _ => "private",
+        FieldAttributes.Public => AccessPublic,
+        FieldAttributes.Family => AccessProtected,
+        FieldAttributes.FamORAssem => AccessProtectedInternal,
+        FieldAttributes.FamANDAssem => AccessPrivateProtected,
+        FieldAttributes.Assembly => AccessInternal,
+        _ => AccessPrivate,
     };
 }

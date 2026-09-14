@@ -19,6 +19,8 @@ public sealed class LoadOrderResolver
 {
     private const string CorePackageId = "ludeon.rimworld";
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service")]
     public LoadOrder Resolve(IReadOnlyList<ModInfo> selected, IReadOnlyList<ModInfo> available)
     {
         var index = available.ToDictionary(m => m.PackageId, StringComparer.Ordinal);
@@ -74,12 +76,9 @@ public sealed class LoadOrderResolver
                 continue;
             }
 
-            foreach (var conflict in mod.IncompatibleWith)
+            foreach (var conflict in mod.IncompatibleWith.Where(wanted.Contains))
             {
-                if (wanted.Contains(conflict))
-                {
-                    throw new InvalidOperationException($"偵測到不相容 Mod：{id} 與 {conflict} 不能同時啟用。");
-                }
+                throw new InvalidOperationException($"偵測到不相容 Mod：{id} 與 {conflict} 不能同時啟用。");
             }
         }
     }
@@ -93,6 +92,45 @@ public sealed class LoadOrderResolver
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var visiting = new HashSet<string>(StringComparer.Ordinal);
 
+        var afterEdgesFromBefore = BuildReverseLoadBeforeEdges(wanted, index);
+
+        // Core 一律排第一，即使它不在 available 裡也要列出來——
+        // RimWorld 沒有 Core 就無法啟動。
+        ordered.Add(CorePackageId);
+        visited.Add(CorePackageId);
+
+        foreach (var id in wanted.Order(StringComparer.Ordinal))
+        {
+            Visit(id);
+        }
+
+        return ordered;
+
+        void Visit(string id)
+        {
+            if (visited.Contains(id) || !visiting.Add(id))
+            {
+                return;
+            }
+
+            if (!wanted.Contains(id) || !index.TryGetValue(id, out var mod))
+            {
+                visiting.Remove(id);
+                return;
+            }
+
+            VisitDependencies(mod, wanted, skippedLoadAfter, afterEdgesFromBefore, Visit);
+
+            visiting.Remove(id);
+            visited.Add(id);
+            ordered.Add(id);
+        }
+    }
+
+    private static Dictionary<string, List<string>> BuildReverseLoadBeforeEdges(
+        HashSet<string> wanted,
+        Dictionary<string, ModInfo> index)
+    {
         // loadBefore 是 loadAfter 的反向邊：「X loadBefore Y」等價於「Y loadAfter X」。
         // 先反轉成 after-邊，排序時走同一條路徑——否則宣告了 loadBefore 的
         // 相伴 Mod 會被排錯順序，而錯誤只會在遊戲內以難懂的形式浮現。
@@ -121,65 +159,41 @@ public sealed class LoadOrderResolver
             }
         }
 
-        // Core 一律排第一，即使它不在 available 裡也要列出來——
-        // RimWorld 沒有 Core 就無法啟動。
-        ordered.Add(CorePackageId);
-        visited.Add(CorePackageId);
+        return afterEdgesFromBefore;
+    }
 
-        foreach (var id in wanted.Order(StringComparer.Ordinal))
+    private static void VisitDependencies(
+        ModInfo mod,
+        HashSet<string> wanted,
+        List<string> skippedLoadAfter,
+        Dictionary<string, List<string>> afterEdgesFromBefore,
+        Action<string> visit)
+    {
+        foreach (var dependency in mod.Dependencies)
         {
-            Visit(id);
+            visit(dependency);
         }
 
-        return ordered;
-
-        void Visit(string id)
+        foreach (var after in mod.LoadAfter)
         {
-            if (visited.Contains(id) || !visiting.Add(id))
+            if (wanted.Contains(after))
             {
-                // 已完成（visited）：不必重走。進行中（visiting）：遇到循環——
-                // 注意展開階段用 visited-set 靜默吸收循環、不會拋出，所以
-                // 硬相依的循環也會走到這裡。循環內的順序約束本來就無法全部
-                // 滿足，這裡以確定性的 DFS 順序（外層照字母序迭代）收斂。
-                return;
+                visit(after);
             }
-
-            if (!wanted.Contains(id) || !index.TryGetValue(id, out var mod))
+            else if (!skippedLoadAfter.Contains(after, StringComparer.Ordinal))
             {
-                visiting.Remove(id);
-                return;
+                // 軟排序目標不在選集內：記錄下來讓使用者知道，但不視為錯誤。
+                skippedLoadAfter.Add(after);
             }
+        }
 
-            foreach (var dependency in mod.Dependencies)
+        // 別的 Mod 宣告了 loadBefore 我們：那些 Mod 必須排在前面。
+        if (afterEdgesFromBefore.TryGetValue(mod.PackageId, out var mustComeFirst))
+        {
+            foreach (var earlier in mustComeFirst)
             {
-                Visit(dependency);
+                visit(earlier);
             }
-
-            foreach (var after in mod.LoadAfter)
-            {
-                if (wanted.Contains(after))
-                {
-                    Visit(after);
-                }
-                else if (!skippedLoadAfter.Contains(after, StringComparer.Ordinal))
-                {
-                    // 軟排序目標不在選集內：記錄下來讓使用者知道，但不視為錯誤。
-                    skippedLoadAfter.Add(after);
-                }
-            }
-
-            // 別的 Mod 宣告了 loadBefore 我們：那些 Mod 必須排在前面。
-            if (afterEdgesFromBefore.TryGetValue(id, out var mustComeFirst))
-            {
-                foreach (var earlier in mustComeFirst)
-                {
-                    Visit(earlier);
-                }
-            }
-
-            visiting.Remove(id);
-            visited.Add(id);
-            ordered.Add(id);
         }
     }
 }
