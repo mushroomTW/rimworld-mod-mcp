@@ -68,6 +68,100 @@ public sealed class DaemonListenerTcpTests : IDisposable
     });
 
     [Fact]
+    public async Task ActiveConnectionOutlivesIdleTimeoutWhileLinesKeepArriving()
+    {
+        // 逾時是「閒置」逾時：只要持續有資料進來，連線活得比逾時長也不該被切。
+        var idle = TimeSpan.FromMilliseconds(400);
+        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, idle);
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = listener.RunAsync(cancellation.Token);
+
+        while (_records.Read() is null)
+        {
+            Assert.False(running.IsCompleted, "daemon 不應在啟動階段就結束");
+            await Task.Delay(50, cancellation.Token);
+        }
+
+        const int lines = 6;
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, _port, cancellation.Token);
+            var stream = client.GetStream();
+
+            // 每 200ms 送一行，總時長 1.2s，是閒置逾時的三倍。
+            for (var i = 0; i < lines; i++)
+            {
+                await stream.WriteAsync(Encoding.UTF8.GetBytes(ValidLine("line " + i) + "\n"), cancellation.Token);
+                await Task.Delay(200, cancellation.Token);
+            }
+
+            // 最後一行送出後再等一下，確認 daemon 有機會處理完。
+            while (_diagnostics.Read().Count < lines && !cancellation.IsCancellationRequested)
+            {
+                if (client.Client.Poll(0, SelectMode.SelectRead) && client.Client.Available == 0)
+                {
+                    break; // 對端已關閉，等也沒用。
+                }
+
+                await Task.Delay(50, cancellation.Token);
+            }
+        }
+
+        Assert.Equal(lines, _diagnostics.Read().Count);
+
+        cancellation.Cancel();
+
+        try
+        {
+            await running;
+        }
+        catch (OperationCanceledException)
+        {
+            // 預期的關閉路徑。
+        }
+    }
+
+    [Fact]
+    public async Task IdleConnectionIsClosedAfterTimeout()
+    {
+        var idle = TimeSpan.FromMilliseconds(300);
+        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, idle);
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = listener.RunAsync(cancellation.Token);
+
+        while (_records.Read() is null)
+        {
+            Assert.False(running.IsCompleted, "daemon 不應在啟動階段就結束");
+            await Task.Delay(50, cancellation.Token);
+        }
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, _port, cancellation.Token);
+
+            // 什麼都不送：daemon 關閉連線時 ReadAsync 會回 0（EOF）。
+            var buffer = new byte[1];
+            var read = await client.GetStream().ReadAsync(buffer, cancellation.Token);
+
+            Assert.Equal(0, read);
+        }
+
+        cancellation.Cancel();
+
+        try
+        {
+            await running;
+        }
+        catch (OperationCanceledException)
+        {
+            // 預期的關閉路徑。
+        }
+    }
+
+    [Fact]
     public async Task OversizedLinesAreDroppedWhileValidLinesAreAccepted()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));

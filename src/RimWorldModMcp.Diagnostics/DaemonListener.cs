@@ -19,7 +19,8 @@ public sealed class DaemonListener(
     int bridgePort,
     DiagnosticStore diagnostics,
     TestSessionStore sessions,
-    DaemonRecordStore records)
+    DaemonRecordStore records,
+    TimeSpan? readTimeout = null)
 {
     /// <summary>只接受這些訊息類型，其餘一律丟棄。</summary>
     private static readonly HashSet<string> AcceptedTypes = new(StringComparer.Ordinal)
@@ -36,8 +37,11 @@ public sealed class DaemonListener(
     /// <summary>同時處理的連線數上限；超過的連線排隊等待。</summary>
     private static readonly SemaphoreSlim ConnectionThrottle = new(32, 32);
 
-    /// <summary>單一連線的閒置逾時。開著不送資料的連線不能永久佔住資源。</summary>
-    private static readonly TimeSpan ReadTimeout = TimeSpan.FromMinutes(2);
+    /// <summary>
+    /// 單一連線的閒置逾時。開著不送資料的連線不能永久佔住資源。
+    /// 可注入是為了讓測試在秒級內驗證逾時行為，正式環境用預設值。
+    /// </summary>
+    private readonly TimeSpan _readTimeout = readTimeout ?? TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// 啟動並執行 daemon 直到取消。
@@ -103,16 +107,22 @@ public sealed class DaemonListener(
 
             try
             {
-                // token 在每個連線建立時讀一次。Bridge 每送一筆診斷就開一條新連線，
-                // 所以場次之間換 token 能立刻生效。
+                // token 在每個連線建立時讀一次。Bridge 是單一長連線，但它跟遊戲
+                // 行程同生共死，而場次一定伴隨新的遊戲行程，所以新場次的 token
+                // 必然在新連線上生效。
                 var expected = ReadToken();
 
                 using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutSource.CancelAfter(ReadTimeout);
+                timeoutSource.CancelAfter(_readTimeout);
 
                 await foreach (var line in ReadLinesAsync(client.GetStream(), timeoutSource.Token).ConfigureAwait(false))
                 {
                     Accept(line, expected);
+
+                    // 逾時是「閒置」逾時：每收到一行就重新計時。不重設的話，
+                    // Bridge 的長連線一到 2 分鐘就被切，切斷後它的第一次寫入
+                    // 通常仍成功（資料進了送出緩衝區才收到 RST），那一筆就靜默遺失。
+                    timeoutSource.CancelAfter(_readTimeout);
                 }
             }
             catch (Exception e) when (e is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
