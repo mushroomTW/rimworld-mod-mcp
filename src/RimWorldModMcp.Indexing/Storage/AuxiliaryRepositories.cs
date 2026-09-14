@@ -31,6 +31,7 @@ public static class IndexMetaRepository
 public static class SourceFileRepository
 {
     private const string PathParam = "$path";
+    private const string TextParam = "$text";
 
     public static void Clear(SqliteConnection connection)
     {
@@ -75,12 +76,12 @@ public static class SourceFileRepository
                 """;
             removeFts.Parameters.AddWithValue("$rowid", id);
             removeFts.Parameters.AddWithValue(PathParam, path);
-            removeFts.Parameters.AddWithValue("$text", previousText!);
+            removeFts.Parameters.AddWithValue(TextParam, previousText!);
             removeFts.ExecuteNonQuery();
 
             using var update = connection.CreateCommand();
             update.CommandText = "UPDATE source_file SET text = $text WHERE id = $id;";
-            update.Parameters.AddWithValue("$text", text);
+            update.Parameters.AddWithValue(TextParam, text);
             update.Parameters.AddWithValue("$id", id);
             update.ExecuteNonQuery();
         }
@@ -93,7 +94,7 @@ public static class SourceFileRepository
                 """;
             insert.Parameters.AddWithValue("$assembly", assembly);
             insert.Parameters.AddWithValue(PathParam, path);
-            insert.Parameters.AddWithValue("$text", text);
+            insert.Parameters.AddWithValue(TextParam, text);
 
             id = (long)insert.ExecuteScalar()!;
         }
@@ -102,7 +103,7 @@ public static class SourceFileRepository
         fts.CommandText = "INSERT INTO source_fts (rowid, path, text) VALUES ($rowid, $path, $text);";
         fts.Parameters.AddWithValue("$rowid", id);
         fts.Parameters.AddWithValue(PathParam, path);
-        fts.Parameters.AddWithValue("$text", text);
+        fts.Parameters.AddWithValue(TextParam, text);
         fts.ExecuteNonQuery();
     }
 

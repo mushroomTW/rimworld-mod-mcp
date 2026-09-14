@@ -11,6 +11,11 @@ public sealed partial class RimWorldLocator
     /// <summary>與 bridge/Source/BridgeMod.cs 的預設埠必須一致（Bridge 無法參考 Core，該處為複製的常數）。</summary>
     public const int DefaultBridgePort = 49460;
 
+    private const string RimWorldFolderName = "RimWorld by Ludeon Studios";
+    private const string SteamDirName = "Steam";
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
     public int BridgePort()
     {
         var raw = EnvironmentVariables.BridgePort?.Trim();
@@ -158,7 +163,7 @@ public sealed partial class RimWorldLocator
             }
         }
 
-        candidates.Add("RimWorld by Ludeon Studios");
+        candidates.Add(RimWorldFolderName);
         candidates.Add("RimWorldMac");
 
         foreach (var name in candidates.Where(n => !string.IsNullOrWhiteSpace(n)))
@@ -243,8 +248,8 @@ public sealed partial class RimWorldLocator
             var x86 = Environment.GetEnvironmentVariable("PROGRAMFILES(X86)") ?? @"C:\Program Files (x86)";
             var native = Environment.GetEnvironmentVariable("PROGRAMFILES") ?? @"C:\Program Files";
 
-            yield return Path.Combine(x86, "Steam");
-            yield return Path.Combine(native, "Steam");
+            yield return Path.Combine(x86, SteamDirName);
+            yield return Path.Combine(native, SteamDirName);
             yield break;
         }
 
@@ -252,12 +257,12 @@ public sealed partial class RimWorldLocator
 
         if (OperatingSystem.IsMacOS())
         {
-            yield return Path.Combine(home, "Library", "Application Support", "Steam");
+            yield return Path.Combine(home, "Library", "Application Support", SteamDirName);
             yield break;
         }
 
         yield return Path.Combine(home, ".steam", "steam");
-        yield return Path.Combine(home, ".local", "share", "Steam");
+        yield return Path.Combine(home, ".local", "share", SteamDirName);
     }
 
     private static IEnumerable<string> UserConfigCandidates()
@@ -279,7 +284,7 @@ public sealed partial class RimWorldLocator
         if (OperatingSystem.IsMacOS())
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            yield return Path.Combine(home, "Library", "Logs", "Ludeon Studios", "RimWorld by Ludeon Studios", "Player.log");
+            yield return Path.Combine(home, "Library", "Logs", "Ludeon Studios", RimWorldFolderName, "Player.log");
             yield break;
         }
 
@@ -296,7 +301,7 @@ public sealed partial class RimWorldLocator
         if (OperatingSystem.IsWindows())
         {
             var profile = Environment.GetEnvironmentVariable("USERPROFILE") ?? home;
-            yield return Path.Combine(profile, "AppData", "LocalLow", "Ludeon Studios", "RimWorld by Ludeon Studios");
+            yield return Path.Combine(profile, "AppData", "LocalLow", "Ludeon Studios", RimWorldFolderName);
             yield break;
         }
 
@@ -304,12 +309,12 @@ public sealed partial class RimWorldLocator
         {
             var support = Path.Combine(home, "Library", "Application Support");
             yield return Path.Combine(support, "RimWorld");
-            yield return Path.Combine(support, "RimWorld by Ludeon Studios");
+            yield return Path.Combine(support, RimWorldFolderName);
             yield break;
         }
 
         var unity = Path.Combine(home, ".config", "unity3d", "Ludeon Studios");
-        yield return Path.Combine(unity, "RimWorld by Ludeon Studios");
+        yield return Path.Combine(unity, RimWorldFolderName);
         yield return Path.Combine(unity, "RimWorld");
     }
 

@@ -22,6 +22,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 {
     /// <summary>Bridge 需要的組件：自身加上它自帶的 Harmony。</summary>
     private static readonly string[] RequiredAssemblies = ["RimWorldModMcp.Bridge.dll", "0Harmony.dll"];
+    private const string SourceDir = "Source";
 
     /// <summary>
     /// 確保 Bridge 已建置且是最新的，回傳可直接連結的 Mod 目錄。
@@ -36,7 +37,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
             return new BridgeBuild(false, null, false, "找不到 RimWorld 的 Managed 目錄，無法建置 Bridge。");
         }
 
-        var project = Path.Combine(sourceDirectory, "Source", "RimWorldModMcp.Bridge.csproj");
+        var project = Path.Combine(sourceDirectory, SourceDir, "RimWorldModMcp.Bridge.csproj");
 
         if (!File.Exists(project))
         {
@@ -58,7 +59,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 
         // 原始碼先複製進快取目錄再建置，bin/obj 才會落在快取而不是工具的
         // 安裝位置——以 dotnet tool 全域安裝時，安裝目錄不一定可寫。
-        var cachedProject = Path.Combine(modDirectory, "Source", "RimWorldModMcp.Bridge.csproj");
+        var cachedProject = Path.Combine(modDirectory, SourceDir, "RimWorldModMcp.Bridge.csproj");
 
         try
         {
@@ -168,8 +169,8 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
     /// <summary>把 Source/（排除 bin/obj）複製到快取目錄，建置在那裡進行。</summary>
     private static void CopySources(string sourceDirectory, string modDirectory)
     {
-        var sourceRoot = Path.Combine(sourceDirectory, "Source");
-        var targetRoot = Path.Combine(modDirectory, "Source");
+        var sourceRoot = Path.Combine(sourceDirectory, SourceDir);
+        var targetRoot = Path.Combine(modDirectory, SourceDir);
 
         Directory.CreateDirectory(targetRoot);
 
