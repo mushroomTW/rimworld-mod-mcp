@@ -76,7 +76,8 @@ public sealed class LoadOrderResolver
                 continue;
             }
 
-            foreach (var conflict in mod.IncompatibleWith.Where(wanted.Contains))
+            var conflict = mod.IncompatibleWith.FirstOrDefault(wanted.Contains);
+            if (conflict is not null)
             {
                 throw new InvalidOperationException($"偵測到不相容 Mod：{id} 與 {conflict} 不能同時啟用。");
             }

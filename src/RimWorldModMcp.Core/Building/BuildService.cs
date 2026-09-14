@@ -206,33 +206,28 @@ public sealed partial class BuildService(RimWorldLocator locator)
         string project,
         IReadOnlyList<string> frameworks)
     {
-        foreach (var candidate in OutputDirectories(project, frameworks))
+        var candidate = OutputDirectories(project, frameworks)
+            .FirstOrDefault(c => Directory.Exists(c) && Directory.EnumerateFiles(c, "*.dll").Any());
+
+        if (candidate is null)
         {
-            var libraries = Directory.Exists(candidate)
-                ? Directory.GetFiles(candidate, "*.dll")
-                : [];
-
-            if (libraries.Length == 0)
-            {
-                continue;
-            }
-
-            var assemblies = Path.Combine(mod, "Assemblies");
-            Directory.CreateDirectory(assemblies);
-
-            var deployed = new List<string>();
-
-            foreach (var library in libraries)
-            {
-                var destination = Path.Combine(assemblies, Path.GetFileName(library));
-                File.Copy(library, destination, overwrite: true);
-                deployed.Add(Path.GetRelativePath(mod, destination).Replace('\\', '/'));
-            }
-
-            return (candidate, deployed);
+            return (null, []);
         }
 
-        return (null, []);
+        var assemblies = Path.Combine(mod, "Assemblies");
+        Directory.CreateDirectory(assemblies);
+
+        var libraries = Directory.GetFiles(candidate, "*.dll");
+        var deployed = new List<string>(libraries.Length);
+
+        foreach (var library in libraries)
+        {
+            var destination = Path.Combine(assemblies, Path.GetFileName(library));
+            File.Copy(library, destination, overwrite: true);
+            deployed.Add(Path.GetRelativePath(mod, destination).Replace('\\', '/'));
+        }
+
+        return (candidate, deployed);
     }
 
     /// <summary>
