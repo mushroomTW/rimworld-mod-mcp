@@ -164,7 +164,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
             Success = success,
             Mod = mod,
             Project = project,
-            TargetFramework = frameworks.FirstOrDefault(),
+            TargetFramework = frameworks.Count > 0 ? frameworks[0] : null,
             OutputDirectory = outputDirectory,
             Deployed = deployed,
             Diagnostics = diagnostics,
@@ -302,20 +302,20 @@ public sealed partial class BuildService(RimWorldLocator locator)
     }
 
     /// <summary>從 MSBuild 輸出解析出結構化診斷。</summary>
-    private static IReadOnlyList<BuildDiagnostic> ParseDiagnostics(string output)
+    private static List<BuildDiagnostic> ParseDiagnostics(string output)
     {
         var diagnostics = new List<BuildDiagnostic>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (Match match in DiagnosticRegex().Matches(output))
+        foreach (var groups in DiagnosticRegex().Matches(output).Select(match => match.Groups))
         {
-            var severity = match.Groups["severity"].Value;
-            var code = match.Groups["code"].Value;
-            var message = match.Groups["message"].Value.Trim();
-            var file = match.Groups["file"].Success ? match.Groups["file"].Value.Trim() : null;
+            var severity = groups["severity"].Value;
+            var code = groups["code"].Value;
+            var message = groups["message"].Value.Trim();
+            var file = groups["file"].Success ? groups["file"].Value.Trim() : null;
 
             // MSBuild 會把同一筆診斷在摘要區重複輸出一次。
-            var key = $"{file}:{match.Groups["line"].Value}:{code}:{message}";
+            var key = $"{file}:{groups["line"].Value}:{code}:{message}";
 
             if (!seen.Add(key))
             {
@@ -327,8 +327,8 @@ public sealed partial class BuildService(RimWorldLocator locator)
                 code,
                 message,
                 file,
-                int.TryParse(match.Groups["line"].Value, out var line) ? line : null,
-                int.TryParse(match.Groups["column"].Value, out var column) ? column : null));
+                int.TryParse(groups["line"].Value, out var line) ? line : null,
+                int.TryParse(groups["column"].Value, out var column) ? column : null));
         }
 
         return diagnostics;

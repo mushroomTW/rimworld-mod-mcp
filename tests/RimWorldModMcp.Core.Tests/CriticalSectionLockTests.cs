@@ -42,8 +42,9 @@ public sealed class CriticalSectionLockTests : IDisposable
         var token = locks.Acquire("index");
         locks.Release("index", token);
 
-        // 不拋出即代表成功取得。
-        locks.Acquire("index");
+        // 不拋出且回傳有效 token 即代表成功取得。
+        var nextToken = locks.Acquire("index");
+        Assert.NotNull(nextToken);
     }
 
     [Fact]
@@ -65,7 +66,8 @@ public sealed class CriticalSectionLockTests : IDisposable
 
         // 持有者程序消失後，下一個取用者應該要能接管殘骸鎖。
         var dead = new FakeProcessHost { Alive = false };
-        new CriticalSectionLock(_store, dead).Acquire("index");
+        var token = new CriticalSectionLock(_store, dead).Acquire("index");
+        Assert.NotNull(token);
     }
 
     [Fact]
@@ -77,7 +79,8 @@ public sealed class CriticalSectionLockTests : IDisposable
         // PID 仍然活著，但啟動時間對不上——代表這個 PID 已經被重用給另一個程序，
         // 原持有者其實早就結束了。這是 Python 版沒有的防護。
         var recycled = new FakeProcessHost { Alive = true, StartTime = new DateTime(2026, 8, 25, 0, 0, 0, DateTimeKind.Utc) };
-        new CriticalSectionLock(_store, recycled).Acquire("index");
+        var token = new CriticalSectionLock(_store, recycled).Acquire("index");
+        Assert.NotNull(token);
     }
 
     [Fact]

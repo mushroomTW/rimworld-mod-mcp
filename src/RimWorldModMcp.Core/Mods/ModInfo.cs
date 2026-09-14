@@ -85,7 +85,7 @@ public static class AboutXml
     /// 同時接受 <c>&lt;li&gt;&lt;packageId&gt;x&lt;/packageId&gt;&lt;/li&gt;</c> 與
     /// <c>&lt;li&gt;x&lt;/li&gt;</c> 兩種寫法——兩種在實際的 Mod 裡都很常見。
     /// </summary>
-    private static IReadOnlyList<string> PackageIds(XElement? container)
+    private static List<string> PackageIds(XElement? container)
     {
         if (container is null)
         {

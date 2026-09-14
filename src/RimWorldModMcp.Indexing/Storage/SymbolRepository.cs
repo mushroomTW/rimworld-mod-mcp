@@ -5,7 +5,7 @@ using RimWorldModMcp.Indexing.Model;
 namespace RimWorldModMcp.Indexing.Storage;
 
 /// <summary><c>symbol</c> 與 <c>symbol_fts</c> 的唯一存取點。</summary>
-public sealed class SymbolRepository
+public static class SymbolRepository
 {
     private const string AssemblyParam = "$assembly";
 

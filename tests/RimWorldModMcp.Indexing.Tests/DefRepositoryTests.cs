@@ -104,7 +104,8 @@ public sealed class DefRepositoryTests : IDisposable
     public void OperatorCharactersDoNotBreakTheQuery(string query)
     {
         // 不拋出即通過；結果內容不是這條測試的重點。
-        DefRepository.Search(_connection, query, null, 25, includeXml: false);
+        var hits = DefRepository.Search(_connection, query, null, 25, includeXml: false);
+        Assert.NotNull(hits);
     }
 
     /// <summary>

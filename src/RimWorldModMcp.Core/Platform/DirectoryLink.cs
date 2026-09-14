@@ -74,6 +74,8 @@ public sealed class DirectoryLink
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
     public bool IsOwnedLink(string linkPath, string targetPath)
     {
         // 第一重：名稱前綴。沒有前綴的一律不認，避免誤動使用者自己的 Mod。

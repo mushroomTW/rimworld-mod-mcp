@@ -96,7 +96,7 @@ public sealed class IndexBuilder(
         // 引用分析要等 Def 與符號都寫好才能比對。
         var knownDefNames = DefRepository.DefNames(connection);
 
-        DefReferenceRepository.Insert(connection, new DefReferenceAnalyzer().FromDefOfFields(connection, knownDefNames));
+        DefReferenceRepository.Insert(connection, DefReferenceAnalyzer.FromDefOfFields(connection, knownDefNames));
         DefReferenceRepository.ResolveCandidates(connection);
 
         var referenceCount = DefReferenceRepository.Count(connection);
@@ -119,7 +119,7 @@ public sealed class IndexBuilder(
             defCount,
             symbolCount,
             referenceCount,
-            [.. assemblies.Select(a => Path.GetFileNameWithoutExtension(a)!)],
+            [.. assemblies.Select(a => Path.GetFileNameWithoutExtension(a))],
             stopwatch.ElapsedMilliseconds);
     }
 

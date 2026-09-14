@@ -21,6 +21,8 @@ public sealed class SourceQueryService
     /// <summary>單行回傳的字元上限，避免壓縮過的長行灌爆輸出。</summary>
     private const int MaxLineLength = 1000;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
     public IReadOnlyList<SourceHit> Search(
         SqliteConnection connection,
         string pattern,

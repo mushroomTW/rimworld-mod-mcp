@@ -13,7 +13,7 @@ namespace RimWorldModMcp.Indexing.Storage;
 /// 不對外暴露 raw SQL，呼叫端在型別層面就沒有寫錯順序的機會。
 /// </para>
 /// </summary>
-public sealed class DefRepository
+public static class DefRepository
 {
     /// <summary>搜尋結果附帶 XML 時的位元組上限。</summary>
     public const int SearchXmlBytes = 4096;

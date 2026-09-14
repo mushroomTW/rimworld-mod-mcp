@@ -12,6 +12,8 @@ public sealed class ModScaffolder
     /// 在 <paramref name="parentPath"/> 底下建立一個新 Mod。
     /// </summary>
     /// <param name="withCode">是否一併產生 C# 專案骨架。</param>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
     public string Create(string parentPath, string name, string packageId, bool withCode)
     {
         var normalisedId = packageId.Trim().ToLowerInvariant();
@@ -46,7 +48,7 @@ public sealed class ModScaffolder
             {
                 File.WriteAllText(
                     Path.Combine(modPath, "Source", normalisedId + ".csproj"),
-                    CsProj(),
+                    CsProjTemplate,
                     new UTF8Encoding(false));
             }
         }
@@ -119,7 +121,7 @@ public sealed class ModScaffolder
     /// 目標框架必須是 net472——RimWorld 跑在 Unity Mono 上，其他 TFM 載入不了。
     /// 遊戲組件的位置由 RIMWORLD_MANAGED_DIR 環境變數提供，建置時由本工具注入。
     /// </summary>
-    private static string CsProj() => """
+    private const string CsProjTemplate = """
         <Project Sdk="Microsoft.NET.Sdk">
 
           <PropertyGroup>

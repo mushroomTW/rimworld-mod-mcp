@@ -21,6 +21,7 @@ public sealed record TestModSet(
 /// 以及 Mods 目錄下的臨時連結（不複製檔案，改動立即生效）。
 /// </para>
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "DI orchestrator injecting required services")]
 public sealed class TestCycleService(
     RimWorldLocator locator,
     IProcessHost processes,
@@ -159,7 +160,7 @@ public sealed class TestCycleService(
     }
 
     /// <summary>進臨界區之前就把設定檔路徑驗證完，缺檔不該走到佈置環境才失敗。</summary>
-    private static IReadOnlyList<string> ResolveSeedConfig(IReadOnlyList<string>? seedConfig)
+    private static List<string> ResolveSeedConfig(IReadOnlyList<string>? seedConfig)
     {
         if (seedConfig is null || seedConfig.Count == 0)
         {
@@ -170,7 +171,7 @@ public sealed class TestCycleService(
 
         foreach (var entry in seedConfig)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(entry, nameof(seedConfig));
+            ArgumentException.ThrowIfNullOrWhiteSpace(entry);
 
             var full = Path.GetFullPath(PathText.ExpandUser(entry));
 

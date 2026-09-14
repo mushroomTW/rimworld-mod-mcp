@@ -23,7 +23,7 @@ public sealed record DefReferenceCandidate(string DefName, string FilePath, int 
 /// 之間的交叉引用。兩者都是結構化資料，不需要猜。
 /// </para>
 /// </summary>
-public sealed class DefReferenceAnalyzer
+public static class DefReferenceAnalyzer
 {
     /// <summary>
     /// 從符號表找出所有 <c>*DefOf</c> 類別的靜態欄位引用。
@@ -34,7 +34,7 @@ public sealed class DefReferenceAnalyzer
     /// 這是編譯期就確定的對應關係，不需要語意分析也不需要猜。
     /// </para>
     /// </summary>
-    public IReadOnlyList<DefReference> FromDefOfFields(SqliteConnection connection, ISet<string> knownDefNames)
+    public static IReadOnlyList<DefReference> FromDefOfFields(SqliteConnection connection, ISet<string> knownDefNames)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """

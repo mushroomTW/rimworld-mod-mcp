@@ -47,6 +47,8 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
     }
 
     /// <summary>是否有任何同名的 RimWorld 行程在執行（含使用者自己開的）。</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
     public bool IsGameRunning(string executable)
     {
         var name = Path.GetFileNameWithoutExtension(executable);
