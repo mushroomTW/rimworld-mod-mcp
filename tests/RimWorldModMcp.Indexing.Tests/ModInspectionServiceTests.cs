@@ -100,11 +100,14 @@ public sealed class ModInspectionServiceTests : IDisposable
     [Fact]
     public void SearchSourceHonoursTheAssemblyFilter()
     {
-        var (hits, indexed) = _service.SearchSource("pkg", _modPath, "TryStartJob", 10, assemblyFilter: "1.5/");
+        // 先同步索引好，這裡只驗證篩選。
+        _service.Inspect("pkg", _modPath);
 
-        Assert.True(indexed);
-        Assert.NotEmpty(hits);
-        Assert.All(hits, h => Assert.Equal("mod:pkg:1.5/Assemblies/Widget.dll", h.Assembly));
+        var result = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10, assemblyFilter: "1.5/");
+
+        Assert.True(result.SourceIndexed);
+        Assert.NotEmpty(result.Hits);
+        Assert.All(result.Hits, h => Assert.Equal("mod:pkg:1.5/Assemblies/Widget.dll", h.Assembly));
     }
 
     /// <summary>Mod 更新後移除的版本目錄，下一次檢視就要把它的索引清掉。</summary>
@@ -123,6 +126,50 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.Empty(SymbolRepository.Read(connection, "Widget", 10, assemblyLike: ModInspectionService.AssemblyLike("pkg", "1.5/")));
         Assert.Null(SourceFileRepository.Read(connection, "mod:pkg:1.5/Assemblies/Widget.dll", "Widgets/Widget.cs"));
         Assert.Null(IndexMetaRepository.Get(connection, "mod_stamp:mod:pkg:1.5/Assemblies/Widget.dll"));
+    }
+
+    /// <summary>
+    /// 第一次搜尋不同步反編譯：立刻回「索引中」，背景完成後再搜就有結果。
+    /// 大 Mod 同步反編譯要幾分鐘，MCP client 的呼叫逾時通常只有一兩分鐘。
+    /// </summary>
+    [Fact]
+    public async Task FirstSearchStartsIndexingInBackgroundAndLaterSearchesHit()
+    {
+        var first = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10);
+
+        Assert.True(first.Indexing);
+        Assert.False(first.SourceIndexed);
+        Assert.Empty(first.Hits);
+
+        // 索引中再呼叫一次不會再起一個背景工作，狀態仍是索引中或已完成。
+        var second = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10);
+        Assert.True(second.Indexing || second.SourceIndexed);
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        while (_service.TrySearchSource("pkg", _modPath, "TryStartJob", 10) is { Indexing: true })
+        {
+            await Task.Delay(50, cancellation.Token);
+        }
+
+        var done = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10);
+
+        Assert.True(done.SourceIndexed);
+        Assert.Null(done.Error);
+        Assert.Equal(2, done.Hits.Count);
+    }
+
+    [Fact]
+    public void SearchOnXmlOnlyModReportsNotIndexedWithoutIndexing()
+    {
+        var xmlOnly = Path.Combine(_root, "xml-only");
+        Directory.CreateDirectory(Path.Combine(xmlOnly, "Defs"));
+
+        var result = _service.TrySearchSource("xml", xmlOnly, "anything", 10);
+
+        Assert.False(result.Indexing);
+        Assert.False(result.SourceIndexed);
+        Assert.Empty(result.Hits);
     }
 
     private sealed class AlwaysAliveProcessHost : IProcessHost

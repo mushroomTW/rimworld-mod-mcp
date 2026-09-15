@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using RimWorldModMcp.Core.Mods;
 using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
 using RimWorldModMcp.Indexing.Decompilation;
@@ -22,7 +23,9 @@ public sealed class IndexTools(
     IndexBuilder builder,
     SourceIndexer sourceIndexer,
     SourceQueryService sourceQueries,
-    MemberDecompiler decompiler)
+    MemberDecompiler decompiler,
+    ModCatalog catalog,
+    ModInspectionService inspection)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.fresh=false, call rebuild_index.")]
@@ -50,6 +53,12 @@ public sealed class IndexTools(
                 DefCount = status.DefCount,
                 SymbolCount = status.SymbolCount,
                 SourceIndexed = status.SourceIndexed,
+                SourceIndex = new SourceIndexPayload
+                {
+                    Running = status.SourceIndex.Running,
+                    IndexedFiles = status.SourceIndex.IndexedFiles,
+                    Error = status.SourceIndex.Error,
+                },
                 Fingerprint = status.Fingerprint,
             },
         };
@@ -124,7 +133,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. For the whole decompiled file use read_source_file.")]
+    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. On zero hits, suggestions lists similar names. For the whole decompiled file use read_source_file.")]
     public ReadSymbolResult ReadSymbol(
         [Description("Short name or part of the full name, e.g. ThingDef or Verse.ThingDef.")]
         string name,
@@ -139,6 +148,12 @@ public sealed class IndexTools(
     {
         using var connection = database.Open();
         var hits = SymbolRepository.Read(connection, name, limit, AssemblyLike(assembly));
+
+        if (hits.Count == 0)
+        {
+            // 空清單對 LLM 呼叫端毫無資訊：它分不出是名字記錯、改名了還是索引沒建。
+            return new ReadSymbolResult { Results = [], Count = 0, Suggestions = SymbolRepository.Suggest(connection, name, 5) };
+        }
 
         if (!include_body)
         {
@@ -204,12 +219,21 @@ public sealed class IndexTools(
         {
             using var connection = database.Open();
             var assemblyLike = AssemblyLike(assembly);
+
+            if (!SymbolRepository.ParentExists(connection, parent, assemblyLike))
+            {
+                // 「型別不存在」和「型別沒有成員」都回空清單的話，呼叫端只能瞎猜。
+                var suggestions = SymbolRepository.Suggest(connection, parent, 5);
+                var hint = suggestions.Count > 0 ? $" Similar: {string.Join(", ", suggestions)}." : string.Empty;
+                throw new KeyNotFoundException($"Parent not found: {parent}.{hint}");
+            }
+
             var hits = SymbolRepository.Children(connection, parent, kindName, assemblyLike, limit);
 
             return new ListSymbolsResult
             {
                 Parent = parent,
-                Results = [.. hits.Select(ToSummary)],
+                Results = [.. hits.Select(ToBrief)],
                 Count = hits.Count,
                 LimitReached = hits.Count >= Math.Clamp(limit, 1, 500),
                 ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
@@ -218,7 +242,7 @@ public sealed class IndexTools(
     }
 
     [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source, search_installed_mod_source, or list_symbols. Page with start_line = previous end_line + 1.")]
+    [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source or list_symbols. Page with start_line = previous end_line + 1.")]
     public ReadSourceFileResult ReadSourceFile(
         [Description("Assembly key exactly as returned by a search, e.g. Assembly-CSharp or mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll.")]
         string assembly,
@@ -252,51 +276,118 @@ public sealed class IndexTools(
         => string.IsNullOrEmpty(assembly) ? null : $"%{FtsQuery.LikeLiteral(assembly)}%";
 
     [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List every class deriving from the given type, including indirect descendants.")]
+    [Description("List every class deriving from the given type, including indirect descendants. On zero hits, suggestions lists similar type names.")]
     public FindDescendantsResult FindDescendants(
-        [Description("Full name of the base type, e.g. Verse.ThingComp.")]
+        [Description("Base type: full name (Verse.ThingComp) or short name (ThingComp) when unambiguous.")]
         string base_type,
         [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
-        var hits = SymbolRepository.Descendants(connection, base_type, limit);
+        var resolved = ResolveTypeName(connection, base_type);
+        var hits = SymbolRepository.Descendants(connection, resolved, limit);
 
         return new FindDescendantsResult
         {
-            BaseType = base_type,
-            Results = [.. hits.Select(ToSummary)],
+            BaseType = resolved,
+            Results = [.. hits.Select(ToBrief)],
             Count = hits.Count,
+            Suggestions = hits.Count == 0 ? SymbolRepository.Suggest(connection, base_type, 5) : null,
         };
     });
 
-    [McpServerTool(Name = "search_source", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Regex search (.NET syntax, case-insensitive) over the decompiled game source. Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. source_indexed=false means the background index is still building; retry later.")]
+    /// <summary>
+    /// 短名 → 唯一的型別 fqn。read_symbol 接受短名而 find_descendants 只收 fqn，
+    /// 呼叫端得多走一趟；這裡補齊。多個同名型別時報錯列出候選，讓呼叫端挑。
+    /// 已含 <c>.</c> 的輸入視為 fqn 原樣使用。
+    /// </summary>
+    private static string ResolveTypeName(Microsoft.Data.Sqlite.SqliteConnection connection, string name)
+    {
+        if (name.Contains('.'))
+        {
+            return name;
+        }
+
+        var candidates = SymbolRepository.Read(connection, name, 10)
+            .Where(h => h.ShortName == name && h.Kind is "Class" or "Struct" or "Interface")
+            .Select(h => h.Fqn)
+            .Distinct()
+            .ToList();
+
+        return candidates.Count switch
+        {
+            0 => name,
+            1 => candidates[0],
+            _ => throw new ArgumentException($"Ambiguous type name '{name}'; use one of: {string.Join(", ", candidates)}", nameof(name)),
+        };
+    }
+
+    [McpServerTool(Name = "search_source", UseStructuredContent = true)]
+    [Description("Regex search (.NET syntax, case-insensitive) over decompiled source: the game by default, or one installed mod with package_id. Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. indexing=true means the index is building in the background; retry in a while. Read a hit with read_source_file.")]
     public SearchSourceResult SearchSource(
         [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,
-        [Description("Restrict to a file path pattern, e.g. RimWorld/*.cs. Omit for all files.")]
+        [Description("packageId of an installed mod to search instead of the game. First use starts decompiling in the background.")]
+        string? package_id = null,
+        [Description("Game only: restrict to a file path pattern, e.g. RimWorld/*.cs.")]
         string? file_pattern = null,
+        [Description("Mod only: substring of the assembly key, e.g. 1.6/ to search one version of a multi-version mod.")]
+        string? assembly = null,
         [Description("Maximum results, 1-800.")]
-        int limit = 200) => ToolGuard.Run(() =>
+        int limit = 50) => ToolGuard.Run(() =>
     {
+        var effectiveLimit = Math.Clamp(limit, 1, 800);
+        var modSearch = !string.IsNullOrWhiteSpace(package_id);
+
+        // 「已知但在此模式無效」的參數不能靜默吞掉：呼叫端會以為結果已經過濾。
+        if (modSearch && !string.IsNullOrEmpty(file_pattern))
+        {
+            throw new ArgumentException("file_pattern only applies to game searches; omit it when package_id is set.", nameof(file_pattern));
+        }
+
+        if (!modSearch && !string.IsNullOrEmpty(assembly))
+        {
+            throw new ArgumentException("assembly only applies to mod searches; set package_id as well.", nameof(assembly));
+        }
+
+        if (modSearch)
+        {
+            var mod = catalog.Find(package_id!);
+            var result = inspection.TrySearchSource(mod.PackageId, mod.Path, pattern, limit, assembly);
+
+            return new SearchSourceResult
+            {
+                Results = [.. result.Hits.Select(ToMatch)],
+                Count = result.Hits.Count,
+                LimitReached = result.Hits.Count >= effectiveLimit,
+                SourceIndexed = result.SourceIndexed,
+                Indexing = result.Indexing,
+                IndexError = result.Error,
+            };
+        }
+
         using var connection = database.Open();
         var hits = sourceQueries.Search(connection, pattern, file_pattern, limit);
+        var progress = sourceIndexer.Progress;
 
         return new SearchSourceResult
         {
-            Results = [.. hits.Select(h => new SourceMatch
-            {
-                Assembly = h.Assembly,
-                File = h.File,
-                Line = h.Line,
-                Text = h.Text,
-            })],
+            Results = [.. hits.Select(ToMatch)],
             Count = hits.Count,
-            LimitReached = hits.Count >= Math.Clamp(limit, 1, 800),
+            LimitReached = hits.Count >= effectiveLimit,
             SourceIndexed = IndexMetaRepository.Get(connection, "source_indexed") == "true",
+            Indexing = progress.Running,
+            IndexError = progress.Error,
         };
     });
+
+    private static SourceMatch ToMatch(SourceHit h) => new()
+    {
+        Assembly = h.Assembly,
+        File = h.File,
+        Line = h.Line,
+        Text = h.Text,
+    };
 
     [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true)]
     [Description("Find where a Def is referenced: cross-references in Def XML and DefOf static fields in C#.")]
@@ -341,13 +432,20 @@ public sealed class IndexTools(
         XmlTruncated = hit.XmlTruncated,
     };
 
+    private static SymbolBrief ToBrief(SymbolHit hit) => new()
+    {
+        Fqn = hit.Fqn,
+        Kind = hit.Kind,
+        Assembly = hit.Assembly,
+        Signature = hit.Signature,
+    };
+
     private static SymbolSummary ToSummary(SymbolHit hit) => new()
     {
         Fqn = hit.Fqn,
         ShortName = hit.ShortName,
         Kind = hit.Kind,
         Assembly = hit.Assembly,
-        AssemblyPath = hit.AssemblyPath,
         ParentFqn = hit.ParentFqn,
         Signature = hit.Signature,
         BaseChain = hit.BaseChain,

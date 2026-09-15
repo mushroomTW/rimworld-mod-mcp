@@ -38,6 +38,24 @@ public sealed class DiagnosticStoreTests : IDisposable
         Assert.Equal(2, records[0].Count);
     }
 
+    [Fact]
+    public void ReadSinceReturnsNewAndReoccurringRecordsOnly()
+    {
+        _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
+        _diagnostics.Add("warning", "untouched", "before cursor", "bridge", "run-1");
+        var cursor = _diagnostics.Read().Max(r => r.At);
+
+        Thread.Sleep(5);
+        _diagnostics.Add("error", "new", "new failure", "bridge", "run-1");
+        _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
+
+        var since = _diagnostics.ReadSince(cursor);
+
+        // 「old」重複出現而 count 變 2，也要回；純粹在游標前的不回。
+        Assert.Equal(["old failure", "new failure"], since.Select(r => r.Text).ToArray());
+        Assert.Empty(_diagnostics.ReadSince(long.MaxValue));
+    }
+
     /// <summary>
     /// 容量淘汰必須按「最久未更新」而不是 list 位置——按位置砍的話，
     /// 出現最頻繁的錯誤（最早進來、持續被更新）反而最先被丟掉。

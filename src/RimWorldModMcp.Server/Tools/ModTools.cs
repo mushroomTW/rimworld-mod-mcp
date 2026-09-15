@@ -13,16 +13,18 @@ namespace RimWorldModMcp.Server.Tools;
 public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection)
 {
     [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List installed mods (local and Workshop; Core/DLC only with include_builtin). With a known packageId, filter via package_id instead of paging the full list.")]
+    [Description("List installed mods (local and Workshop; Core/DLC only with include_builtin). With a known packageId, filter via package_id instead of paging the full list. Dependencies and versions only with include_details.")]
     public ListModsResult ListInstalledMods(
         [Description("Also list Core and installed DLCs.")]
         bool include_builtin = false,
         [Description("Filter by packageId or name substring (case-insensitive).")]
         string? package_id = null,
-        [Description("Maximum results, 1-1000 (default 1000).")]
-        int limit = 1000,
+        [Description("Maximum results, 1-1000.")]
+        int limit = 50,
         [Description("Skip the first N matches.")]
-        int offset = 0) => ToolGuard.Run(() =>
+        int offset = 0,
+        [Description("Include dependencies, load_after, incompatible_with, and supported_versions per mod.")]
+        bool include_details = false) => ToolGuard.Run(() =>
     {
         var mods = catalog.Installed().ToList();
 
@@ -46,7 +48,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
 
         return new ListModsResult
         {
-            Results = [.. page.Select(ToSummary)],
+            Results = [.. page.Select(m => include_details ? ToSummary(m) : ToBrief(m))],
             Count = page.Count,
             Total = total,
             Offset = safeOffset,
@@ -55,7 +57,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
     });
 
     [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
-    [Description("List a mod's assemblies with their index keys and counts; decompiles and indexes on first use. Large mods take minutes but other mods stay searchable. Pass an assembly key fragment such as 1.6/ to scope read_symbol or search_installed_mod_source to one version.")]
+    [Description("List a mod's assemblies with their index keys and counts; decompiles and indexes on first use. Large mods take minutes but other mods stay searchable. Pass an assembly key fragment such as 1.6/ to scope read_symbol or search_source to one version.")]
     public InspectModResult InspectInstalledMod(
         [Description("The mod's packageId.")]
         string package_id,
@@ -81,35 +83,14 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         };
     });
 
-    [McpServerTool(Name = "search_installed_mod_source", UseStructuredContent = true)]
-    [Description("Regex search (.NET syntax, case-insensitive) over an installed mod's decompiled source; indexes on first use. Simple literals work best; a|b matches either branch. Read a hit with read_source_file using its assembly and file.")]
-    public SearchSourceResult SearchInstalledModSource(
-        [Description("The mod's packageId.")]
-        string package_id,
-        [Description("Regular expression (.NET syntax), always case-insensitive.")]
-        string pattern,
-        [Description("Maximum results, 1-800.")]
-        int limit = 100,
-        [Description("Substring of the assembly key to restrict results, e.g. 1.6/ to search one version of a multi-version mod.")]
-        string? assembly = null) => ToolGuard.Run(() =>
+    /// <summary>清單用：沒有相依與版本欄位。300 個 Mod 的清單帶全部欄位會直接爆量。</summary>
+    private static ModSummary ToBrief(ModInfo mod) => new()
     {
-        var mod = catalog.Find(package_id);
-        var (hits, indexed) = inspection.SearchSource(mod.PackageId, mod.Path, pattern, limit, assembly);
-
-        return new SearchSourceResult
-        {
-            Results = [.. hits.Select(h => new SourceMatch
-            {
-                Assembly = h.Assembly,
-                File = h.File,
-                Line = h.Line,
-                Text = h.Text,
-            })],
-            Count = hits.Count,
-            LimitReached = hits.Count >= Math.Clamp(limit, 1, 800),
-            SourceIndexed = indexed,
-        };
-    });
+        PackageId = mod.PackageId,
+        Name = mod.Name,
+        Path = mod.Path,
+        Source = mod.Source,
+    };
 
     private static ModSummary ToSummary(ModInfo mod) => new()
     {
@@ -159,17 +140,22 @@ public sealed record ModSummary
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 
+    /// <summary>The four fields below are omitted from list_installed_mods unless include_details is set.</summary>
     [JsonPropertyName("dependencies")]
-    public required IReadOnlyList<string> Dependencies { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Dependencies { get; init; }
 
     [JsonPropertyName("load_after")]
-    public required IReadOnlyList<string> LoadAfter { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? LoadAfter { get; init; }
 
     [JsonPropertyName("incompatible_with")]
-    public required IReadOnlyList<string> IncompatibleWith { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? IncompatibleWith { get; init; }
 
     [JsonPropertyName("supported_versions")]
-    public required IReadOnlyList<string> SupportedVersions { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? SupportedVersions { get; init; }
 }
 
 /// <summary>Result of inspecting a mod.</summary>

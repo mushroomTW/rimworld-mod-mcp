@@ -68,8 +68,26 @@ public sealed record IndexStatusPayload
     [JsonPropertyName("source_indexed")]
     public required bool SourceIndexed { get; init; }
 
+    /// <summary>Why <c>source_indexed</c> is false: still running, failed with <c>error</c>, or never started (neither).</summary>
+    [JsonPropertyName("source_index")]
+    public required SourceIndexPayload SourceIndex { get; init; }
+
     [JsonPropertyName("fingerprint")]
     public string? Fingerprint { get; init; }
+}
+
+/// <summary>Progress of the background source index.</summary>
+public sealed record SourceIndexPayload
+{
+    [JsonPropertyName("running")]
+    public required bool Running { get; init; }
+
+    [JsonPropertyName("indexed_files")]
+    public required int IndexedFiles { get; init; }
+
+    /// <summary>Last failure reason; call rebuild_index to retry.</summary>
+    [JsonPropertyName("error")]
+    public string? Error { get; init; }
 }
 
 /// <summary>Result of rebuilding the index.</summary>
@@ -164,6 +182,27 @@ public sealed record ReadSymbolResult
 
     [JsonPropertyName("count")]
     public required int Count { get; init; }
+
+    /// <summary>Only when count is 0: symbols whose short name shares a word with the query.</summary>
+    [JsonPropertyName("suggestions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Suggestions { get; init; }
+}
+
+/// <summary>A symbol as listed by browse tools: enough to pick one and read it, nothing more.</summary>
+public sealed record SymbolBrief
+{
+    [JsonPropertyName("fqn")]
+    public required string Fqn { get; init; }
+
+    [JsonPropertyName("kind")]
+    public required string Kind { get; init; }
+
+    [JsonPropertyName("assembly")]
+    public required string Assembly { get; init; }
+
+    [JsonPropertyName("signature")]
+    public required string Signature { get; init; }
 }
 
 /// <summary>A single symbol.</summary>
@@ -180,10 +219,6 @@ public sealed record SymbolSummary
 
     [JsonPropertyName("assembly")]
     public required string Assembly { get; init; }
-
-    /// <summary>Real on-disk path of the assembly file; identifies which version directory a mod symbol's DLL lives in.</summary>
-    [JsonPropertyName("assembly_path")]
-    public string? AssemblyPath { get; init; }
 
     [JsonPropertyName("parent_fqn")]
     public string? ParentFqn { get; init; }
@@ -220,10 +255,15 @@ public sealed record FindDescendantsResult
     public required string BaseType { get; init; }
 
     [JsonPropertyName("results")]
-    public required IReadOnlyList<SymbolSummary> Results { get; init; }
+    public required IReadOnlyList<SymbolBrief> Results { get; init; }
 
     [JsonPropertyName("count")]
     public required int Count { get; init; }
+
+    /// <summary>Only when count is 0: type names that share a word with base_type.</summary>
+    [JsonPropertyName("suggestions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Suggestions { get; init; }
 }
 
 /// <summary>Symbol browse result.</summary>
@@ -233,7 +273,7 @@ public sealed record ListSymbolsResult
     public required string Parent { get; init; }
 
     [JsonPropertyName("results")]
-    public required IReadOnlyList<SymbolSummary> Results { get; init; }
+    public required IReadOnlyList<SymbolBrief> Results { get; init; }
 
     [JsonPropertyName("count")]
     public required int Count { get; init; }
@@ -287,6 +327,15 @@ public sealed record SearchSourceResult
     /// <summary>False while the source index is still building; results are then necessarily incomplete.</summary>
     [JsonPropertyName("source_indexed")]
     public required bool SourceIndexed { get; init; }
+
+    /// <summary>True when indexing is running in the background; retry in a while.</summary>
+    [JsonPropertyName("indexing")]
+    public required bool Indexing { get; init; }
+
+    /// <summary>Why the last indexing attempt failed. Mod searches are not retried automatically; call inspect_installed_mod with force=true to retry.</summary>
+    [JsonPropertyName("index_error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IndexError { get; init; }
 }
 
 /// <summary>One matching line in source.</summary>

@@ -30,6 +30,22 @@ internal static class ToolGuard
         }
     }
 
+    public static async Task<T> RunAsync<T>(Func<Task<T>> action)
+    {
+        try
+        {
+            return await action().ConfigureAwait(false);
+        }
+        catch (McpException)
+        {
+            throw;
+        }
+        catch (Exception e) when (IsExpected(e))
+        {
+            throw new McpException(e.Message);
+        }
+    }
+
     /// <summary>
     /// 預期內的失敗：參數錯誤、邊界違規、找不到目標、檔案系統問題。
     /// 非預期的例外（程式錯誤）維持原樣，讓它進 stderr 日誌。

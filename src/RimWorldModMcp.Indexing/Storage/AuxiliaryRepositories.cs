@@ -140,6 +140,14 @@ public static class SourceFileRepository
         command.CommandText = "SELECT COUNT(*) FROM source_file;";
         return (long)command.ExecuteScalar()!;
     }
+
+    /// <summary>只算遊戲本體的檔案，不含 <c>mod:</c> 前綴的 Mod 組件。</summary>
+    public static long CountGame(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM source_file WHERE assembly NOT LIKE 'mod:%';";
+        return (long)command.ExecuteScalar()!;
+    }
 }
 
 /// <summary>Def 被引用的位置。</summary>

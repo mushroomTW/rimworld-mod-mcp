@@ -111,9 +111,21 @@ static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellati
                 Name = "rimworld-mod-mcp",
                 Version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
             };
+
+            // 工作流程放這裡而不是散在各工具描述裡：每一輪都要送全部工具的 schema，
+            // 描述越長每輪成本越高；instructions 只在 initialize 送一次。
+            options.ServerInstructions = """
+                RimWorld mod development server. Workflow:
+                1. rimworld_status first; if index.fresh=false call rebuild_index. index.source_index tells whether the source full-text layer is running, failed (error), or done.
+                2. Research: search_defs -> read_def for XML; read_symbol / list_symbols / find_descendants for the C# API (zero hits return suggestions); search_source for regex over decompiled code (add package_id for an installed mod; indexing=true means retry shortly); read_source_file to page a whole file.
+                3. Build: create_mod (with_code=true for C#), then build_mod after every source change.
+                4. Test: run_test_cycle launches the game in an isolated session; poll list_test_diagnostics with since_at=latest_at and wait_seconds>0; get_test_diagnostic for a full stack trace; stop_test(confirm=true) when done.
+                Unknown parameters are rejected, so use only the documented names.
+                """;
         })
         .WithStdioServerTransport()
-        .WithToolsFromAssembly();
+        .WithToolsFromAssembly()
+        .WithRequestFilters(filters => filters.AddCallToolFilter(RimWorldModMcp.Server.Tools.UnknownArgumentFilter.Reject));
 
     await builder.Build().RunAsync(cancellationToken);
     return 0;

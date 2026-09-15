@@ -226,6 +226,14 @@ public sealed class DiagnosticStore(StoreDirectories store)
         }
     }
 
+    /// <summary>
+    /// 只回 <paramref name="sinceAt"/>（Unix 毫秒）之後有變動的紀錄：新出現的，
+    /// 以及重複出現而 count 增加的——合併時 At 會更新，所以兩者都涵蓋。
+    /// 這是 agent 輪詢迴圈的游標：沒有它，每次都把整份清單重新塞進 context。
+    /// </summary>
+    public IReadOnlyList<DiagnosticRecord> ReadSince(long sinceAt)
+        => [.. Read().Where(r => r.At > sinceAt)];
+
     public DiagnosticRecord? Find(string hash)
         => Read().FirstOrDefault(r => string.Equals(r.Hash, hash, StringComparison.OrdinalIgnoreCase));
 

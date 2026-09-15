@@ -24,7 +24,17 @@ public sealed record IndexStatus(
     string? Fingerprint,
     long DefCount,
     long SymbolCount,
-    bool SourceIndexed);
+    bool SourceIndexed,
+    SourceIndexState SourceIndex);
+
+/// <summary>
+/// 原始碼全文索引的狀態。只給 <c>SourceIndexed=false</c> 一個布林的話，呼叫端分不出
+/// 「還在建」「建失敗」「根本沒啟動」——這三種各有不同的正確反應（等、重建、報告）。
+/// </summary>
+/// <param name="Running">本行程內是否正在背景建立。</param>
+/// <param name="IndexedFiles">已寫入的檔案數；完成後等於總數。</param>
+/// <param name="Error">上一次建立失敗的原因（跨行程保存在 index_meta）。</param>
+public sealed record SourceIndexState(bool Running, int IndexedFiles, string? Error);
 
 /// <summary>
 /// 建立第一層索引：Def XML 與 IL metadata 符號。
@@ -144,7 +154,24 @@ public sealed class IndexBuilder(
             stored,
             DefRepository.Count(connection),
             SymbolRepository.Count(connection),
-            IndexMetaRepository.Get(connection, "source_indexed") == "true");
+            IndexMetaRepository.Get(connection, "source_indexed") == "true",
+            SourceIndexState(connection));
+    }
+
+    private SourceIndexState SourceIndexState(SqliteConnection connection)
+    {
+        var progress = sourceIndexer.Progress;
+
+        // 行程內的進度優先；沒有在跑時直接數資料表——被中斷的索引會留下部分檔案，
+        // 只看完成時才寫的 source_file_count 會把「有一半」報成「零」。
+        var indexedFiles = progress.Running
+            ? progress.FilesIndexed
+            : (int)SourceFileRepository.CountGame(connection);
+
+        var storedError = IndexMetaRepository.Get(connection, "source_index_error");
+        var error = progress.Error ?? (string.IsNullOrEmpty(storedError) ? null : storedError);
+
+        return new SourceIndexState(progress.Running, indexedFiles, error);
     }
 
     /// <summary>

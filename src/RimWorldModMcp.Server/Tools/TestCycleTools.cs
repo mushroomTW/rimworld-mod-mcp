@@ -50,20 +50,31 @@ public sealed class TestCycleTools(
     });
 
     [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List errors and warnings collected in this test session. Identical entries are merged with an occurrence count.")]
-    public ListDiagnosticsResult ListTestDiagnostics(
+    [Description("List errors and warnings collected in this test session. Identical entries are merged with an occurrence count. To poll: pass the previous result's latest_at as since_at and a wait_seconds so the call blocks until something new arrives instead of re-reading the whole list.")]
+    public Task<ListDiagnosticsResult> ListTestDiagnostics(
         [Description("Return only this type: error, warning, diagnostic, loaded_mods, or performance.")]
         string? type = null,
         [Description("Character limit per entry, 100-20000. Use get_test_diagnostic for the full stack trace.")]
         int max_text_length = 2000,
         [Description("Maximum results, 1-500.")]
-        int limit = 100) => ToolGuard.Run(() =>
+        int limit = 100,
+        [Description("Only entries new or re-occurring after this Unix-millisecond timestamp (use latest_at from the previous call). 0 returns everything.")]
+        long since_at = 0,
+        [Description("Long-poll: when nothing matches, keep waiting up to this many seconds (0-50) for new entries before returning. Keep it below your client's tool-call timeout.")]
+        int wait_seconds = 0,
+        CancellationToken cancellationToken = default) => ToolGuard.RunAsync(async () =>
     {
-        var records = diagnostics.Read();
+        // 上限 50 秒：常見 MCP client 的單次工具呼叫逾時約 60 秒，超過的話 client 先報錯、
+        // server 還在等，agent 看到的是工具壞掉而不是空結果。
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(wait_seconds, 0, 50));
+        var records = Filter(diagnostics.ReadSince(since_at), type);
 
-        if (!string.IsNullOrEmpty(type))
+        // 沒有新東西就等：daemon 是另一個行程寫檔，這裡只能輪詢，但把輪詢
+        // 留在 server 端，agent 的一次呼叫就抵過原本十次「問了又沒有」。
+        while (records.Count == 0 && DateTimeOffset.UtcNow < deadline)
         {
-            records = [.. records.Where(r => string.Equals(r.Type, type, StringComparison.OrdinalIgnoreCase))];
+            await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+            records = Filter(diagnostics.ReadSince(since_at), type);
         }
 
         var textLimit = Math.Clamp(max_text_length, 100, 20000);
@@ -73,16 +84,26 @@ public sealed class TestCycleTools(
         var effectiveLimit = Math.Clamp(limit, 1, 500);
         var page = records.Take(effectiveLimit).ToList();
 
+        // error_count / warning_count 永遠是整個場次的總數，不受 since_at 影響——
+        // 輪詢中的 agent 看到 error_count=0 會直接下「測試無錯誤」的結論。
+        var all = diagnostics.Read();
+
         return new ListDiagnosticsResult
         {
             Results = [.. page.Select(r => ToSummary(r, textLimit))],
             Count = page.Count,
             TotalCount = records.Count,
             LimitReached = records.Count > page.Count,
-            ErrorCount = records.Count(r => r.Type == "error"),
-            WarningCount = records.Count(r => r.Type == "warning"),
+            ErrorCount = all.Count(r => r.Type == "error"),
+            WarningCount = all.Count(r => r.Type == "warning"),
+            LatestAt = records.Count == 0 ? since_at : records.Max(r => r.At),
         };
     });
+
+    private static IReadOnlyList<DiagnosticRecord> Filter(IReadOnlyList<DiagnosticRecord> records, string? type)
+        => string.IsNullOrEmpty(type)
+            ? records
+            : [.. records.Where(r => string.Equals(r.Type, type, StringComparison.OrdinalIgnoreCase))];
 
     [McpServerTool(Name = "get_test_diagnostic", UseStructuredContent = true, ReadOnly = true)]
     [Description("Fetch one diagnostic in full by hash, including the untruncated stack trace.")]
@@ -202,18 +223,24 @@ public sealed record ListDiagnosticsResult
     [JsonPropertyName("count")]
     public required int Count { get; init; }
 
-    /// <summary>Filtered total; above count means limit cut some off.</summary>
+    /// <summary>Total matching type and since_at; above count means limit cut some off.</summary>
     [JsonPropertyName("total_count")]
     public required int TotalCount { get; init; }
 
     [JsonPropertyName("limit_reached")]
     public required bool LimitReached { get; init; }
 
+    /// <summary>Whole-session error count, regardless of type and since_at.</summary>
     [JsonPropertyName("error_count")]
     public required int ErrorCount { get; init; }
 
+    /// <summary>Whole-session warning count, regardless of type and since_at.</summary>
     [JsonPropertyName("warning_count")]
     public required int WarningCount { get; init; }
+
+    /// <summary>Cursor for the next poll: pass it back as since_at. Equals since_at when nothing was returned.</summary>
+    [JsonPropertyName("latest_at")]
+    public required long LatestAt { get; init; }
 }
 
 /// <summary>One diagnostic.</summary>

@@ -84,6 +84,37 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Empty(SymbolRepository.Children(_connection, "Verse", null, assemblyLike, 100));
     }
 
+    [Fact]
+    public void SuggestSplitsCamelCaseAndMatchesEachToken()
+    {
+        // 「Verse.ThingWidget」不存在，但拆成 Thing / Widget 後各自能命中。
+        var suggestions = SymbolRepository.Suggest(_connection, "Verse.ThingWidget", 5);
+
+        Assert.Contains("Verse.Thing", suggestions);
+        Assert.Contains("Widgets.Widget", suggestions);
+    }
+
+    [Fact]
+    public void SuggestPrefersTypesOverMembersAndIsEmptyWhenNothingResembles()
+    {
+        var suggestions = SymbolRepository.Suggest(_connection, "Tick", 5);
+
+        // 成員 Verse.Thing.Tick() 也算，但沒有型別命中時仍要回它。
+        Assert.Equal(["Verse.Thing.Tick()"], suggestions);
+        Assert.Empty(SymbolRepository.Suggest(_connection, "ResolutionUtility", 5));
+    }
+
+    [Fact]
+    public void ParentExistsForNamespacesTypesAndNotForUnknown()
+    {
+        Assert.True(SymbolRepository.ParentExists(_connection, "Verse", null));
+        Assert.True(SymbolRepository.ParentExists(_connection, "Verse.AI", null));
+        Assert.True(SymbolRepository.ParentExists(_connection, "Verse.Thing", null));
+        Assert.True(SymbolRepository.ParentExists(_connection, "", null));
+        Assert.False(SymbolRepository.ParentExists(_connection, "Verse.Nope", null));
+        Assert.False(SymbolRepository.ParentExists(_connection, "Verse", "%mod:pkg%"));
+    }
+
     private static SymbolRecord Type(string assembly, int token, string fqn, string shortName, string parent) => new()
     {
         Assembly = assembly,

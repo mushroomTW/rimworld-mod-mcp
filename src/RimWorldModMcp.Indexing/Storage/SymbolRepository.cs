@@ -233,6 +233,125 @@ public static class SymbolRepository
         return ReadHits(command);
     }
 
+    /// <summary>
+    /// 零命中時的「你是不是要找」：把名稱最後一段依大小寫切成詞，
+    /// 各自對 short_name 做子字串比對。LLM 呼叫端常記錯一半的名字
+    /// （ResolutionUtility → Resolution / Utility），這比整段 LIKE 有用得多。
+    /// 型別優先於成員，短的 fqn 優先。
+    /// </summary>
+    public static List<string> Suggest(SqliteConnection connection, string name, int limit)
+    {
+        var tokens = CamelCaseTokens(name);
+
+        if (tokens.Count == 0)
+        {
+            return [];
+        }
+
+        var clauses = new List<string>(tokens.Count);
+        using var command = connection.CreateCommand();
+
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            clauses.Add($"short_name LIKE $t{i} ESCAPE '\\'");
+            command.Parameters.AddWithValue($"$t{i}", $"%{FtsQuery.LikeLiteral(tokens[i])}%");
+        }
+
+        command.CommandText = $"""
+            SELECT fqn
+            FROM symbol
+            WHERE {string.Join(" OR ", clauses)}
+            ORDER BY (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, length(fqn), fqn
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 20));
+
+        var results = new List<string>();
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            results.Add(reader.GetString(0));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// 取名稱最後一段（去掉 namespace 與 <c>()</c>），依大小寫邊界切詞，
+    /// 只留長度 ≥ 3 的詞、最長的兩個。
+    /// </summary>
+    private static List<string> CamelCaseTokens(string name)
+    {
+        var last = name;
+        var paren = last.IndexOf('(');
+
+        if (paren >= 0)
+        {
+            last = last[..paren];
+        }
+
+        var dot = last.LastIndexOf('.');
+
+        if (dot >= 0)
+        {
+            last = last[(dot + 1)..];
+        }
+
+        var tokens = new List<string>();
+        var start = 0;
+
+        for (var i = 1; i <= last.Length; i++)
+        {
+            var boundary = i == last.Length
+                || (char.IsUpper(last[i]) && !char.IsUpper(last[i - 1]))
+                || !char.IsLetterOrDigit(last[i]);
+
+            if (!boundary)
+            {
+                continue;
+            }
+
+            var token = last[start..i].Trim('_');
+
+            if (token.Length >= 3)
+            {
+                tokens.Add(token);
+            }
+
+            start = char.IsLetterOrDigit(last[i == last.Length ? i - 1 : i]) ? i : i + 1;
+        }
+
+        return [.. tokens.OrderByDescending(t => t.Length).Take(2)];
+    }
+
+    /// <summary>
+    /// <paramref name="parent"/> 是否是索引裡存在的 namespace 或型別。
+    /// 空字串是根，一律存在。用來把「型別不存在」和「型別沒有成員」分開回報。
+    /// </summary>
+    public static bool ParentExists(SqliteConnection connection, string parent, string? assemblyLike)
+    {
+        if (parent.Length == 0)
+        {
+            return true;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT 1
+            FROM symbol
+            WHERE (fqn = $parent OR parent_fqn = $parent OR parent_fqn LIKE $prefix ESCAPE '\')
+              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+            LIMIT 1;
+            """;
+
+        command.Parameters.AddWithValue("$parent", parent);
+        command.Parameters.AddWithValue("$prefix", FtsQuery.LikeLiteral(parent) + ".%");
+        command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
+
+        return command.ExecuteScalar() is not null;
+    }
+
     public static long Count(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using RimWorldModMcp.Core.Locking;
 using RimWorldModMcp.Indexing.Decompilation;
 using RimWorldModMcp.Indexing.Metadata;
@@ -8,6 +9,12 @@ namespace RimWorldModMcp.Indexing.Pipeline;
 
 /// <summary>一個已安裝 Mod 的組件資訊。<paramref name="Key"/> 是索引裡的組件鍵，可當作查詢的篩選值。</summary>
 public sealed record ModAssemblyInfo(string Name, string Key, string Path, int SymbolCount, int SourceFileCount, bool FromCache);
+
+/// <summary>
+/// Mod 原始碼搜尋結果。<paramref name="Indexing"/> 為 true 代表索引正在背景建立、
+/// 本次沒有搜；<paramref name="Error"/> 是上一次背景索引失敗的原因。
+/// </summary>
+public sealed record ModSearchResult(IReadOnlyList<SourceHit> Hits, bool SourceIndexed, bool Indexing, string? Error);
 
 /// <summary>
 /// 按需檢視已安裝 Mod 的組件。
@@ -25,6 +32,12 @@ public sealed class ModInspectionService(
     SourceQueryService sourceQueries)
 {
     private readonly AssemblySymbolReader _symbolReader = new();
+
+    /// <summary>進行中的背景索引，鍵是 packageId；同一個 Mod 只會有一個。</summary>
+    private readonly ConcurrentDictionary<string, Lazy<Task>> _indexing = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>背景索引失敗的原因。行程內狀態，重啟後消失；<see cref="Inspect"/> 成功會清掉。</summary>
+    private readonly ConcurrentDictionary<string, string> _indexErrors = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// 找出 Mod 的所有組件並在必要時建立索引。
@@ -113,31 +126,96 @@ public sealed class ModInspectionService(
             SymbolRepository.RebuildFts(connection);
         }
 
+        // 走到這裡就是成功，不論是背景還是 force 重試；上一次的失敗原因不該再擋搜尋。
+        _indexErrors.TryRemove(packageId, out var previousError);
+
         return results;
     }
 
     /// <summary>
-    /// 搜尋一個已安裝 Mod 的原始碼，必要時先建立索引。
-    /// <paramref name="assemblyFilter"/> 是對組件鍵的子字串比對（例如 <c>1.6/</c>），
-    /// 用來在多版本 Mod 裡只看其中一份 DLL。
+    /// 搜尋 Mod 原始碼；尚未索引時不同步反編譯，而是在背景啟動索引並立刻回報
+    /// <c>Indexing=true</c>。大 Mod 反編譯要幾分鐘，同步做會撞上 MCP client 的呼叫逾時：
+    /// client 收到逾時錯誤、server 端卻還在跑，下一次呼叫又卡在鎖上。
     /// </summary>
-    public (IReadOnlyList<SourceHit> Hits, bool SourceIndexed) SearchSource(
+    public ModSearchResult TrySearchSource(
         string packageId, string modPath, string pattern, int limit, string? assemblyFilter = null)
     {
-        var inspected = Inspect(packageId, modPath);
+        var assemblies = FindAssemblies(modPath);
+
+        if (assemblies.Count == 0)
+        {
+            // XML-only Mod：沒東西可索引，回 false 讓呼叫端知道零命中的原因。
+            return new ModSearchResult([], SourceIndexed: false, Indexing: false, Error: null);
+        }
+
+        if (!IsIndexed(packageId, modPath, assemblies))
+        {
+            if (_indexErrors.TryGetValue(packageId, out var error))
+            {
+                // 上一次已經失敗：不自動重跑數分鐘的反編譯，否則 agent 每次輪詢都
+                // 觸發一次必定失敗的工作。要重試請走 Inspect(force: true)。
+                return new ModSearchResult([], SourceIndexed: false, Indexing: false, Error: error);
+            }
+
+            var running = StartIndexing(packageId, modPath);
+
+            return new ModSearchResult([], SourceIndexed: false, Indexing: running, Error: null);
+        }
 
         using var connection = database.Open();
-
-        // 組件前綴必須推進 SQL 過濾（見 SourceQueryService.Candidates 的說明），
-        // 在記憶體裡事後過濾的話，遊戲本體的命中會把候選名額全部吃掉。
         var hits = sourceQueries.Search(
             connection, pattern, null, limit,
             assemblyLike: AssemblyLike(packageId, assemblyFilter));
 
-        // XML-only Mod 沒有任何組件；回報 false 讓呼叫端知道零命中的原因。
-        var indexed = inspected.Any(a => a.SourceFileCount > 0);
+        return new ModSearchResult(hits, SourceIndexed: true, Indexing: false, Error: null);
+    }
 
-        return (hits, indexed);
+    /// <summary>所有組件的 stamp 都與快取一致才算已索引。只讀，不取鎖。</summary>
+    private bool IsIndexed(string packageId, string modPath, IReadOnlyList<string> assemblies)
+    {
+        using var connection = database.Open();
+
+        foreach (var assembly in assemblies)
+        {
+            var key = AssemblyKey(packageId, modPath, assembly);
+
+            if (IndexMetaRepository.Get(connection, $"mod_stamp:{key}") != MemberDecompiler.Stamp(assembly))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 啟動背景索引；已在跑就不重複啟動。回傳 true 代表現在有工作在跑。
+    /// 失敗原因記進 <see cref="_indexErrors"/>，下一次 TrySearchSource 會回報，
+    /// 但不會自動重試（見 TrySearchSource）。
+    /// </summary>
+    private bool StartIndexing(string packageId, string modPath)
+    {
+        // 用 Lazy 把 Task.Run 延後到條目插入之後：直接在 valueFactory 裡 Task.Run 的話，
+        // 極快的工作可能在 GetOrAdd 插入前就跑完 finally 的 TryRemove（此時無條目、
+        // no-op），之後插入的已完成 Task 就永遠留在字典裡，Mod 更新後再也不會重索引。
+        var work = _indexing.GetOrAdd(packageId, key => new Lazy<Task>(() => Task.Run(() =>
+        {
+            try
+            {
+                Inspect(packageId, modPath);
+            }
+            catch (Exception e)
+            {
+                _indexErrors[packageId] = e.Message;
+            }
+            finally
+            {
+                _indexing.TryRemove(packageId, out _);
+            }
+        })));
+
+        _ = work.Value;
+        return true;
     }
 
     /// <summary>清除一個 Mod 的所有索引資料。</summary>
