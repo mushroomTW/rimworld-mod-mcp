@@ -13,7 +13,7 @@ namespace RimWorldModMcp.Server.Tools;
 public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection)
 {
     [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List installed mods (local and Workshop; Core/DLC only with include_builtin). With a known packageId, filter via package_id instead of paging the full list. Dependencies and versions only with include_details.")]
+    [Description("List installed mods (local and Workshop; Core/DLC only with include_builtin). With a known packageId, filter via package_id instead of paging the full list. Path, dependencies and versions only with include_details.")]
     public ListModsResult ListInstalledMods(
         [Description("Also list Core and installed DLCs.")]
         bool include_builtin = false,
@@ -23,7 +23,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         int limit = 50,
         [Description("Skip the first N matches.")]
         int offset = 0,
-        [Description("Include dependencies, load_after, incompatible_with, and supported_versions per mod.")]
+        [Description("Include path, dependencies, load_after, incompatible_with, and supported_versions per mod.")]
         bool include_details = false) => ToolGuard.Run(() =>
     {
         var mods = catalog.Installed().ToList();
@@ -83,12 +83,12 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         };
     });
 
-    /// <summary>清單用：沒有相依與版本欄位。300 個 Mod 的清單帶全部欄位會直接爆量。</summary>
+    /// <summary>清單用：沒有路徑、相依與版本欄位。800 個 Mod 的清單帶全部欄位會直接爆量，
+    /// 而路徑光是 Workshop 前綴就佔掉每列一半的 token，選 companion_mods 只需要 packageId。</summary>
     private static ModSummary ToBrief(ModInfo mod) => new()
     {
         PackageId = mod.PackageId,
         Name = mod.Name,
-        Path = mod.Path,
         Source = mod.Source,
     };
 
@@ -133,14 +133,16 @@ public sealed record ModSummary
     [JsonPropertyName("name")]
     public required string Name { get; init; }
 
+    /// <summary>Omitted from list_installed_mods unless include_details is set.</summary>
     [JsonPropertyName("path")]
-    public required string Path { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; init; }
 
     /// <summary><c>local</c>, <c>workshop</c>, <c>core</c>, or <c>expansion</c>.</summary>
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 
-    /// <summary>The four fields below are omitted from list_installed_mods unless include_details is set.</summary>
+    /// <summary>The four fields below are likewise omitted unless include_details is set.</summary>
     [JsonPropertyName("dependencies")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Dependencies { get; init; }

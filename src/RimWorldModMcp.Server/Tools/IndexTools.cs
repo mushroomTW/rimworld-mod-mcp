@@ -38,14 +38,9 @@ public sealed class IndexTools(
         {
             Detected = paths.HasManagedAndData,
             InstallRoot = paths.InstallRoot,
-            Executable = paths.Executable,
-            ManagedDir = paths.ManagedDir,
-            DataDir = paths.DataDir,
             ModsDir = paths.ModsDir,
             WorkshopDir = paths.WorkshopDir,
             PlayerLog = paths.PlayerLog,
-            ModsConfig = paths.ModsConfig,
-            PrefsXml = paths.PrefsXml,
             BridgePort = locator.BridgePort(),
             Index = new IndexStatusPayload
             {
@@ -59,7 +54,6 @@ public sealed class IndexTools(
                     IndexedFiles = status.SourceIndex.IndexedFiles,
                     Error = status.SourceIndex.Error,
                 },
-                Fingerprint = status.Fingerprint,
             },
         };
     });
@@ -106,7 +100,7 @@ public sealed class IndexTools(
 
         return new SearchDefsResult
         {
-            Results = [.. hits.Select(ToSummary)],
+            Results = [.. hits.Select(h => ToSummary(h, SearchDescriptionChars))],
             Count = hits.Count,
             LimitReached = hits.Count >= effectiveLimit,
         };
@@ -127,27 +121,28 @@ public sealed class IndexTools(
 
         return new ReadDefResult
         {
-            Results = [.. hits.Select(ToSummary)],
+            Results = [.. hits.Select(h => ToSummary(h, int.MaxValue))],
             Count = hits.Count,
         };
     });
 
     [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. On zero hits, suggestions lists similar names. For the whole decompiled file use read_source_file.")]
+    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. Exact name matches only whenever any exist (partial_count tells how many substring matches were skipped); substring matches otherwise. On zero hits, suggestions lists similar names. For the whole decompiled file use read_source_file.")]
     public ReadSymbolResult ReadSymbol(
-        [Description("Short name or part of the full name, e.g. ThingDef or Verse.ThingDef.")]
+        [Description("Short name or full name, e.g. ThingDef or Verse.ThingDef; a fragment such as ThingDefO matches by substring.")]
         string name,
         [Description("Include decompiled source.")]
         bool include_body = false,
         [Description("Byte limit for the source excerpt, 256-262144.")]
         int max_bytes = 4096,
         [Description("Maximum results, 1-100.")]
-        int limit = 20,
+        int limit = 10,
         [Description("Substring of the assembly key to restrict results, e.g. Assembly-CSharp, mod:cj.rimtalk, or 1.6/ to pick one version of a multi-version mod.")]
         string? assembly = null) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
-        var hits = SymbolRepository.Read(connection, name, limit, AssemblyLike(assembly));
+        var assemblyLike = AssemblyLike(assembly);
+        var hits = SymbolRepository.Read(connection, name, limit, assemblyLike);
 
         if (hits.Count == 0)
         {
@@ -155,9 +150,13 @@ public sealed class IndexTools(
             return new ReadSymbolResult { Results = [], Count = 0, Suggestions = SymbolRepository.Suggest(connection, name, 5) };
         }
 
+        // 精確命中時才有「被略過的模糊命中」可言；模糊命中本身就是全部了。
+        var isExact = hits[0].Fqn == name || hits[0].ShortName == name;
+        int? partialCount = isExact ? SymbolRepository.CountPartial(connection, name, assemblyLike) : null;
+
         if (!include_body)
         {
-            return new ReadSymbolResult { Results = [.. hits.Select(ToSummary)], Count = hits.Count };
+            return new ReadSymbolResult { Results = [.. hits.Select(ToSummary)], Count = hits.Count, PartialCount = partialCount };
         }
 
         var managed = locator.Detect().ManagedDir;
@@ -188,7 +187,7 @@ public sealed class IndexTools(
             results.Add(ToSummary(hit) with { Body = body, BodyTruncated = truncated });
         }
 
-        return new ReadSymbolResult { Results = results, Count = results.Count };
+        return new ReadSymbolResult { Results = results, Count = results.Count, PartialCount = partialCount };
     });
 
     [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true)]
@@ -229,11 +228,13 @@ public sealed class IndexTools(
             }
 
             var hits = SymbolRepository.Children(connection, parent, kindName, assemblyLike, limit);
+            var (sharedAssembly, rows) = ToBriefs(hits, h => RelativeName(h, parent));
 
             return new ListSymbolsResult
             {
                 Parent = parent,
-                Results = [.. hits.Select(ToBrief)],
+                Assembly = sharedAssembly,
+                Results = rows,
                 Count = hits.Count,
                 LimitReached = hits.Count >= Math.Clamp(limit, 1, 500),
                 ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
@@ -286,11 +287,13 @@ public sealed class IndexTools(
         using var connection = database.Open();
         var resolved = ResolveTypeName(connection, base_type);
         var hits = SymbolRepository.Descendants(connection, resolved, limit);
+        var (sharedAssembly, rows) = ToBriefs(hits, h => h.Fqn);
 
         return new FindDescendantsResult
         {
             BaseType = resolved,
-            Results = [.. hits.Select(ToBrief)],
+            Assembly = sharedAssembly,
+            Results = rows,
             Count = hits.Count,
             Suggestions = hits.Count == 0 ? SymbolRepository.Suggest(connection, base_type, 5) : null,
         };
@@ -417,39 +420,70 @@ public sealed class IndexTools(
         };
     });
 
-    private static DefSummary ToSummary(RimWorldModMcp.Indexing.Model.DefHit hit) => new()
+    /// <summary>search_defs 的描述字元上限。ThingDef 的描述動輒兩三百字，25 筆清單裡大半 token 都花在這。</summary>
+    private const int SearchDescriptionChars = 200;
+
+    private static DefSummary ToSummary(RimWorldModMcp.Indexing.Model.DefHit hit, int descriptionChars) => new()
     {
         DefName = hit.DefName,
         DefType = hit.DefType,
-        Pack = hit.Pack,
         Label = hit.Label,
-        Description = hit.Description,
+        Description = hit.Description.Length == 0 ? null
+            : hit.Description.Length > descriptionChars ? hit.Description[..descriptionChars] + "…"
+            : hit.Description,
         FilePath = hit.FilePath,
-        Abstract = hit.Abstract,
+        Abstract = hit.Abstract ? true : null,
         InheritName = hit.InheritName,
         ParentName = hit.ParentName,
         Xml = hit.Xml,
         XmlTruncated = hit.XmlTruncated,
     };
 
-    private static SymbolBrief ToBrief(SymbolHit hit) => new()
+    /// <summary>
+    /// 瀏覽列表的組件欄位：所有列同一組件就提到結果層、列上省略；
+    /// 混雜時（多版本 Mod）結果層為 null、各列自帶。100 列重複同一個 "Assembly-CSharp" 純屬浪費。
+    /// </summary>
+    private static (string? Shared, IReadOnlyList<SymbolBrief> Rows) ToBriefs(List<SymbolHit> hits, Func<SymbolHit, string> name)
     {
-        Fqn = hit.Fqn,
-        Kind = hit.Kind,
-        Assembly = hit.Assembly,
-        Signature = hit.Signature,
-    };
+        var shared = hits.Count > 0 && hits.TrueForAll(h => h.Assembly == hits[0].Assembly) ? hits[0].Assembly : null;
+
+        return (shared, [.. hits.Select(h => new SymbolBrief
+        {
+            Name = name(h),
+            Kind = h.Kind,
+            Assembly = shared is null ? h.Assembly : null,
+            Signature = h.Signature,
+        })]);
+    }
+
+    /// <summary>
+    /// 去掉 parent 前綴。巢狀型別的 fqn 是 Outer+Inner，保留 "+Inner"：
+    /// 呼叫端把 parent 與 name 用 "." 接回去就會得到不存在的 Outer.Inner。
+    /// </summary>
+    private static string RelativeName(SymbolHit hit, string parent)
+    {
+        if (parent.Length == 0 || hit.Fqn.Length <= parent.Length || !hit.Fqn.StartsWith(parent, StringComparison.Ordinal))
+        {
+            return hit.Fqn;
+        }
+
+        return hit.Fqn[parent.Length] switch
+        {
+            '.' => hit.Fqn[(parent.Length + 1)..],
+            '+' => hit.Fqn[parent.Length..],
+            _ => hit.Fqn,
+        };
+    }
 
     private static SymbolSummary ToSummary(SymbolHit hit) => new()
     {
         Fqn = hit.Fqn,
-        ShortName = hit.ShortName,
         Kind = hit.Kind,
         Assembly = hit.Assembly,
         ParentFqn = hit.ParentFqn,
         Signature = hit.Signature,
-        BaseChain = hit.BaseChain,
-        Interfaces = hit.Interfaces,
+        BaseChain = hit.BaseChain.Count > 0 ? hit.BaseChain : null,
+        Interfaces = hit.Interfaces.Count > 0 ? hit.Interfaces : null,
         Accessibility = hit.Accessibility,
         IsStatic = hit.IsStatic,
     };

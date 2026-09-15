@@ -18,15 +18,6 @@ public sealed record RimWorldStatusResult
     [JsonPropertyName("install_root")]
     public string? InstallRoot { get; init; }
 
-    [JsonPropertyName("executable")]
-    public string? Executable { get; init; }
-
-    [JsonPropertyName("managed_dir")]
-    public string? ManagedDir { get; init; }
-
-    [JsonPropertyName("data_dir")]
-    public string? DataDir { get; init; }
-
     [JsonPropertyName("mods_dir")]
     public string? ModsDir { get; init; }
 
@@ -35,12 +26,6 @@ public sealed record RimWorldStatusResult
 
     [JsonPropertyName("player_log")]
     public string? PlayerLog { get; init; }
-
-    [JsonPropertyName("mods_config")]
-    public string? ModsConfig { get; init; }
-
-    [JsonPropertyName("prefs_xml")]
-    public string? PrefsXml { get; init; }
 
     [JsonPropertyName("bridge_port")]
     public required int BridgePort { get; init; }
@@ -71,9 +56,6 @@ public sealed record IndexStatusPayload
     /// <summary>Why <c>source_indexed</c> is false: still running, failed with <c>error</c>, or never started (neither).</summary>
     [JsonPropertyName("source_index")]
     public required SourceIndexPayload SourceIndex { get; init; }
-
-    [JsonPropertyName("fingerprint")]
-    public string? Fingerprint { get; init; }
 }
 
 /// <summary>Progress of the background source index.</summary>
@@ -135,20 +117,22 @@ public sealed record DefSummary
     [JsonPropertyName("def_type")]
     public required string DefType { get; init; }
 
-    [JsonPropertyName("pack")]
-    public required string Pack { get; init; }
-
     [JsonPropertyName("label")]
     public required string Label { get; init; }
 
+    /// <summary>Omitted when empty. search_defs truncates it; read_def returns it in full.</summary>
     [JsonPropertyName("description")]
-    public required string Description { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; init; }
 
+    /// <summary>Relative to the Data directory; the first segment is the content pack (Core, Royalty, ...).</summary>
     [JsonPropertyName("file_path")]
     public required string FilePath { get; init; }
 
+    /// <summary>Only present (true) for abstract Defs.</summary>
     [JsonPropertyName("abstract")]
-    public required bool Abstract { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Abstract { get; init; }
 
     /// <summary>Inheritance anchor name of an abstract Def.</summary>
     [JsonPropertyName("inherit_name")]
@@ -187,19 +171,30 @@ public sealed record ReadSymbolResult
     [JsonPropertyName("suggestions")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Suggestions { get; init; }
+
+    /// <summary>
+    /// Results are exact name matches only whenever any exist; this is how many looser
+    /// (substring) matches were left out. Absent when results are already substring matches.
+    /// </summary>
+    [JsonPropertyName("partial_count")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PartialCount { get; init; }
 }
 
 /// <summary>A symbol as listed by browse tools: enough to pick one and read it, nothing more.</summary>
 public sealed record SymbolBrief
 {
-    [JsonPropertyName("fqn")]
-    public required string Fqn { get; init; }
+    /// <summary>Name relative to the listed parent (list_symbols) or the full name (find_descendants).</summary>
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
 
     [JsonPropertyName("kind")]
     public required string Kind { get; init; }
 
+    /// <summary>Only present when the result's rows span several assemblies; otherwise see the result-level assembly.</summary>
     [JsonPropertyName("assembly")]
-    public required string Assembly { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Assembly { get; init; }
 
     [JsonPropertyName("signature")]
     public required string Signature { get; init; }
@@ -210,9 +205,6 @@ public sealed record SymbolSummary
 {
     [JsonPropertyName("fqn")]
     public required string Fqn { get; init; }
-
-    [JsonPropertyName("short_name")]
-    public required string ShortName { get; init; }
 
     [JsonPropertyName("kind")]
     public required string Kind { get; init; }
@@ -227,12 +219,15 @@ public sealed record SymbolSummary
     [JsonPropertyName("signature")]
     public required string Signature { get; init; }
 
-    /// <summary>Full base-type chain, nearest first.</summary>
+    /// <summary>Full base-type chain, nearest first. Omitted when empty.</summary>
     [JsonPropertyName("base_chain")]
-    public required IReadOnlyList<string> BaseChain { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? BaseChain { get; init; }
 
+    /// <summary>Omitted when empty.</summary>
     [JsonPropertyName("interfaces")]
-    public required IReadOnlyList<string> Interfaces { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Interfaces { get; init; }
 
     [JsonPropertyName("accessibility")]
     public required string Accessibility { get; init; }
@@ -254,6 +249,10 @@ public sealed record FindDescendantsResult
     [JsonPropertyName("base_type")]
     public required string BaseType { get; init; }
 
+    /// <summary>The assembly shared by every row; null when rows span several assemblies (each row then carries its own).</summary>
+    [JsonPropertyName("assembly")]
+    public string? Assembly { get; init; }
+
     [JsonPropertyName("results")]
     public required IReadOnlyList<SymbolBrief> Results { get; init; }
 
@@ -271,6 +270,10 @@ public sealed record ListSymbolsResult
 {
     [JsonPropertyName("parent")]
     public required string Parent { get; init; }
+
+    /// <summary>The assembly shared by every row; null when rows span several assemblies (each row then carries its own).</summary>
+    [JsonPropertyName("assembly")]
+    public string? Assembly { get; init; }
 
     [JsonPropertyName("results")]
     public required IReadOnlyList<SymbolBrief> Results { get; init; }

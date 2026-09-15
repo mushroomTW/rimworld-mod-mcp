@@ -55,6 +55,23 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// regex 的 alternation 不能被翻成 FTS 的隱含 AND——那會把只含其中
     /// 一支的檔案在候選階段就濾掉，regex 根本沒機會執行。
     /// </summary>
+    /// <summary>
+    /// 遊戲搜尋不能混入 Mod 的原始碼：多版本 Mod 的同一行會重複好幾次，
+    /// 而且呼叫端以為自己查的是遊戲本體。Mod 搜尋則一定帶組件樣式。
+    /// </summary>
+    [Fact]
+    public void GameSearchExcludesModAssembliesAndTrimsIndentation()
+    {
+        var hits = _queries.Search(_connection, "TryStartJob", null, 10);
+
+        Assert.Equal(["Assembly-CSharp"], hits.Select(hit => hit.Assembly).Distinct().ToArray());
+        Assert.Equal("public void TryStartJob() { }", hits[0].Text);
+
+        var modHits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%");
+
+        Assert.Equal(["mod:pkg:Extra:abcd"], modHits.Select(hit => hit.Assembly).Distinct().ToArray());
+    }
+
     [Fact]
     public void AlternationFindsFilesContainingEitherBranch()
     {

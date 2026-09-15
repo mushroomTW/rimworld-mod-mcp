@@ -109,7 +109,7 @@ If you use the standalone executable (or want to point to local build output), p
 | `rebuild_index` | Rebuild the Def and symbol indexes. |
 | `search_defs` | Search Defs by name, label, or description. |
 | `read_def` | Read one Def's full XML. Look up abstract Defs by their `Name` attribute. |
-| `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. `assembly` narrows to one assembly (or one version of a multi-version mod). Zero hits return `suggestions`. |
+| `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. Exact name matches win: when any exist, substring matches are left out and counted in `partial_count`. `assembly` narrows to one assembly (or one version of a multi-version mod). Zero hits return `suggestions`. |
 | `list_symbols` | Browse without a keyword: a namespace lists its top-level types and child namespaces; a type lists its members. An unknown parent is an error, not an empty list. |
 | `find_descendants` | Find every class deriving from a given type; a short name works when unambiguous. Zero hits return `suggestions`. |
 | `search_source` | Regex search (.NET syntax, always case-insensitive) over decompiled source: the game by default, or one installed mod with `package_id` (first use decompiles in the background; `indexing=true` means retry shortly). `assembly` (e.g. `1.6/`) restricts a mod search to one version's DLL. Prefer simple literals (`CurTimeSpeed`); `a|b` matches either branch. |
@@ -120,7 +120,7 @@ If you use the standalone executable (or want to point to local build output), p
 
 | Tool | Purpose |
 | --- | --- |
-| `list_installed_mods` | List local and Workshop mods. Filter with `package_id` and page with `limit`/`offset`; `include_details` adds dependencies and versions. |
+| `list_installed_mods` | List local and Workshop mods. Filter with `package_id` and page with `limit`/`offset`; `include_details` adds the path, dependencies and versions. |
 | `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Locks are per-`packageId`, so a large mod (minutes on first run) does not block other mods. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`. |
 
 ### Build

@@ -32,6 +32,8 @@ public sealed class SymbolBrowsingTests : IDisposable
             Type("Assembly-CSharp", 5, "Verse.Thing+Inner", "Inner", "Verse.Thing"),
             Member("Assembly-CSharp", 6, "Verse.Thing.Tick()", "Tick", SymbolKind.Method, "Verse.Thing"),
             Member("Assembly-CSharp", 7, "Verse.Thing.def", "def", SymbolKind.Field, "Verse.Thing"),
+            // 與型別同名的成員：精確查詢時型別要排在它前面。
+            Member("Assembly-CSharp", 8, "RimWorld.Pawn.Thing", "Thing", SymbolKind.Property, "RimWorld.Pawn"),
             Type("mod:pkg:1.6/Assemblies/X.dll", 1, "Widgets.Widget", "Widget", "Widgets"),
         ]);
         SymbolRepository.RebuildFts(_connection);
@@ -102,6 +104,30 @@ public sealed class SymbolBrowsingTests : IDisposable
         // 成員 Verse.Thing.Tick() 也算，但沒有型別命中時仍要回它。
         Assert.Equal(["Verse.Thing.Tick()"], suggestions);
         Assert.Empty(SymbolRepository.Suggest(_connection, "ResolutionUtility", 5));
+    }
+
+    /// <summary>
+    /// 有精確命中就只回精確命中（型別在前），模糊命中另外計數；
+    /// 混著回的話查 ThingDef 會拿到上千筆成員與 ThingDefCount 之類的雜訊。
+    /// </summary>
+    [Fact]
+    public void ReadPrefersExactAndSkipsPartialWhenExactExists()
+    {
+        var hits = SymbolRepository.Read(_connection, "Thing", 10);
+
+        Assert.Equal(["Verse.Thing", "RimWorld.Pawn.Thing"], hits.Select(h => h.Fqn).ToArray());
+        Assert.Equal(3, SymbolRepository.CountPartial(_connection, "Thing"));
+
+        Assert.Equal(["Verse.Thing"], SymbolRepository.Read(_connection, "Verse.Thing", 10).Select(h => h.Fqn).ToArray());
+    }
+
+    [Fact]
+    public void ReadFallsBackToPartialWhenNoExact()
+    {
+        var hits = SymbolRepository.Read(_connection, "Thin", 10);
+
+        Assert.Equal(5, hits.Count);
+        Assert.All(hits, h => Assert.Contains("Thin", h.Fqn, StringComparison.Ordinal));
     }
 
     [Fact]

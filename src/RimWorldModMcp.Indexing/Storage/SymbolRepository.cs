@@ -78,28 +78,73 @@ public static class SymbolRepository
     }
 
     /// <summary>
-    /// 依短名精確比對，或以 FQN 子字串比對，查出符號。
+    /// 查出符號：先以 FQN 或短名精確比對，有命中就只回這些（型別排在成員前、遊戲本體排在 Mod 前）；
+    /// 一筆都沒有才退回 FQN 子字串比對。
+    /// 兩者混在一起回的話，查 ThingDef 會拿到上千筆成員與 ThingDefCount 之類的雜訊，
+    /// 呼叫端要的那一個型別反而被 limit 擠掉。
     /// <paramref name="assemblyLike"/> 是對組件鍵的 LIKE 樣式；多版本 Mod 的同一個類別
     /// 會在每份 DLL 各出現一次，靠它才能只看其中一份。
     /// </summary>
     public static List<SymbolHit> Read(SqliteConnection connection, string name, int limit, string? assemblyLike = null)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText = """
+        using var exact = connection.CreateCommand();
+        exact.CommandText = """
             SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
             FROM symbol
-            WHERE (short_name = $name OR fqn LIKE $like ESCAPE '\')
+            WHERE (fqn = $name OR short_name = $name)
               AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
-            ORDER BY (short_name = $name) DESC, fqn
+            ORDER BY (fqn = $name) DESC, (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, (assembly LIKE 'mod:%'), fqn
             LIMIT $limit;
+            """;
+
+        exact.Parameters.AddWithValue("$name", name);
+        exact.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        exact.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
+
+        var hits = ReadHits(exact);
+
+        if (hits.Count > 0)
+        {
+            return hits;
+        }
+
+        using var partial = connection.CreateCommand();
+        partial.CommandText = """
+            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
+            FROM symbol
+            WHERE fqn LIKE $like ESCAPE '\'
+              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+            ORDER BY fqn
+            LIMIT $limit;
+            """;
+
+        partial.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
+        partial.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        partial.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
+
+        return ReadHits(partial);
+    }
+
+    /// <summary>
+    /// 只符合 FQN 子字串、但不是精確命中的符號數。<see cref="Read"/> 有精確命中時略過這些，
+    /// 這個數字讓呼叫端知道還有多少沒看到。
+    /// </summary>
+    public static int CountPartial(SqliteConnection connection, string name, string? assemblyLike = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM symbol
+            WHERE fqn LIKE $like ESCAPE '\'
+              AND fqn <> $name AND short_name <> $name
+              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\');
             """;
 
         command.Parameters.AddWithValue("$name", name);
         command.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
         command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
-        return ReadHits(command);
+        return (int)(long)command.ExecuteScalar()!;
     }
 
     /// <summary>

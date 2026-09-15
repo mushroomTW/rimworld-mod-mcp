@@ -60,7 +60,8 @@ public sealed class SourceQueryService
                     continue;
                 }
 
-                var trimmed = content.TrimEnd('\r');
+                // 縮排對呼叫端沒有意義，前導 tab 卻每列都要算 token。
+                var trimmed = content.Trim();
                 results.Add(new SourceHit(
                     assembly,
                     path,
@@ -110,10 +111,11 @@ public sealed class SourceQueryService
 
         // Mod 搜尋必須把組件前綴推進 SQL：遊戲本體的命中數壓倒性多於任何
         // 單一 Mod，先截斷再過濾的話，典型情況下過濾後是空的。
-        if (!string.IsNullOrEmpty(assemblyLike))
-        {
-            sql += " AND s.assembly LIKE $assembly ESCAPE '\\'";
-        }
+        // 沒有組件樣式就是遊戲搜尋：Mod 的原始碼與遊戲本體共用同一張表，
+        // 不排除的話多版本 Mod 的同一行會在遊戲搜尋裡重複出現好幾次。
+        sql += string.IsNullOrEmpty(assemblyLike)
+            ? " AND s.assembly NOT LIKE 'mod:%'"
+            : " AND s.assembly LIKE $assembly ESCAPE '\\'";
 
         // FTS 路徑用 bm25 相關性排序，最相關的檔案先掃。
         if (match.Length > 0)

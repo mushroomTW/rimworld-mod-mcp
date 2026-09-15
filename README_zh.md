@@ -109,7 +109,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 | `rebuild_index` | 重建 Def 與符號索引。 |
 | `search_defs` | 以名稱、標籤或描述搜尋 Def。 |
 | `read_def` | 讀取單一 Def 的完整 XML。抽象 Def 用它的 `Name` 屬性查。 |
-| `read_symbol` | 查詢符號的簽章、完整繼承鏈與介面，可選擇一併反編譯原始碼。`assembly` 可限定單一組件（或多版本 Mod 的其中一個版本）。零命中時回 `suggestions`。 |
+| `read_symbol` | 查詢符號的簽章、完整繼承鏈與介面，可選擇一併反編譯原始碼。精確命中優先：有精確命中時不再混入子字串命中，只在 `partial_count` 計數。`assembly` 可限定單一組件（或多版本 Mod 的其中一個版本）。零命中時回 `suggestions`。 |
 | `list_symbols` | 不靠關鍵字瀏覽：給 namespace 列出其中的頂層型別與子 namespace，給型別列出它的成員。parent 不存在時報錯而不是回空清單。 |
 | `find_descendants` | 找出所有繼承自指定型別的類別；短名不歧義時也可以。零命中時回 `suggestions`。 |
 | `search_source` | 以正規表示式（.NET 語法，一律不分大小寫）搜尋反編譯後的原始碼：預設搜遊戲本體，給 `package_id` 則搜一個已安裝的 Mod（首次會在背景反編譯，`indexing=true` 代表稍後再試）。`assembly`（例如 `1.6/`）可只搜 Mod 其中一個版本的 DLL。優先用簡單字面量（`CurTimeSpeed`）；`a|b` 取聯集。 |
@@ -120,7 +120,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 
 | 工具 | 用途 |
 | --- | --- |
-| `list_installed_mods` | 列出本機與 Workshop 的 Mod。用 `package_id` 過濾、`limit`／`offset` 分頁；`include_details` 才附相依與版本欄位。 |
+| `list_installed_mods` | 列出本機與 Workshop 的 Mod。用 `package_id` 過濾、`limit`／`offset` 分頁；`include_details` 才附路徑、相依與版本欄位。 |
 | `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。鎖以 `packageId` 為單位，大 Mod 首次索引數分鐘也不會擋到別的 Mod。每個組件的鍵為 `mod:<packageId>:<DLL 相對路徑>`，例如 `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`。 |
 
 ### 建置

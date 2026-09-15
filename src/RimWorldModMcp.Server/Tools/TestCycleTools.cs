@@ -54,10 +54,10 @@ public sealed class TestCycleTools(
     public Task<ListDiagnosticsResult> ListTestDiagnostics(
         [Description("Return only this type: error, warning, diagnostic, loaded_mods, or performance.")]
         string? type = null,
-        [Description("Character limit per entry, 100-20000. Use get_test_diagnostic for the full stack trace.")]
-        int max_text_length = 2000,
+        [Description("Character limit per entry, 100-20000; the default keeps the message and the top frames. Use get_test_diagnostic for the full stack trace.")]
+        int max_text_length = 600,
         [Description("Maximum results, 1-500.")]
-        int limit = 100,
+        int limit = 50,
         [Description("Only entries new or re-occurring after this Unix-millisecond timestamp (use latest_at from the previous call). 0 returns everything.")]
         long since_at = 0,
         [Description("Long-poll: when nothing matches, keep waiting up to this many seconds (0-50) for new entries before returning. Keep it below your client's tool-call timeout.")]
@@ -143,8 +143,11 @@ public sealed class TestCycleTools(
         Hash = record.Hash,
         Type = record.Type,
         FirstLine = record.FirstLine,
-        Text = record.Text.Length > maxTextLength ? record.Text[..maxTextLength] : record.Text,
-        TextTruncated = record.Text.Length > maxTextLength,
+        // 單行診斷的 text 就是 first_line，重複送一次沒有意義。
+        Text = record.Text == record.FirstLine ? null
+            : record.Text.Length > maxTextLength ? record.Text[..maxTextLength]
+            : record.Text,
+        TextTruncated = record.Text != record.FirstLine && record.Text.Length > maxTextLength,
         Source = record.Source,
         RunId = record.RunId,
         Count = record.Count,
@@ -255,8 +258,10 @@ public sealed record DiagnosticSummary
     [JsonPropertyName("first_line")]
     public required string FirstLine { get; init; }
 
+    /// <summary>Full text, possibly truncated. Omitted when the diagnostic is a single line (identical to first_line).</summary>
     [JsonPropertyName("text")]
-    public required string Text { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; init; }
 
     [JsonPropertyName("text_truncated")]
     public required bool TextTruncated { get; init; }
