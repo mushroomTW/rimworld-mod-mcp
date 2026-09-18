@@ -115,11 +115,12 @@ static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellati
             // 工作流程放這裡而不是散在各工具描述裡：每一輪都要送全部工具的 schema，
             // 描述越長每輪成本越高；instructions 只在 initialize 送一次。
             options.ServerInstructions = """
-                RimWorld mod development server. Workflow:
+                RimWorld mod development server: Core/DLC Defs, the game's C# API, and the decompiled C# of any installed mod (Workshop or local), all indexed locally. Workflow:
                 1. rimworld_status first; if index.fresh=false call rebuild_index. index.source_index tells whether the source full-text layer is running, failed (error), or done.
-                2. Research: search_defs -> read_def for XML; read_symbol / list_symbols / find_descendants for the C# API (zero hits return suggestions); search_source for regex over decompiled code (add package_id for an installed mod; indexing=true means retry shortly); read_source_file to page a whole file.
-                3. Build: create_mod (with_code=true for C#), then build_mod after every source change.
-                4. Test: run_test_cycle launches the game in an isolated session; test_status(wait_for_state=Playing) blocks until the map is up and reports in-game state (paused, loading, open_windows); poll list_test_diagnostics with since_at=latest_at and wait_seconds>0; get_test_diagnostic for a full stack trace; stop_test(confirm=true) when done.
+                2. Research the game: search_defs -> read_def for Core/DLC XML; read_symbol / list_symbols / find_descendants for the C# API (zero hits return suggestions); search_source for regex over decompiled code (indexing=true means retry shortly); read_source_file to page a whole file.
+                3. Analyze an installed mod (Workshop or local, including DLL-only mods): list_installed_mods(package_id=<name fragment>, include_details=true) resolves packageId, path, dependencies and versions; search_source(package_id, e.g. pattern=HarmonyPatch for its patches) starts decompiling and indexing every DLL in the background; poll it until indexing=false (inspect_installed_mod does the same synchronously and can exceed your tool-call timeout on large mods). Then scope the same tools with assembly=mod:<packageId>: list_symbols(parent="") for its namespaces, read_symbol(include_body=true) for one member, read_source_file for a whole file. find_descendants lists mod types whose direct base is the given game type. A mod's own XML Defs are not indexed: read them from its path.
+                4. Build: create_mod (with_code=true for C#), then build_mod after every source change.
+                5. Test: run_test_cycle launches the game in an isolated session (companion_mods enables installed mods alongside, e.g. the mod you are patching); test_status(wait_for_state=Playing) blocks until the map is up and reports in-game state (paused, loading, open_windows); poll list_test_diagnostics with since_at=latest_at and wait_seconds>0; get_test_diagnostic for a full stack trace; stop_test(confirm=true) when done.
                 Unknown parameters are rejected, so use only the documented names.
                 """;
         })

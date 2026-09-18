@@ -19,7 +19,7 @@ public sealed class TestCycleTools(
     public TestSessionResult RunTestCycle(
         [Description("Directory of the mod to test.")]
         string path,
-        [Description("packageIds of additional mods to enable.")]
+        [Description("packageIds of installed mods to enable alongside, e.g. the mod you are patching or checking compatibility with.")]
         string[]? companion_mods = null,
         [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
         bool quicktest = true,

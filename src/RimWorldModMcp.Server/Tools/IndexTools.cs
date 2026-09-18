@@ -83,7 +83,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Search Defs by name, label, or description; returns summaries. Use read_def for the full XML.")]
+    [Description("Search Core and DLC Defs by name, label, or description; returns summaries. Use read_def for the full XML. Installed mods' Defs are not indexed; read their XML from the mod path.")]
     public SearchDefsResult SearchDefs(
         [Description("Search term. A trailing * means prefix search, e.g. Gun*.")]
         string query,
@@ -127,7 +127,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Look up a C# symbol: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. Exact name matches only whenever any exist (partial_count tells how many substring matches were skipped); substring matches otherwise. On zero hits, suggestions lists similar names. For the whole decompiled file use read_source_file.")]
+    [Description("Look up a C# symbol in the game or an indexed mod: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. Exact name matches only whenever any exist (partial_count tells how many substring matches were skipped); substring matches otherwise. On zero hits, suggestions lists similar names. For the whole decompiled file use read_source_file.")]
     public ReadSymbolResult ReadSymbol(
         [Description("Short name or full name, e.g. ThingDef or Verse.ThingDef; a fragment such as ThingDefO matches by substring.")]
         string name,
@@ -191,7 +191,7 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Browse the symbol tree without knowing a name: a namespace lists its top-level types and child namespaces; a type lists its members and nested types.")]
+    [Description("Browse the symbol tree without knowing a name: a namespace lists its top-level types and child namespaces; a type lists its members and nested types. With assembly=mod:<packageId> and an empty parent it lists an indexed mod's namespaces.")]
     public ListSymbolsResult ListSymbols(
         [Description("A namespace (e.g. Verse.AI) or a type's full name (e.g. Verse.ThingDef). Empty string lists the root namespaces.")]
         string parent = "",
@@ -277,7 +277,7 @@ public sealed class IndexTools(
         => string.IsNullOrEmpty(assembly) ? null : $"%{FtsQuery.LikeLiteral(assembly)}%";
 
     [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List every class deriving from the given type, including indirect descendants. On zero hits, suggestions lists similar type names.")]
+    [Description("List every class deriving from the given type, including indirect descendants within the same assembly; indexed mod types are found only when the given type is their direct base. On zero hits, suggestions lists similar type names.")]
     public FindDescendantsResult FindDescendants(
         [Description("Base type: full name (Verse.ThingComp) or short name (ThingComp) when unambiguous.")]
         string base_type,
@@ -326,7 +326,7 @@ public sealed class IndexTools(
     }
 
     [McpServerTool(Name = "search_source", UseStructuredContent = true)]
-    [Description("Regex search (.NET syntax, case-insensitive) over decompiled source: the game by default, or one installed mod with package_id. Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. indexing=true means the index is building in the background; retry in a while. Read a hit with read_source_file.")]
+    [Description("Regex search (.NET syntax, case-insensitive) over decompiled source: the game by default, or one installed mod with package_id (e.g. pattern=HarmonyPatch lists its patches). Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. indexing=true means the index is building in the background; retry in a while. Read a hit with read_source_file.")]
     public SearchSourceResult SearchSource(
         [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,
