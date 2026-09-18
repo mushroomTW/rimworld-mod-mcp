@@ -17,6 +17,8 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 - Build failures return **structured diagnostics** (error code, file, line, column) instead of a wall of MSBuild output.
 - Tests mods with an isolated save folder and temporary directory links, leaving your real saves and settings untouched.
 - Merges diagnostics from the in-game bridge and `Player.log`. If the bridge cannot connect, `Player.log` still works and the reason is reported rather than silently degraded.
+- The bridge also reports **in-game state** (main menu vs. playing, map loaded, tick, paused, loading, open dialogs), so an agent can wait for the map to come up before judging a test instead of guessing from log silence.
+- The bridge ships **prebuilt**; `run_test_cycle` needs no local .NET SDK when the installed game matches the prebuilt version.
 - Game files, decompiled output, indexes, and diagnostics all stay on your machine.
 
 ## Requirements
@@ -25,9 +27,9 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 - A legitimately installed copy of RimWorld
 
 > [!NOTE]
-> When running as a self-contained single executable, the server itself does not require a local .NET 10 Runtime. However, a local .NET SDK is still required at runtime for `build_mod` (compiling C# mods) and `run_test_cycle` (compiling the in-game test bridge on the fly).
+> When running as a self-contained single executable, the server itself does not require a local .NET 10 Runtime. A local .NET SDK is still required for `build_mod` (compiling C# mods). `run_test_cycle` uses the prebuilt in-game bridge shipped with the tool and only falls back to compiling it locally (which needs the SDK) when the installed game's major.minor version differs from the one the bridge was built for; `test_status` reports which path was taken in `bridge_origin`.
 
-The C# bridge references the RimWorld assemblies it detects; this repository contains no RimWorld binaries.
+The prebuilt C# bridge is compiled against the public [Krafs.Rimworld.Ref](https://www.nuget.org/packages/Krafs.Rimworld.Ref) reference assemblies; the local fallback build references the RimWorld assemblies it detects. This repository contains no RimWorld binaries.
 
 ## Installation
 
@@ -137,7 +139,7 @@ The tool set deliberately covers only what an AI coding agent cannot do on its o
 | Tool | Purpose |
 | --- | --- |
 | `run_test_cycle` | Launch RimWorld in an isolated session to test a mod. Use it for in-game acceptance (time-speed feel, rendering) that static analysis cannot cover. |
-| `test_status` | Current session state, including whether the bridge and daemon are healthy. |
+| `test_status` | Current session state: whether the bridge and daemon are healthy, and `game`, the in-game state the bridge last reported (`program_state` Entry/MapInitializing/Playing, `map_loaded`, `tick`, `paused`, `time_speed`, `loading`, `open_windows`, `colonists`, `age_ms`). Pass `wait_for_state=Playing` to block until the map is up. |
 | `stop_test` | Stop the session and clean up; requires `confirm: true`. |
 | `list_test_diagnostics` | List collected errors and warnings. Poll with `since_at` (the previous `latest_at`) and `wait_seconds` to long-poll for new entries instead of re-reading the list. |
 | `get_test_diagnostic` | Fetch one diagnostic in full by hash. |
@@ -161,6 +163,39 @@ Once tier 1 completes, Def search, symbol lookup, inheritance chains, and `read_
 - Temporary links in the Mods folder point at your workspace, so edits take effect without copying files. Windows uses junctions (no administrator rights needed); macOS and Linux use symbolic links.
 - Starting a test is refused while the game is already running — it would interfere with your own save.
 - Stopping a session removes the links, terminates the daemon, and cleans up the temporary save data. **Link removal never recurses into the target, so your mod source is never touched.**
+
+### What the agent can see during a test
+
+The bridge is a small Harmony mod, active only when a session token is present. It pushes two kinds of data over loopback:
+
+- **Diagnostics**: every `Log.Error` / `Log.Warning`, deduplicated with occurrence counts, merged with `Player.log`.
+- **Game state** (about once a second, or every 5 s as a heartbeat): `program_state`, whether a map is loaded, tick, paused, time speed, whether a long load is running, the open window types (a `Dialog_*` here usually means something is blocking), colonist count, and game version. `test_status` returns the latest report with its age.
+
+No screenshots: coding agents typically have their own screen-capture tooling, and this server stays focused on what they cannot do alone.
+
+## Compared with similar projects
+
+There are several AI-modding tools for RimWorld. They mostly occupy different niches; this table is from each project's README and repository as of September 2026 and only lists what those sources state.
+
+| | rimworld-mod-mcp | [Modmixer](https://github.com/lebek/modmixer) | [RimSage](https://github.com/realloon/RimSage) | [RimBridgeServer](https://github.com/pardeike/RimBridgeServer) | [RiMCP_hybrid](https://github.com/h7lu/RiMCP_hybrid) |
+| --- | --- | --- | --- | --- | --- |
+| Form | MCP server (single dotnet tool / executable), bring your own agent | Electron desktop app with a built-in agent; you supply a model API key | MCP server (Bun + ripgrep); hosted at mcp.rimsage.com or self-hosted | In-game mod exposing a tool bridge; used through [GABS](https://github.com/pardeike/GABS) or a direct connection | MCP server (C#, Lucene + vector + graph RAG) |
+| Game API research | IL metadata symbol index in seconds; per-member decompilation on demand; full-text source in the background | Decompiles all assemblies with a vendored `ilspycmd` on first launch, then indexes | Yes, but you decompile the game yourself first (`import-csharp` takes a decompiled source tree) | No | Yes; requires an embedding model (local or remote API) to build the index |
+| Def XML search | Yes, with cross-reference lookup (`find_def_usages`) | Yes | Yes (`search_defs`, `get_def_details`) | No | Yes |
+| Installed mods | List, decompile and search other mods' assemblies | — | No | List mods, read/change mod settings and load order in the running game | No |
+| Build | C# build with structured compiler diagnostics | Yes (agent edits and builds) | No | No | No |
+| Test launch | Isolated save folder, generated `ModsConfig.xml`, junction/symlink to your workspace | Launches the game with the mod installed; bridge mod watches for errors | No | Starts a debug game or loads a save through GABS | No |
+| In-game feedback | Errors/warnings + game state (scene, map, tick, paused, open dialogs) | Errors via its bridge mod | — | Full live state, semantic UI layout, screenshots, debug actions, Lua scripting | — |
+| Steam Workshop | None by design | Publishing built in | — | — | — |
+| Network | None; everything stays local | Model provider API, Workshop upload; ships `@sentry/electron` | Hosted mode sends queries to rimsage.com; self-hosted mode is local | Local | Local unless a remote embedding API is used |
+| Games | RimWorld | RimWorld, Minecraft | RimWorld | RimWorld | RimWorld |
+| License | MIT | MIT | MIT | MIT | MIT |
+
+Where this project fits:
+
+- **Versus Modmixer**: same overall loop (research → build → launch → read errors), but as a headless MCP server for coding agents you already use (Claude Code, Codex, …) rather than a desktop app with its own chat. No Workshop publishing and no art/audio pipeline. Indexing is layered so symbol lookup works within seconds of the first `rebuild_index` instead of waiting for a full decompile.
+- **Versus RimSage / RiMCP_hybrid**: those are research-only. This server also decompiles for you, builds, and tests; RiMCP_hybrid's semantic search may find conceptually related code that a literal/regex search misses.
+- **Versus RimBridgeServer**: complementary rather than competing. RimBridgeServer gives an agent deep control of a running game (UI, screenshots, debug actions); this project's bridge reports only diagnostics and coarse game state. Use RimBridgeServer when you need in-game interaction; use this server for the API research, build, and isolated launch around it.
 
 ## Security and privacy
 

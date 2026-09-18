@@ -76,7 +76,7 @@ public sealed partial class TestEnvironmentPreparer(
 
             if (bridgeSource is not null)
             {
-                // Bridge 必須先建置成 DLL，否則 RimWorld 會載入一個沒有組件的空 Mod，
+                // Bridge 必須先有 DLL（預編譯或就地建置），否則 RimWorld 會載入一個沒有組件的空 Mod，
                 // 診斷就只剩 Player.log 這一條路。
                 var build = bridgeBuilder.Ensure(bridgeSource);
 
@@ -87,7 +87,7 @@ public sealed partial class TestEnvironmentPreparer(
                     createdLinks.Add(new TestLink(bridgeLink, build.ModDirectory));
 
                     activeMods.Add(BridgePackageId);
-                    bridgeState = new BridgeState { State = "active", PackageId = BridgePackageId };
+                    bridgeState = new BridgeState { State = "active", PackageId = BridgePackageId, Origin = build.Origin };
                 }
                 else
                 {

@@ -17,6 +17,8 @@
 - 建置失敗回傳**結構化診斷**（錯誤代碼、檔名、行列），而不是一整包 MSBuild 文字輸出。
 - 用獨立的存檔目錄與臨時目錄連結測試 Mod，不會動到使用者的存檔與設定。
 - 合併遊戲內 Bridge 與 `Player.log` 的診斷；Bridge 連不上時仍有 `Player.log` 可用，且會明確告知原因而非靜默降級。
+- Bridge 同時回報**遊戲內狀態**（主選單或遊戲中、地圖是否載入、tick、暫停、載入中、開啟的對話框），agent 可以等地圖真的起來再判斷測試結果，不必從 log 的沉默去猜。
+- Bridge **隨工具預編譯發佈**；遊戲版本與預編譯版本相同時，`run_test_cycle` 不需要本機 .NET SDK。
 - 遊戲檔、反編譯結果、索引與診斷全部留在本機。
 
 ## 系統需求
@@ -25,9 +27,9 @@
 - 本機已合法安裝的 RimWorld
 
 > [!NOTE]
-> 若使用 Self-Contained 獨立單一執行檔，執行伺服器本體無需安裝 .NET 10 Runtime；但 `build_mod`（編譯 C# Mod）與 `run_test_cycle`（就地即時編譯測試用 Bridge）兩項工具在執行時仍需依賴系統中的 .NET SDK。
+> 若使用 Self-Contained 獨立單一執行檔，執行伺服器本體無需安裝 .NET 10 Runtime；`build_mod`（編譯 C# Mod）仍需要本機 .NET SDK。`run_test_cycle` 使用隨工具發佈的預編譯 Bridge，只有在已安裝遊戲的 major.minor 版本與預編譯版本不同時才退回就地編譯（那時才需要 SDK）；`test_status` 的 `bridge_origin` 會說明走的是哪一條路。
 
-C# Bridge 會參考偵測到的 RimWorld 組件；本 repository 不包含任何 RimWorld 二進位檔。
+預編譯的 C# Bridge 以公開的 [Krafs.Rimworld.Ref](https://www.nuget.org/packages/Krafs.Rimworld.Ref) 參考組件編譯；就地建置的後備路徑才會參考偵測到的 RimWorld 組件。本 repository 不包含任何 RimWorld 二進位檔。
 
 ## 安裝
 
@@ -137,7 +139,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 | 工具 | 用途 |
 | --- | --- |
 | `run_test_cycle` | 在隔離環境啟動 RimWorld 測試 Mod。遊戲內手感（時間流速、渲染顯示）這類靜態分析測不到的驗收正是它的主場。 |
-| `test_status` | 目前場次的狀態，含 Bridge 與 daemon 是否正常。 |
+| `test_status` | 目前場次的狀態：Bridge 與 daemon 是否正常，以及 `game`——Bridge 最後回報的遊戲內狀態（`program_state` Entry／MapInitializing／Playing、`map_loaded`、`tick`、`paused`、`time_speed`、`loading`、`open_windows`、`colonists`、`age_ms`）。傳 `wait_for_state=Playing` 可以一直等到地圖載入完成。 |
 | `stop_test` | 停止場次並清理，需要 `confirm: true`。 |
 | `list_test_diagnostics` | 列出收集到的錯誤與警告。輪詢時帶 `since_at`（上一次的 `latest_at`）與 `wait_seconds` 做 long-poll，只拿新的而不是整份重讀。 |
 | `get_test_diagnostic` | 依 hash 取得單一診斷的完整內容。 |
@@ -161,6 +163,39 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 - Mods 目錄下建立臨時連結指向工作區，不複製檔案，所以改動立即生效。Windows 用 junction（不需要管理員權限），macOS 與 Linux 用 symbolic link。
 - 遊戲已在執行時拒絕開始測試——那會干擾使用者自己的存檔。
 - 停止場次會移除連結、終止 daemon、清理暫存存檔；**連結的移除永遠不會遞迴進目標，使用者的 Mod 原始碼不受影響**。
+
+### 測試期間 agent 看得到什麼
+
+Bridge 是一個很小的 Harmony Mod，只在場次 token 存在時啟用。它透過 loopback 推送兩種資料：
+
+- **診斷**：每一則 `Log.Error`／`Log.Warning`，去重並累計次數，與 `Player.log` 合併。
+- **遊戲狀態**（約每秒一次，無變化時每 5 秒心跳）：`program_state`、地圖是否載入、tick、是否暫停、時間流速、是否有長時間載入進行中、開啟的視窗型別（出現 `Dialog_*` 通常代表有東西擋住流程）、殖民者人數、遊戲版本。`test_status` 回傳最新一筆與它的存活時間。
+
+不提供截圖：coding agent 通常自帶螢幕擷取工具，本伺服器只做 agent 自己做不到的事。
+
+## 與類似專案的對比
+
+RimWorld 的 AI 輔助 modding 工具有好幾個，各自占據不同的位置。下表內容取自各專案 2026 年 9 月時的 README 與 repository，只列出來源有明說的項目。
+
+| | rimworld-mod-mcp | [Modmixer](https://github.com/lebek/modmixer) | [RimSage](https://github.com/realloon/RimSage) | [RimBridgeServer](https://github.com/pardeike/RimBridgeServer) | [RiMCP_hybrid](https://github.com/h7lu/RiMCP_hybrid) |
+| --- | --- | --- | --- | --- | --- |
+| 型態 | MCP server（單一 dotnet tool／執行檔），搭配你自己的 agent | Electron 桌面 app，內建 agent，自備模型 API key | MCP server（Bun + ripgrep）；有 mcp.rimsage.com 託管服務，也可自架 | 遊戲內 Mod，對外暴露工具橋接；經 [GABS](https://github.com/pardeike/GABS) 或直接連線使用 | MCP server（C#，Lucene + 向量 + 圖 RAG） |
+| 遊戲 API 研究 | IL 中繼資料符號索引，數秒完成；按需反編譯單一成員；全文原始碼在背景建立 | 首次啟動時用內附的 `ilspycmd` 反編譯全部組件後索引 | 有，但要你自己先反編譯（`import-csharp` 吃的是反編譯後的原始碼目錄） | 無 | 有；建索引需要嵌入模型（本機或遠端 API） |
+| Def XML 搜尋 | 有，含交叉引用查詢（`find_def_usages`） | 有 | 有（`search_defs`、`get_def_details`） | 無 | 有 |
+| 已安裝的 Mod | 列出、反編譯並搜尋其他 Mod 的組件 | — | 無 | 在執行中的遊戲裡列出 Mod、讀寫 Mod 設定與載入順序 | 無 |
+| 建置 | C# 建置，回傳結構化編譯診斷 | 有（agent 編輯並建置） | 無 | 無 | 無 |
+| 測試啟動 | 隔離存檔目錄、自產 `ModsConfig.xml`、junction／symlink 指向工作區 | 安裝 Mod 後啟動遊戲；Bridge Mod 監看錯誤 | 無 | 經 GABS 啟動 debug 遊戲或載入存檔 | 無 |
+| 遊戲內回饋 | 錯誤／警告 + 遊戲狀態（場景、地圖、tick、暫停、開啟的對話框） | 經其 Bridge Mod 回報錯誤 | — | 完整即時狀態、語意化 UI 佈局、截圖、debug action、Lua 腳本 | — |
+| Steam Workshop | 刻意不做 | 內建發佈 | — | — | — |
+| 網路 | 無；全部留在本機 | 模型供應商 API、Workshop 上傳；內含 `@sentry/electron` | 託管模式會把查詢送到 rimsage.com；自架模式在本機 | 本機 | 本機，除非使用遠端嵌入 API |
+| 支援遊戲 | RimWorld | RimWorld、Minecraft | RimWorld | RimWorld | RimWorld |
+| 授權 | MIT | MIT | MIT | MIT | MIT |
+
+本專案的位置：
+
+- **對 Modmixer**：整體迴圈相同（研究 → 建置 → 啟動 → 讀錯誤），但形式是給你既有 coding agent（Claude Code、Codex 等）用的無介面 MCP server，而不是有自己聊天視窗的桌面 app。沒有 Workshop 發佈，也沒有美術／音效管線。索引分層，第一次 `rebuild_index` 後數秒內符號查詢就能用，不必等整套反編譯完成。
+- **對 RimSage／RiMCP_hybrid**：那兩個只做研究。本伺服器另外幫你反編譯、建置與測試；RiMCP_hybrid 的語意檢索可能找到字面／regex 搜尋漏掉的概念相關程式碼。
+- **對 RimBridgeServer**：互補而非競爭。RimBridgeServer 讓 agent 深度操控執行中的遊戲（UI、截圖、debug action）；本專案的 Bridge 只回報診斷與粗略的遊戲狀態。需要遊戲內互動時用 RimBridgeServer，外圍的 API 研究、建置與隔離啟動用本伺服器。
 
 ## 安全與隱私
 

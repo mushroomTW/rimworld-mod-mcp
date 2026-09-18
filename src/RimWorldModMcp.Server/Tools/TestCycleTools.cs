@@ -11,7 +11,8 @@ namespace RimWorldModMcp.Server.Tools;
 [McpServerToolType]
 public sealed class TestCycleTools(
     TestCycleService testCycle,
-    DiagnosticStore diagnostics)
+    DiagnosticStore diagnostics,
+    GameStateStore gameState)
 {
     [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, Idempotent = false)]
     [Description("Launch RimWorld with the given mod in an isolated save directory; the user's saves and settings stay untouched. Run build_mod first for C# mods; after launch, read errors with list_test_diagnostics. Requires the game to not be running.")]
@@ -26,11 +27,37 @@ public sealed class TestCycleTools(
         string[]? seed_config = null,
         [Description("Launch as a borderless fullscreen window (rewrites <fullscreen> in the isolated Prefs.xml copy; the user's own Prefs.xml is untouched). Set false to keep whatever the user's Prefs.xml says.")]
         bool fullscreen = true) => ToolGuard.Run(() =>
-        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config, fullscreen)));
+        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config, fullscreen), game: null));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Report the current test session state, including whether the bridge and diagnostics daemon are healthy.")]
-    public TestSessionResult TestStatus() => ToolGuard.Run(() => ToResult(testCycle.Status()));
+    [Description("Report the current test session state: whether the bridge and diagnostics daemon are healthy, and game (the in-game state the bridge last reported: program_state Entry/MapInitializing/Playing, map_loaded, tick, paused, loading, open_windows, age_ms). game is null until the bridge reports. Pass wait_for_state to block until program_state reaches it, e.g. wait_for_state=Playing before checking for errors.")]
+    public Task<TestSessionResult> TestStatus(
+        [Description("Long-poll until game.program_state equals this value (Entry, MapInitializing, or Playing; case-insensitive). Returns the current state when wait_seconds elapses first.")]
+        string? wait_for_state = null,
+        [Description("How long wait_for_state may block, 0-50 seconds. Keep it below your client's tool-call timeout.")]
+        int wait_seconds = 30,
+        CancellationToken cancellationToken = default) => ToolGuard.RunAsync(async () =>
+    {
+        var state = gameState.Read();
+
+        if (!string.IsNullOrWhiteSpace(wait_for_state))
+        {
+            // 與 list_test_diagnostics 相同的理由：daemon 是另一個行程寫檔，只能輪詢，
+            // 但把輪詢留在 server 端，agent 的一次呼叫就抵過原本十次「到了沒」。
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(wait_seconds, 0, 50));
+
+            while (!Reached(state, wait_for_state) && DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+                state = gameState.Read();
+            }
+        }
+
+        return ToResult(testCycle.Status(), state);
+    });
+
+    private static bool Reached(GameStateRecord? state, string target)
+        => state is not null && string.Equals(state.ProgramState, target.Trim(), StringComparison.OrdinalIgnoreCase);
 
     [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true)]
     [Description("Stop the test session: remove temporary links, terminate the diagnostics daemon, and clean up the temporary save data.")]
@@ -46,7 +73,7 @@ public sealed class TestCycleTools(
             throw new ModelContextProtocol.McpException("Stopping the test removes the links and terminates the daemon; confirm=true is required.");
         }
 
-        return ToResult(testCycle.Stop(terminate_game));
+        return ToResult(testCycle.Stop(terminate_game), game: null);
     });
 
     [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true)]
@@ -117,7 +144,7 @@ public sealed class TestCycleTools(
         return ToSummary(record, int.MaxValue);
     });
 
-    private static TestSessionResult ToResult(TestSession session) => new()
+    private static TestSessionResult ToResult(TestSession session, GameStateRecord? game) => new()
     {
         State = session.State,
         RunId = session.RunId,
@@ -128,6 +155,7 @@ public sealed class TestCycleTools(
         PlayerLog = session.PlayerLog,
         BridgePort = session.BridgePort,
         BridgeState = session.Bridge?.State,
+        BridgeOrigin = session.Bridge?.Origin,
         BridgeReason = session.Bridge?.Reason,
         DaemonState = session.Daemon?.State,
         DaemonReason = session.Daemon?.Reason,
@@ -136,6 +164,20 @@ public sealed class TestCycleTools(
         TerminatedDaemon = session.Terminated?.Daemon,
         TerminatedGame = session.Terminated?.Game,
         LinksRemaining = [.. session.Links.Select(l => l.Link)],
+        Game = game is null ? null : new GameStateSummary
+        {
+            ProgramState = game.ProgramState,
+            MapLoaded = game.MapLoaded,
+            Tick = game.Tick,
+            Paused = game.Paused,
+            TimeSpeed = game.TimeSpeed,
+            Loading = game.Loading,
+            OpenWindows = game.OpenWindows,
+            Colonists = game.Colonists,
+            GameVersion = game.GameVersion,
+            UptimeMs = game.UptimeMs,
+            AgeMs = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - game.At),
+        },
     };
 
     private static DiagnosticSummary ToSummary(DiagnosticRecord record, int maxTextLength) => new()
@@ -186,6 +228,11 @@ public sealed record TestSessionResult
     [JsonPropertyName("bridge_state")]
     public string? BridgeState { get; init; }
 
+    /// <summary><c>prebuilt</c> (shipped with the tool, no SDK needed) or <c>built</c> (compiled locally against the installed game).</summary>
+    [JsonPropertyName("bridge_origin")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeOrigin { get; init; }
+
     [JsonPropertyName("bridge_reason")]
     public string? BridgeReason { get; init; }
 
@@ -215,6 +262,52 @@ public sealed record TestSessionResult
     /// </summary>
     [JsonPropertyName("links_remaining")]
     public IReadOnlyList<string> LinksRemaining { get; init; } = [];
+
+    /// <summary>In-game state last reported by the bridge; null until the bridge connects. Only test_status fills it.</summary>
+    [JsonPropertyName("game")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GameStateSummary? Game { get; init; }
+}
+
+/// <summary>In-game state as reported by the bridge.</summary>
+public sealed record GameStateSummary
+{
+    /// <summary><c>Entry</c> (main menu), <c>MapInitializing</c>, or <c>Playing</c>.</summary>
+    [JsonPropertyName("program_state")]
+    public required string ProgramState { get; init; }
+
+    [JsonPropertyName("map_loaded")]
+    public required bool MapLoaded { get; init; }
+
+    [JsonPropertyName("tick")]
+    public required int Tick { get; init; }
+
+    [JsonPropertyName("paused")]
+    public required bool Paused { get; init; }
+
+    [JsonPropertyName("time_speed")]
+    public string? TimeSpeed { get; init; }
+
+    /// <summary>A long operation (loading, map generation) is running or queued.</summary>
+    [JsonPropertyName("loading")]
+    public required bool Loading { get; init; }
+
+    /// <summary>Open window type names, bottom to top. A Dialog_* here usually means something is blocking the game.</summary>
+    [JsonPropertyName("open_windows")]
+    public IReadOnlyList<string> OpenWindows { get; init; } = [];
+
+    [JsonPropertyName("colonists")]
+    public required int Colonists { get; init; }
+
+    [JsonPropertyName("game_version")]
+    public string? GameVersion { get; init; }
+
+    [JsonPropertyName("uptime_ms")]
+    public required long UptimeMs { get; init; }
+
+    /// <summary>Milliseconds since this report arrived. The bridge sends at least every 5 seconds; a much larger value means the game stopped responding.</summary>
+    [JsonPropertyName("age_ms")]
+    public required long AgeMs { get; init; }
 }
 
 /// <summary>Diagnostic listing.</summary>

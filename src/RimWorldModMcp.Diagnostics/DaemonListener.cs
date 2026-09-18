@@ -20,6 +20,7 @@ public sealed class DaemonListener(
     DiagnosticStore diagnostics,
     TestSessionStore sessions,
     DaemonRecordStore records,
+    GameStateStore gameState,
     TimeSpan? readTimeout = null)
 {
     /// <summary>只接受這些訊息類型，其餘一律丟棄。</summary>
@@ -27,6 +28,12 @@ public sealed class DaemonListener(
     {
         "error", "warning", "diagnostic", "loaded_mods", "performance",
     };
+
+    /// <summary>遊戲狀態不是診斷：不去重、不累計，只覆蓋成最新一份。</summary>
+    private const string GameStateType = "game_state";
+
+    /// <summary>open_windows 的筆數上限；Bridge 端也截，這裡再守一次。</summary>
+    private const int MaxOpenWindows = 8;
 
     /// <summary>
     /// 單行 payload 的位元組上限。沒有上限的話，任何本機程序（token 驗證
@@ -241,8 +248,27 @@ public sealed class DaemonListener(
 
         if (!payload.TryGetProperty("type", out var type)
             || type.ValueKind != JsonValueKind.String
-            || type.GetString() is not { } typeText
-            || !AcceptedTypes.Contains(typeText))
+            || type.GetString() is not { } typeText)
+        {
+            return;
+        }
+
+        if (typeText == GameStateType)
+        {
+            try
+            {
+                gameState.Write(ToGameState(payload, sessions.Read().RunId));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Windows 上 server 正在讀這個檔時置換會失敗。丟掉這一筆就好——
+                // 下一筆一秒內就到；讓例外逸出會被當成連線死亡而切斷整條 Bridge 連線。
+            }
+
+            return;
+        }
+
+        if (!AcceptedTypes.Contains(typeText))
         {
             return;
         }
@@ -258,6 +284,38 @@ public sealed class DaemonListener(
         // 只取需要的欄位——token 到此為止，不會進入儲存或回應。
         diagnostics.Add(typeText, firstLine, text, "bridge", sessions.Read().RunId);
     }
+
+    /// <summary>每個欄位各自容錯：Bridge 版本較舊而少送某個欄位時，其餘欄位仍然可用。</summary>
+    private static GameStateRecord ToGameState(JsonElement payload, string? runId) => new()
+    {
+        ProgramState = ReadString(payload, "program_state") ?? "Unknown",
+        MapLoaded = ReadBool(payload, "map_loaded"),
+        Tick = ReadInt(payload, "tick"),
+        Paused = ReadBool(payload, "paused"),
+        TimeSpeed = ReadString(payload, "time_speed"),
+        Loading = ReadBool(payload, "loading"),
+        OpenWindows = ReadStrings(payload, "open_windows"),
+        Colonists = ReadInt(payload, "colonists"),
+        GameVersion = ReadString(payload, "game_version"),
+        UptimeMs = payload.TryGetProperty("uptime_ms", out var uptime) && uptime.ValueKind == JsonValueKind.Number && uptime.TryGetInt64(out var ms) ? ms : 0,
+        RunId = runId,
+        At = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+    };
+
+    private static string? ReadString(JsonElement payload, string name)
+        => payload.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static bool ReadBool(JsonElement payload, string name)
+        => payload.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
+
+    // TryGetInt32 在非數字節點上會拋而不是回 false，所以先檢查 ValueKind。
+    private static int ReadInt(JsonElement payload, string name)
+        => payload.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) ? number : 0;
+
+    private static IReadOnlyList<string> ReadStrings(JsonElement payload, string name)
+        => payload.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? [.. value.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).Take(MaxOpenWindows)]
+            : [];
 
     private static bool TokenEquals(string? provided, string expected) =>
         string.Equals(provided, expected, StringComparison.Ordinal);

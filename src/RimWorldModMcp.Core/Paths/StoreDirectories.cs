@@ -46,6 +46,9 @@ public sealed class StoreDirectories
 
     public string DiagnosticsFile => Path.Combine(DataHome, "diagnostics.json");
 
+    /// <summary>Bridge 最後一次回報的遊戲狀態；每次只保留最新一份。</summary>
+    public string GameStateFile => Path.Combine(DataHome, "game-state.json");
+
     public string BridgeTokenFile => Path.Combine(DataHome, "bridge-token");
 
     public string TestSaveDataDirectory => Path.Combine(DataHome, "test-savedata");

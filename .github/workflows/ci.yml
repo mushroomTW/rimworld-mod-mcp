@@ -32,6 +32,7 @@ jobs:
       - run: dotnet test tests/RimWorldModMcp.Core.Tests --configuration Release --no-build
       - run: dotnet test tests/RimWorldModMcp.Indexing.Tests --configuration Release --no-build
       - run: dotnet test tests/RimWorldModMcp.Diagnostics.Tests --configuration Release --no-build
+      - run: dotnet test tests/RimWorldModMcp.Server.Tests --configuration Release --no-build
 
   # 確認 dotnet tool 打包成功且能被安裝——SQLite 的原生程式庫是靠
   # runtimes/<rid>/native 解析的，打包成功但執行期載入失敗是典型的陷阱。
@@ -47,6 +48,18 @@ jobs:
         with:
           dotnet-version: '10.x'
       - run: dotnet pack src/RimWorldModMcp.Server --configuration Release -o ./nupkg
+      # 預編譯的 Bridge 必須在套件裡：少了它，run_test_cycle 會退回就地建置並要求本機 SDK。
+      # 用 python 讀 zip：三個 runner 都有 python3，unzip 在 windows 的 bash 不保證有，
+      # 而 macOS 的 wc -l 輸出帶前導空白，不能直接與數字比對。
+      - run: |
+          python3 - <<'EOF'
+          import glob, sys, zipfile
+          names = set(zipfile.ZipFile(glob.glob("nupkg/*.nupkg")[0]).namelist())
+          missing = [f for f in ("RimWorldModMcp.Bridge.dll", "0Harmony.dll", "game-version.txt")
+                     if f"tools/net10.0/any/bridge/Prebuilt/{f}" not in names]
+          sys.exit(f"prebuilt bridge files missing from package: {missing}" if missing else 0)
+          EOF
+        shell: bash
       - run: dotnet tool install -g RimWorldModMcp --add-source ./nupkg --version 0.1.0
       # detect 在沒有安裝 RimWorld 的 runner 上會回傳非零，這是預期的；
       # 這裡要驗的是工具能啟動、相依能解析。

@@ -13,16 +13,36 @@
     <AssemblyName>RimWorldModMcp.Bridge</AssemblyName>
     <RootNamespace>RimWorldModMcp.Bridge</RootNamespace>
     <IsPackable>false</IsPackable>
+
+    <!--
+      預編譯所對應的遊戲版本（major.minor）。Server 打包時會用公開參考組件編出
+      這個版本的 Bridge DLL 隨工具發佈；執行期遊戲版本相同就直接用，
+      不同才退回就地建置。改這裡要同步 About/About.xml 的 supportedVersions。
+    -->
+    <BridgeGameVersion>1.6</BridgeGameVersion>
+
+    <!--
+      預編譯變體把 obj/bin 改到 obj\prebuilt\、bin\prebuilt\，此時 SDK 的預設排除就不再涵蓋
+      標準建置的 obj\，會把那裡產生的 AssemblyInfo.cs 一起編進來。兩個目錄一律排除。
+    -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(RimWorldManagedDir)' == ''">
-    <RimWorldManagedDir>$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
+  <PropertyGroup>
+    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == ''">$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
+
+    <!--
+      有本機安裝時參考真正的遊戲組件，那是實際部署要用的版本。
+      BridgeUseReferenceAssemblies=true 強制改用公開參考組件——Server 打包預編譯
+      版本時用，確保發佈的 DLL 不依賴打包機器上碰巧安裝的遊戲。
+    -->
+    <BridgeUseGameAssemblies>false</BridgeUseGameAssemblies>
+    <BridgeUseGameAssemblies Condition="'$(RimWorldManagedDir)' != '' and '$(BridgeUseReferenceAssemblies)' != 'true'">true</BridgeUseGameAssemblies>
+    <BridgeRefAssets>none</BridgeRefAssets>
+    <BridgeRefAssets Condition="'$(BridgeUseGameAssemblies)' == 'true'">all</BridgeRefAssets>
   </PropertyGroup>
 
-  <!--
-    有本機安裝時參考真正的遊戲組件，那是實際部署要用的版本。
-  -->
-  <ItemGroup Condition="'$(RimWorldManagedDir)' != ''">
+  <ItemGroup Condition="'$(BridgeUseGameAssemblies)' == 'true'">
     <Reference Include="Assembly-CSharp">
       <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
@@ -34,16 +54,22 @@
   </ItemGroup>
 
   <!--
-    沒有本機安裝時（例如 CI）退回公開的參考組件，讓 Bridge 仍然能被編譯檢查。
-    參考組件只有型別簽章沒有實作，不能用於實際執行，所以標成 PrivateAssets。
+    公開參考組件只有型別簽章沒有實作，不能被載入執行，所以標成 PrivateAssets。
+    永遠列在 PackageReference 裡而不是條件式加入，用遊戲組件時以 ExcludeAssets 把它整包排除。
+    注意 ExcludeAssets 會在 restore 時寫進 project.assets.json，所以兩種建置各自需要一份
+    assets 檔——Server 的預編譯變體因此把 obj 改到 obj\prebuilt\。
   -->
-  <ItemGroup Condition="'$(RimWorldManagedDir)' == ''">
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.*" PrivateAssets="all" />
-  </ItemGroup>
-
   <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="$(BridgeGameVersion).*" PrivateAssets="all" ExcludeAssets="$(BridgeRefAssets)" />
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
+
+  <!--
+    把預編譯對應的遊戲版本寫進輸出目錄，執行期靠它比對 Version.txt 決定能不能直接用。
+  -->
+  <Target Name="WriteBridgeGameVersion" AfterTargets="Build">
+    <WriteLinesToFile File="$(OutDir)game-version.txt" Lines="$(BridgeGameVersion)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
 
 </Project>

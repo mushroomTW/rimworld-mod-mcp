@@ -32,7 +32,8 @@ public sealed class TestCycleService(
     CriticalSectionLock locks,
     TestSessionStore sessions,
     DaemonBootstrapper daemons,
-    DiagnosticStore diagnostics)
+    DiagnosticStore diagnostics,
+    GameStateStore gameState)
 {
     public TestSession Start(
         string modPath,
@@ -92,6 +93,7 @@ public sealed class TestCycleService(
             prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles, fullscreen);
 
             diagnostics.Clear();
+            gameState.Clear();
 
             // daemon 必須在啟動遊戲之前就緒，否則最早的診斷會漏掉。
             var (daemonState, ownedPid) = daemons.Ensure();
@@ -257,6 +259,9 @@ public sealed class TestCycleService(
         };
 
         sessions.Write(stopped);
+
+        // 場次結束後就沒有遊戲了；留著舊狀態會讓 test_status 看起來像遊戲還在跑。
+        gameState.Clear();
         return stopped;
     }
 

@@ -39,7 +39,8 @@ public sealed class DaemonListenerTcpTests : IDisposable
             _port,
             _diagnostics,
             new TestSessionStore(_store),
-            _records);
+            _records,
+            new GameStateStore(_store));
     }
 
     public void Dispose()
@@ -72,7 +73,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
     {
         // 逾時是「閒置」逾時：只要持續有資料進來，連線活得比逾時長也不該被切。
         var idle = TimeSpan.FromMilliseconds(400);
-        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, idle);
+        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, new GameStateStore(_store), idle);
 
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var running = listener.RunAsync(cancellation.Token);
@@ -127,7 +128,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
     public async Task IdleConnectionIsClosedAfterTimeout()
     {
         var idle = TimeSpan.FromMilliseconds(300);
-        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, idle);
+        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, new GameStateStore(_store), idle);
 
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var running = listener.RunAsync(cancellation.Token);

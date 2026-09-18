@@ -88,6 +88,10 @@ public sealed record BridgeState
     [JsonPropertyName("package_id")]
     public string? PackageId { get; init; }
 
+    /// <summary><c>prebuilt</c>（工具隨附、依遊戲版本直接使用）或 <c>built</c>（就地以本機遊戲組件建置）。</summary>
+    [JsonPropertyName("origin")]
+    public string? Origin { get; init; }
+
     [JsonPropertyName("reason")]
     public string? Reason { get; init; }
 }

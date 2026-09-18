@@ -6,16 +6,16 @@ using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Diagnostics;
 
-/// <summary>Bridge preparation result.</summary>
-public sealed record BridgeBuild(bool Success, string? ModDirectory, bool Rebuilt, string? Error);
+/// <summary>Bridge preparation result. <paramref name="Origin"/> 是 <c>prebuilt</c> 或 <c>built</c>。</summary>
+public sealed record BridgeBuild(bool Success, string? ModDirectory, bool Rebuilt, string? Error, string? Origin = null);
 
 /// <summary>
 /// 準備可供 RimWorld 載入的 Bridge Mod。
 ///
 /// <para>
-/// Bridge 必須參考使用者本機安裝的 RimWorld 組件，所以無法預先編譯——
-/// 只能在第一次測試前就地建置。建置產物放在快取目錄而不是工具的安裝位置，
-/// 這樣以 dotnet tool 安裝時也不會去寫安裝目錄。
+/// 兩條路：工具隨附的預編譯 DLL（用公開參考組件編的，遊戲 major.minor 相同就能直接載入，
+/// 不需要本機 .NET SDK），或是遊戲版本不同時參考使用者本機的遊戲組件就地建置。
+/// 兩者都複製到快取目錄再連結，以 dotnet tool 安裝時就不會去寫安裝目錄。
 /// </para>
 /// </summary>
 public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locator)
@@ -23,38 +23,108 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
     /// <summary>Bridge 需要的組件：自身加上它自帶的 Harmony。</summary>
     private static readonly string[] RequiredAssemblies = ["RimWorldModMcp.Bridge.dll", "0Harmony.dll"];
     private const string SourceDir = "Source";
+    private const string PrebuiltDir = "Prebuilt";
+    private const string PrebuiltVersionFile = "game-version.txt";
 
     /// <summary>
-    /// 確保 Bridge 已建置且是最新的，回傳可直接連結的 Mod 目錄。
+    /// 確保 Bridge 已就緒且是最新的，回傳可直接連結的 Mod 目錄。
     /// </summary>
-    /// <param name="sourceDirectory">Bridge 的原始碼目錄（含 About/ 與 Source/）。</param>
+    /// <param name="sourceDirectory">Bridge 目錄（含 About/、Source/，通常還有 Prebuilt/）。</param>
     public BridgeBuild Ensure(string sourceDirectory)
     {
-        var managed = locator.Detect().ManagedDir;
+        var paths = locator.Detect();
+        var managed = paths.ManagedDir;
 
         if (managed is null)
         {
-            return new BridgeBuild(false, null, false, "RimWorld Managed directory not found; cannot build the Bridge.");
-        }
-
-        var project = Path.Combine(sourceDirectory, SourceDir, "RimWorldModMcp.Bridge.csproj");
-
-        if (!File.Exists(project))
-        {
-            return new BridgeBuild(false, null, false, $"Bridge project file not found: {project}");
+            return new BridgeBuild(false, null, false, "RimWorld Managed directory not found; cannot prepare the Bridge.");
         }
 
         var modDirectory = Path.Combine(store.CacheHome, "bridge");
         var assemblies = Path.Combine(modDirectory, "Assemblies");
         var stampFile = Path.Combine(modDirectory, ".build-stamp");
+
+        var gameVersion = GameVersion.ReadMajorMinor(paths.InstallRoot);
+        var prebuilt = Path.Combine(sourceDirectory, PrebuiltDir);
+        var prebuiltVersion = ReadStamp(Path.Combine(prebuilt, PrebuiltVersionFile));
+        var prebuiltUsable = prebuiltVersion is not null
+            && RequiredAssemblies.All(name => File.Exists(Path.Combine(prebuilt, name)));
+
+        // 預編譯版本只看 major.minor：Mod 的相容性粒度就是這樣，1.6.x 之間的
+        // 修訂版不會改動 Bridge 用到的那幾個 API。
+        if (prebuiltUsable && gameVersion is not null && gameVersion == prebuiltVersion)
+        {
+            return EnsurePrebuilt(sourceDirectory, prebuilt, modDirectory, assemblies, stampFile);
+        }
+
+        // 走不了預編譯的原因要留下來：就地建置又失敗時，使用者得知道為什麼會走到這一步。
+        var fallbackReason = !prebuiltUsable
+            ? "no prebuilt Bridge shipped with this tool"
+            : gameVersion is null
+                ? $"the game version could not be read from Version.txt (prebuilt Bridge targets {prebuiltVersion})"
+                : $"the prebuilt Bridge targets RimWorld {prebuiltVersion} but the installed game is {gameVersion}";
+
+        var project = Path.Combine(sourceDirectory, SourceDir, "RimWorldModMcp.Bridge.csproj");
+
+        if (!File.Exists(project))
+        {
+            return new BridgeBuild(false, null, false, $"Bridge project file not found: {project} ({fallbackReason}).");
+        }
+
         var stamp = SourceStamp(sourceDirectory, managed);
 
         // 原始碼與遊戲組件都沒變就沿用既有建置，省下每次測試幾秒鐘。
         if (ReadStamp(stampFile) == stamp && RequiredAssemblies.All(name => File.Exists(Path.Combine(assemblies, name))))
         {
-            return new BridgeBuild(true, modDirectory, false, null);
+            return new BridgeBuild(true, modDirectory, false, null, "built");
         }
 
+        var build = BuildFromSource(sourceDirectory, project, managed, modDirectory, assemblies, stampFile, stamp);
+
+        return build.Success
+            ? build
+            : build with { Error = $"{build.Error} (Building from source because {fallbackReason}; a local .NET SDK is required for that.)" };
+    }
+
+    /// <summary>把預編譯的 DLL 與 About/ 複製進快取目錄。檔案沒變就不重複複製。</summary>
+    internal static BridgeBuild EnsurePrebuilt(string sourceDirectory, string prebuilt, string modDirectory, string assemblies, string stampFile)
+    {
+        var stamp = "prebuilt:" + FileStamp(Directory.EnumerateFiles(prebuilt).Concat(Directory.EnumerateFiles(Path.Combine(sourceDirectory, "About"))));
+
+        if (ReadStamp(stampFile) == stamp && RequiredAssemblies.All(name => File.Exists(Path.Combine(assemblies, name))))
+        {
+            return new BridgeBuild(true, modDirectory, false, null, "prebuilt");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(assemblies);
+            CopyMetadata(sourceDirectory, modDirectory);
+
+            foreach (var file in Directory.GetFiles(prebuilt, "*.dll"))
+            {
+                File.Copy(file, Path.Combine(assemblies, Path.GetFileName(file)), overwrite: true);
+            }
+
+            File.WriteAllText(stampFile, stamp, new UTF8Encoding(false));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new BridgeBuild(false, null, false, $"Failed to copy the prebuilt Bridge: {e.Message}");
+        }
+
+        return new BridgeBuild(true, modDirectory, true, null, "prebuilt");
+    }
+
+    private static BridgeBuild BuildFromSource(
+        string sourceDirectory,
+        string project,
+        string managed,
+        string modDirectory,
+        string assemblies,
+        string stampFile,
+        string stamp)
+    {
         Directory.CreateDirectory(assemblies);
 
         // 原始碼先複製進快取目錄再建置，bin/obj 才會落在快取而不是工具的
@@ -108,7 +178,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 
         File.WriteAllText(stampFile, stamp, new UTF8Encoding(false));
 
-        return new BridgeBuild(true, modDirectory, true, null);
+        return new BridgeBuild(true, modDirectory, true, null, "built");
     }
 
     private static (bool Success, string Output) RunBuild(string project, string managedDirectory)
@@ -215,6 +285,20 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
             {
                 builder.Append(name).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append('|');
             }
+        }
+
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+    }
+
+    /// <summary>一組檔案的指紋：名稱、大小、修改時間。預編譯檔或 About/ 更新時就會變。</summary>
+    private static string FileStamp(IEnumerable<string> files)
+    {
+        var builder = new StringBuilder();
+
+        foreach (var file in files.Order())
+        {
+            var info = new FileInfo(file);
+            builder.Append(info.Name).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append('|');
         }
 
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));

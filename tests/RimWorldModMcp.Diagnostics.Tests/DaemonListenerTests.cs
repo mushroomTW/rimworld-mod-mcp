@@ -12,6 +12,7 @@ public sealed class DaemonListenerTests : IDisposable
     private readonly string _root;
     private readonly StoreDirectories _store;
     private readonly DiagnosticStore _diagnostics;
+    private readonly GameStateStore _gameState;
     private readonly DaemonListener _listener;
 
     public DaemonListenerTests()
@@ -21,7 +22,8 @@ public sealed class DaemonListenerTests : IDisposable
         _diagnostics = new DiagnosticStore(_store);
 
         var sessions = new TestSessionStore(_store);
-        _listener = new DaemonListener(_store, RimWorldLocator.DefaultBridgePort, _diagnostics, sessions, new DaemonRecordStore(_store));
+        _gameState = new GameStateStore(_store);
+        _listener = new DaemonListener(_store, RimWorldLocator.DefaultBridgePort, _diagnostics, sessions, new DaemonRecordStore(_store), _gameState);
     }
 
     public void Dispose()

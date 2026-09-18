@@ -60,7 +60,7 @@ static async Task<int> RunDaemon()
     var locator = new RimWorldLocator();
     var sessions = new TestSessionStore(store);
     var records = new DaemonRecordStore(store);
-    var listener = new DaemonListener(store, locator.BridgePort(), new DiagnosticStore(store), sessions, records);
+    var listener = new DaemonListener(store, locator.BridgePort(), new DiagnosticStore(store), sessions, records, new GameStateStore(store));
 
     using var cancellation = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
@@ -119,7 +119,7 @@ static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellati
                 1. rimworld_status first; if index.fresh=false call rebuild_index. index.source_index tells whether the source full-text layer is running, failed (error), or done.
                 2. Research: search_defs -> read_def for XML; read_symbol / list_symbols / find_descendants for the C# API (zero hits return suggestions); search_source for regex over decompiled code (add package_id for an installed mod; indexing=true means retry shortly); read_source_file to page a whole file.
                 3. Build: create_mod (with_code=true for C#), then build_mod after every source change.
-                4. Test: run_test_cycle launches the game in an isolated session; poll list_test_diagnostics with since_at=latest_at and wait_seconds>0; get_test_diagnostic for a full stack trace; stop_test(confirm=true) when done.
+                4. Test: run_test_cycle launches the game in an isolated session; test_status(wait_for_state=Playing) blocks until the map is up and reports in-game state (paused, loading, open_windows); poll list_test_diagnostics with since_at=latest_at and wait_seconds>0; get_test_diagnostic for a full stack trace; stop_test(confirm=true) when done.
                 Unknown parameters are rejected, so use only the documented names.
                 """;
         })

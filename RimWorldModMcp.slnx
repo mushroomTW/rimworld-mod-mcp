@@ -14,5 +14,6 @@
     <Project Path="tests/RimWorldModMcp.Diagnostics.Tests/RimWorldModMcp.Diagnostics.Tests.csproj" />
     <Project Path="tests/RimWorldModMcp.Indexing.Tests/RimWorldModMcp.Indexing.Tests.csproj" />
     <Project Path="tests/RimWorldModMcp.PlatformContracts.Tests/RimWorldModMcp.PlatformContracts.Tests.csproj" />
+    <Project Path="tests/RimWorldModMcp.Server.Tests/RimWorldModMcp.Server.Tests.csproj" />
   </Folder>
 </Solution>

@@ -36,17 +36,56 @@
   </ItemGroup>
 
   <!--
-    Bridge 的原始碼要跟著工具一起發佈：測試場次啟動時會即時建置它，
-    因為它必須參考使用者本機安裝的 RimWorld 組件，無法預先編譯。
+    Bridge 隨工具發佈兩種形式：
+    - bridge/Prebuilt/：用公開參考組件（Krafs.Rimworld.Ref）預編譯的 DLL，遊戲 major.minor
+      與 game-version.txt 相同時直接使用，run_test_cycle 就不需要本機 .NET SDK。
+    - bridge/Source/：原始碼。遊戲版本不同（或預編譯檔缺失）時就地建置，參考使用者本機的遊戲組件。
   -->
   <ItemGroup>
     <!-- 複製到輸出目錄即可：dotnet tool 打包時會把整個輸出目錄收進 tools/<tfm>/any/。 -->
-    <None Include="..\..\bridge\**\*" Exclude="..\..\bridge\**\bin\**;..\..\bridge\**\obj\**;..\..\bridge\Assemblies\**">
+    <None Include="..\..\bridge\**\*" Exclude="..\..\bridge\**\bin\**;..\..\bridge\**\obj\**;..\..\bridge\Assemblies\**;..\..\bridge\Prebuilt\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
     <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <BridgeProject>$(MSBuildThisFileDirectory)..\..\bridge\Source\RimWorldModMcp.Bridge.csproj</BridgeProject>
+    <!--
+      獨立的中繼與輸出目錄：solution 建置會以另一組屬性建置同一個 Bridge 專案，
+      共用 obj/bin 會互相覆蓋。ExcludeAssets 是在 restore 時寫進 project.assets.json 的，
+      所以連 obj 根目錄（assets 檔所在）也要分開，否則兩種建置會互相覆蓋對方的參考集。
+    -->
+    <BridgePrebuiltProperties>Configuration=Release;BridgeUseReferenceAssemblies=true;OutDir=bin\prebuilt\;BaseIntermediateOutputPath=obj\prebuilt\;MSBuildProjectExtensionsPath=obj\prebuilt\</BridgePrebuiltProperties>
+  </PropertyGroup>
+
+  <!--
+    先建 Bridge 的預編譯版本再決定自己的輸出內容。
+    只 pack Server 專案時 Bridge 不在 restore 圖裡，所以先自己 restore 一次；
+    MSBuildRestoreSessionId 是讓 restore 與 build 不共用同一份專案評估的慣例。
+  -->
+  <Target Name="PrebuildBridge" BeforeTargets="AssignTargetPaths">
+    <MSBuild Projects="$(BridgeProject)" Targets="Restore" Properties="$(BridgePrebuiltProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
+    <MSBuild Projects="$(BridgeProject)" Targets="Build" Properties="$(BridgePrebuiltProperties)">
+      <Output TaskParameter="TargetOutputs" ItemName="_BridgePrebuiltAssembly" />
+    </MSBuild>
+    <PropertyGroup>
+      <_BridgePrebuiltDir>@(_BridgePrebuiltAssembly->'%(RootDir)%(Directory)')</_BridgePrebuiltDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_BridgePrebuiltFile Include="$(_BridgePrebuiltDir)*.dll;$(_BridgePrebuiltDir)game-version.txt" />
+      <None Include="@(_BridgePrebuiltFile)">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Link>bridge\Prebuilt\%(Filename)%(Extension)</Link>
+        <!--
+          單一執行檔發佈會把所有 .dll 併進 exe。這兩顆是 net472、要給 RimWorld 載入的，
+          必須留在磁碟上的 bridge/Prebuilt/。
+        -->
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </None>
+    </ItemGroup>
+  </Target>
 
 </Project>

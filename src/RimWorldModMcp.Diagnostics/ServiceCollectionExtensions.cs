@@ -9,6 +9,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddRimWorldDiagnostics(this IServiceCollection services)
     {
         services.AddSingleton<DiagnosticStore>();
+        services.AddSingleton<GameStateStore>();
         services.AddSingleton<TestSessionStore>();
         services.AddSingleton<DaemonRecordStore>();
         services.AddSingleton<DaemonBootstrapper>();
@@ -18,7 +19,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<RimWorldLocator>().BridgePort(),
             sp.GetRequiredService<DiagnosticStore>(),
             sp.GetRequiredService<TestSessionStore>(),
-            sp.GetRequiredService<DaemonRecordStore>()));
+            sp.GetRequiredService<DaemonRecordStore>(),
+            sp.GetRequiredService<GameStateStore>()));
         services.AddSingleton<TestEnvironmentPreparer>();
         services.AddSingleton<GameLauncher>();
         services.AddSingleton<TestCycleService>();
