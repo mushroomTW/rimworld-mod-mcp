@@ -397,7 +397,7 @@ public sealed class IndexTools(
     public FindDefUsagesResult FindDefUsages(
         [Description("The defName to look up.")]
         string def_name,
-        [Description("Restrict to a source kind: def_xml, game_source, or mod_source. Omit for all.")]
+        [Description("Restrict to a source kind: def_xml or game_source. Omit for both.")]
         string? source_kind = null,
         [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>

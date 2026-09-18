@@ -379,7 +379,7 @@ public sealed record DefUsageSummary
     [JsonPropertyName("line")]
     public required int Line { get; init; }
 
-    /// <summary><c>def_xml</c>, <c>game_source</c>, or <c>mod_source</c>.</summary>
+    /// <summary><c>def_xml</c> or <c>game_source</c>.</summary>
     [JsonPropertyName("source_kind")]
     public required string SourceKind { get; init; }
 

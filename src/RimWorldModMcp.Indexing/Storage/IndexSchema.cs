@@ -80,7 +80,7 @@ public static class IndexSchema
           def_name    TEXT NOT NULL,
           file_path   TEXT NOT NULL,
           line        INTEGER NOT NULL,
-          -- 'def_xml' | 'game_source' | 'mod_source'
+          -- 'def_xml' | 'game_source'
           source_kind TEXT NOT NULL,
           -- 命中的語境，例如 '<costList><Steel>' 或 'RimWorld.ThingDefOf.Steel'
           context     TEXT,

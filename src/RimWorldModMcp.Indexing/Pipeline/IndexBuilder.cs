@@ -53,6 +53,19 @@ public sealed class IndexBuilder(
 {
     private readonly AssemblySymbolReader _symbolReader = new();
 
+    /// <summary>清空第一層索引與反編譯原始碼。</summary>
+    public static void ClearAll(SqliteConnection connection)
+    {
+        DefRepository.Clear(connection);
+        SymbolRepository.Clear(connection);
+        DefReferenceRepository.Clear(connection);
+        SourceFileRepository.Clear(connection);
+
+        // symbol 與 source_file 是整表清掉，已索引 Mod 的列也一起沒了；
+        // stamp 留著的話下一次 Inspect 會誤判已快取，回零符號、零命中。
+        ModInspectionService.ForgetAll(connection);
+    }
+
     /// <summary>全量重建 Def 與符號索引。</summary>
     public IndexBuildResult Rebuild()
     {
@@ -79,10 +92,7 @@ public sealed class IndexBuilder(
         using var connection = database.Open();
         using var transaction = connection.BeginTransaction();
 
-        DefRepository.Clear(connection);
-        SymbolRepository.Clear(connection);
-        DefReferenceRepository.Clear(connection);
-        SourceFileRepository.Clear(connection);
+        ClearAll(connection);
 
         int defCount;
 

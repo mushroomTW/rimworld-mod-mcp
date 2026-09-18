@@ -115,7 +115,6 @@ public enum DefReferenceSource
 {
     DefXml,
     GameSource,
-    ModSource,
 }
 
 /// <summary>引用判定的可信度。</summary>

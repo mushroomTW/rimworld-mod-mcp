@@ -110,6 +110,27 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.All(result.Hits, h => Assert.Equal("mod:pkg:1.5/Assemblies/Widget.dll", h.Assembly));
     }
 
+    /// <summary>
+    /// rebuild_index 會把 symbol 與 source_file 整表清掉（不分遊戲與 Mod）。
+    /// 之後 Mod 的 stamp 若還在，Inspect 會誤判已快取而回傳零符號、search_source 也回 source_indexed=true 卻零命中。
+    /// </summary>
+    [Fact]
+    public void RebuildClearsModIndexSoNextInspectReindexes()
+    {
+        _service.Inspect("pkg", _modPath);
+
+        using (var connection = _database.Open())
+        {
+            IndexBuilder.ClearAll(connection);
+        }
+
+        var assemblies = _service.Inspect("pkg", _modPath);
+
+        Assert.All(assemblies, a => Assert.False(a.FromCache));
+        Assert.All(assemblies, a => Assert.True(a.SymbolCount > 0));
+        Assert.NotEmpty(_service.TrySearchSource("pkg", _modPath, "TryStartJob", 10).Hits);
+    }
+
     /// <summary>Mod 更新後移除的版本目錄，下一次檢視就要把它的索引清掉。</summary>
     [Fact]
     public void RemovedAssemblyIsForgottenOnNextInspect()

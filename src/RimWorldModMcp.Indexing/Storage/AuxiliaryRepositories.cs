@@ -272,7 +272,7 @@ public static class DefReferenceRepository
     {
         DefReferenceSource.DefXml => "def_xml",
         DefReferenceSource.GameSource => "game_source",
-        _ => "mod_source",
+        _ => throw new ArgumentOutOfRangeException(nameof(source), source, null),
     };
 }
 

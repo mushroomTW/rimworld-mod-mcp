@@ -313,6 +313,14 @@ public sealed class ModInspectionService(
         return $"mod:{packageId}:{relative}";
     }
 
+    /// <summary>忘掉所有 Mod 的索引 stamp；給整表清空後呼叫，讓下一次檢視重新反編譯。</summary>
+    public static void ForgetAll(Microsoft.Data.Sqlite.SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM index_meta WHERE key LIKE 'mod_stamp:%';";
+        command.ExecuteNonQuery();
+    }
+
     /// <summary>清掉這個 Mod 底下不在 <paramref name="liveKeys"/> 裡的組件索引。回傳是否有清掉任何東西。</summary>
     private static bool ForgetStale(Microsoft.Data.Sqlite.SqliteConnection connection, string packageId, IEnumerable<string> liveKeys)
     {
