@@ -69,16 +69,32 @@ public sealed class IndexBuilder(
     /// <summary>全量重建 Def 與符號索引。</summary>
     public IndexBuildResult Rebuild()
     {
+        // 背景的原始碼索引若還在跑，它會在我們清空 source_file 之後繼續往裡寫、
+        // 最後把 source_indexed 覆寫回 true——先叫停再動表。
+        sourceIndexer.Cancel();
+
+        try
+        {
+            return RebuildCore();
+        }
+        catch (SqliteException e) when (e.SqliteErrorCode == 11)
+        {
+            // 索引完全是衍生快取；資料庫損毀時，清表式重建連交易都開不起來。
+            // Reset 會關閉連線池並一併移除 WAL/SHM，之後僅重試這一次，避免把
+            // 磁碟或權限等非損毀問題藏在無限重試裡。
+            database.Reset();
+            return RebuildCore();
+        }
+    }
+
+    private IndexBuildResult RebuildCore()
+    {
         var paths = locator.Detect();
 
         if (paths.ManagedDir is null || paths.DataDir is null)
         {
             throw new DirectoryNotFoundException("RimWorld Managed or Data directory not found.");
         }
-
-        // 背景的原始碼索引若還在跑，它會在我們清空 source_file 之後繼續往裡寫、
-        // 最後把 source_indexed 覆寫回 true——先叫停再動表。
-        sourceIndexer.Cancel();
 
         using var _ = locks.Hold("index", new Dictionary<string, string> { ["operation"] = "rebuild_index" });
 
