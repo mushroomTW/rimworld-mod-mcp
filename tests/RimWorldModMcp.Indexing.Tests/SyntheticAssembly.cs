@@ -14,12 +14,15 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// </summary>
 internal static class SyntheticAssembly
 {
-    internal static string Emit(string source, string assemblyName, string outputDirectory)
+    /// <param name="referencePaths">額外參考的組件路徑，用來模擬 Mod DLL 之間的相依。</param>
+    internal static string Emit(string source, string assemblyName, string outputDirectory, params string[] referencePaths)
     {
         var references = AppDomain.CurrentDomain
             .GetAssemblies()
             .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
-            .Select(a => MetadataReference.CreateFromFile(a.Location))
+            .Select(a => a.Location)
+            .Concat(referencePaths)
+            .Select(location => MetadataReference.CreateFromFile(location))
             .Cast<MetadataReference>()
             .ToList();
 

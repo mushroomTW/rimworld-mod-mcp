@@ -45,6 +45,7 @@ public sealed class ModInspectionService(
     /// <para>
     /// 遞迴掃描整個 Mod 目錄，因此 <c>Assemblies/1.5/*.dll</c> 這種常見的
     /// 多版本佈局也能抓到——Python 版只看 <c>Assemblies/</c> 頂層而漏掉它們。
+    /// <c>Source/</c>、<c>bin/</c>、<c>obj/</c> 底下的 DLL 是原始碼專案與建置產物，不算 Mod 組件。
     /// </para>
     /// </summary>
     public IReadOnlyList<ModAssemblyInfo> Inspect(string packageId, string modPath, bool force = false)
@@ -281,10 +282,19 @@ public sealed class ModInspectionService(
 
         return [.. Directory
             .EnumerateFiles(modPath, "*.dll", SearchOption.AllDirectories)
+            // Source/ 是使用者的 C# 專案，bin／obj 是建置產物（常含測試組件）；
+            // 遊戲只載入 Assemblies/，索引這些只是噪音，還會擋到使用者的 dotnet build。
+            .Where(path => !IsBuildTree(Path.GetRelativePath(modPath, path)))
             // Harmony 之類的相依函式庫不是 Mod 自己的程式碼，索引它們只是噪音。
             .Where(path => !IsKnownDependency(Path.GetFileNameWithoutExtension(path)))
             .Order()];
     }
+
+    private static bool IsBuildTree(string relativePath)
+        => relativePath
+            .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+            .SkipLast(1)
+            .Any(segment => segment is "Source" or "bin" or "obj");
 
     private static bool IsKnownDependency(string name)
         => name is "0Harmony" or "HarmonyLib" or "Newtonsoft.Json"

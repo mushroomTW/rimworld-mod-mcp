@@ -171,13 +171,19 @@ public sealed class MemberDecompiler : IDisposable
         {
             // PrefetchEntireImage 讀完就放掉檔案控制代碼。預設的 memory-map 會鎖住 DLL，
             // 使用者中途更新遊戲時會留下卡住的 handle。
-            var file = new PEFile(
-                assemblyPath,
-                System.IO.File.OpenRead(assemblyPath),
-                System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage);
+            const System.Reflection.PortableExecutable.PEStreamOptions streamOptions =
+                System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage;
+
+            var file = new PEFile(assemblyPath, System.IO.File.OpenRead(assemblyPath), streamOptions);
 
             // resolver 必須指向 Managed 目錄，否則跨組件的型別全都解析成 ??。
-            var resolver = new UniversalAssemblyResolver(assemblyPath, throwOnError: false, file.DetectTargetFrameworkId());
+            // 參考組件也要用同樣的 streamOptions：resolver 預設會 memory-map 同目錄的 DLL
+            // 並跟著這個常駐快取一起活著，使用者的 dotnet build 會撞上 MSB3021／MSB3027。
+            var resolver = new UniversalAssemblyResolver(
+                assemblyPath,
+                throwOnError: false,
+                file.DetectTargetFrameworkId(),
+                streamOptions: streamOptions);
 
             var settings = new DecompilerSettings
             {

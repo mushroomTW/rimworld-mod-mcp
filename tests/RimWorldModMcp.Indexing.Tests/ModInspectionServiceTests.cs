@@ -70,6 +70,24 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.All(assemblies, a => Assert.True(a.SymbolCount > 0));
     }
 
+    /// <summary>
+    /// <c>Source/</c> 底下的 bin／obj 是使用者自己的建置產物（常含測試組件），
+    /// 遊戲不會載入它們，索引只是雜訊，還會讓 dotnet build 撞上被佔用的 DLL。
+    /// </summary>
+    [Fact]
+    public void BuildOutputsUnderSourceAreNotTreatedAsModAssemblies()
+    {
+        SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "Source", "Widget.Tests", "bin", "Debug", "net472"));
+        SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "Source", "Widget", "obj", "Debug", "net472"));
+        SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "Source", "Libs"));
+
+        var assemblies = _service.Inspect("pkg", _modPath);
+
+        Assert.Equal(
+            ["mod:pkg:1.5/Assemblies/Widget.dll", "mod:pkg:1.6/Assemblies/Widget.dll"],
+            assemblies.Select(a => a.Key).Order().ToArray());
+    }
+
     [Fact]
     public void LockNameIsPerPackageAndFilesystemSafe()
     {
