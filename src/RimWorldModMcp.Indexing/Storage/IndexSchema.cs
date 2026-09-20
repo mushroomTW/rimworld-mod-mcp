@@ -6,7 +6,7 @@ namespace RimWorldModMcp.Indexing.Storage;
 public static class IndexSchema
 {
     /// <summary>
-    /// 結構版本。與資料庫裡的 <c>user_version</c> 不符時整個丟掉重建——
+    /// 結構版本。與資料庫裡的 user_version 不符時整個丟掉重建——
     /// 索引全部是衍生資料，重建不會損失任何使用者內容，所以不需要 migration 機制。
     /// </summary>
     public const int Version = 3;

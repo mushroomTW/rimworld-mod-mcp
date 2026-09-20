@@ -60,28 +60,35 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "rebuild_index", UseStructuredContent = true)]
-    [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background. Pass only_source=true to skip the Def/symbol layer and only (re)start the background source index — use it when the source index is missing or failed but the first layer is fine.")]
+    [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background. Pass only_source=true to skip the Def/symbol layer and only (re)start the background source index — use it when the source index is missing or failed but the first layer is fine. only_source implies index_source; pass index_source=false together with only_source=true to only report current counts without starting anything.")]
     public RebuildIndexResult RebuildIndex(
-        [Description("Also build the source full-text index in the background (required by search_source).")]
+        [Description("Also build the source full-text index in the background (required by search_source). When only_source=true, false means do not start it and only report current counts.")]
         bool index_source = true,
-        [Description("Only (re)start the background source index; do not clear or rebuild the Def/symbol layer.")]
+        [Description("Only (re)start the background source index; do not clear or rebuild the Def/symbol layer. Mod background-index errors are kept (that layer is untouched); full rebuild clears them via ForgetErrors.")]
         bool only_source = false) => ToolGuard.Run(() =>
     {
         if (only_source)
         {
             // 只續跑第三層：第一層（Def/符號）完好時，source_index_error 非空或
             // source_indexed=false 都只需要重新啟動背景反編譯，不必把秒級的 Def/符號
-            // 索引也一起清掉重來。
-            sourceIndexer.StartInBackground();
+            // 索引也一起清掉重來。Mod 層沒動，它的失敗原因不能清（ForgetErrors 只給
+            // 全量重建用）；Def/Symbol 計數回目前值而非 0，避免呼叫端誤判索引是空的。
+            // ReferenceCount／Assemblies 是重建過程的產物，此路徑沒有重建，只能回 0／空。
+            if (index_source)
+            {
+                sourceIndexer.StartInBackground();
+            }
+
+            var status = builder.Status();
 
             return new RebuildIndexResult
             {
-                DefCount = 0,
-                SymbolCount = 0,
+                DefCount = (int)status.DefCount,
+                SymbolCount = (int)status.SymbolCount,
                 ReferenceCount = 0,
                 Assemblies = [],
                 ElapsedMilliseconds = 0,
-                SourceIndexingStarted = true,
+                SourceIndexingStarted = index_source,
             };
         }
 
@@ -328,7 +335,7 @@ public sealed class IndexTools(
     /// <summary>
     /// 短名 → 唯一的型別 fqn。read_symbol 接受短名而 find_descendants 只收 fqn，
     /// 呼叫端得多走一趟；這裡補齊。多個同名型別時報錯列出候選，讓呼叫端挑。
-    /// 已含 <c>.</c> 的輸入視為 fqn 原樣使用。
+    /// 已含 . 的輸入視為 fqn 原樣使用。
     /// </summary>
     private static string ResolveTypeName(Microsoft.Data.Sqlite.SqliteConnection connection, string name)
     {

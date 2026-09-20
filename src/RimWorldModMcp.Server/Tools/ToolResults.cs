@@ -52,12 +52,12 @@ public sealed record IndexStatusPayload
 
     /// <summary>
     /// Whether the decompiled source is fully indexed.
-    /// When false, <c>search_source</c> has nothing to search yet — that layer builds in the background.
+    /// When false, search_source has nothing to search yet — that layer builds in the background.
     /// </summary>
     [JsonPropertyName("source_indexed")]
     public required bool SourceIndexed { get; init; }
 
-    /// <summary>Why <c>source_indexed</c> is false: still running, failed with <c>error</c>, or never started (neither).</summary>
+    /// <summary>Why source_indexed is false: still running, failed with error, or never started (neither).</summary>
     [JsonPropertyName("source_index")]
     public required SourceIndexPayload SourceIndex { get; init; }
 }
@@ -383,15 +383,15 @@ public sealed record DefUsageSummary
     [JsonPropertyName("line")]
     public required int Line { get; init; }
 
-    /// <summary><c>def_xml</c> or <c>game_source</c>.</summary>
+    /// <summary>def_xml or game_source.</summary>
     [JsonPropertyName("source_kind")]
     public required string SourceKind { get; init; }
 
-    /// <summary>Context where the reference appears, e.g. <c>ThingDef/costList/Steel</c> or <c>RimWorld.ThingDefOf.Steel</c>.</summary>
+    /// <summary>Context where the reference appears, e.g. ThingDef/costList/Steel or RimWorld.ThingDefOf.Steel.</summary>
     [JsonPropertyName("context")]
     public string? Context { get; init; }
 
-    /// <summary><c>exact</c> (structured source) or <c>heuristic</c> (string-match guess).</summary>
+    /// <summary>exact (structured source) or heuristic (string-match guess).</summary>
     [JsonPropertyName("confidence")]
     public required string Confidence { get; init; }
 }

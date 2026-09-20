@@ -16,7 +16,7 @@ public static class PathText
     public static StringComparison Comparison
         => OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
-    /// <summary>把開頭的 <c>~</c> 展開成使用者家目錄。</summary>
+    /// <summary>把開頭的 ~ 展開成使用者家目錄。</summary>
     public static string ExpandUser(string path)
     {
         if (!path.StartsWith('~'))

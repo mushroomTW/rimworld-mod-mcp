@@ -14,7 +14,7 @@ namespace RimWorldModMcp.Indexing.Decompilation;
 /// 以 ICSharpCode.Decompiler 實作的反編譯器。
 ///
 /// <para>
-/// Python 版必須為每個組件另外開一個 <c>ilspycmd</c> 子行程，解析它的 stdout／stderr，
+/// Python 版必須為每個組件另外開一個 ilspycmd 子行程，解析它的 stdout／stderr，
 /// 還要靠「有沒有產出 .cs」來判斷成敗。這裡直接在行程內呼叫函式庫，
 /// 錯誤是真的例外，而且可以精確到「只反編譯這一個方法」。
 /// </para>

@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Diagnostics.Tests;
 
 /// <summary>
 /// 真 TCP 層的行為：長度上限與逐行解析。
-/// <c>Accept()</c> 的單元測試繞過了網路層，OOM 類的缺陷正落在那個縫裡。
+/// Accept() 的單元測試繞過了網路層，OOM 類的缺陷正落在那個縫裡。
 /// </summary>
 public sealed class DaemonListenerTcpTests : IDisposable
 {

@@ -29,7 +29,7 @@ public sealed record IndexStatus(
     SourceIndexState SourceIndex);
 
 /// <summary>
-/// 原始碼全文索引的狀態。只給 <c>SourceIndexed=false</c> 一個布林的話，呼叫端分不出
+/// 原始碼全文索引的狀態。只給 SourceIndexed=false 一個布林的話，呼叫端分不出
 /// 「還在建」「建失敗」「根本沒啟動」——這三種各有不同的正確反應（等、重建、報告）。
 /// </summary>
 /// <param name="Running">本行程內是否正在背景建立。</param>
@@ -175,12 +175,11 @@ public sealed class IndexBuilder(
 
         // 兩邊都必須是實際算得出來的值才談得上一致；
         // 偵測不到遊戲時 current 為 null，這種情況一律視為不新鮮。
+        // （損毀時計數回 0 的理由見方法開頭：資料表計數本身會拋例外。）
         var fresh = current is not null
             && !string.IsNullOrEmpty(stored)
             && string.Equals(stored, current, StringComparison.Ordinal);
 
-        // 損毀時資料表計數本身會拋例外，health 一定要先查；
-        // 不健康就把計數回 0，status 還能用（healthy=false 本身就夠呼叫端決定下一步）。
         if (!healthy)
         {
             return new IndexStatus(
@@ -224,7 +223,7 @@ public sealed class IndexBuilder(
     ///
     /// <para>
     /// Python 版是硬編碼的 DLC 白名單，每次有新 DLC 上市都要改程式碼。
-    /// 這裡改成掃目錄，凡是 <c>Assembly-CSharp</c> 開頭的都納入——
+    /// 這裡改成掃目錄，凡是 Assembly-CSharp 開頭的都納入——
     /// RimWorld 的 DLC 內容都編進這些組件裡，Unity 與 BCL 組件則不是索引目標。
     /// </para>
     /// </summary>

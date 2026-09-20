@@ -172,8 +172,8 @@ public sealed class SymbolBrowsingTests : IDisposable
     }
 
     /// <summary>
-    /// 測試專案內的 helper：原本是 <c>SymbolRepository.ParentExists</c>（Middle Man——
-    /// 只轉呼叫 <c>ResolveParent</c>，生產程式碼已無呼叫端），移到測試裡避免
+    /// 測試專案內的 helper：原本是 SymbolRepository.ParentExists（Middle Man——
+    /// 只轉呼叫 ResolveParent，生產程式碼已無呼叫端），移到測試裡避免
     /// 生產 API 為單一測試保留一層沒用的包裝。
     /// </summary>
     private static string? ResolveParent(SqliteConnection connection, string parent, string? assemblyLike)

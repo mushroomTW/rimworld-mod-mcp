@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Server.Tools;
 /// 拒絕 inputSchema 之外的參數。
 ///
 /// <para>
-/// MCP SDK 預設對未知參數靜默忽略：LLM 呼叫端把 <c>parent</c> 打成 <c>pattern</c>，
+/// MCP SDK 預設對未知參數靜默忽略：LLM 呼叫端把 parent 打成 pattern，
 /// 拿到的不是錯誤而是整個根命名空間的清單——一大包無關結果比一行錯誤訊息貴得多，
 /// 而且呼叫端還以為自己問對了。
 /// </para>

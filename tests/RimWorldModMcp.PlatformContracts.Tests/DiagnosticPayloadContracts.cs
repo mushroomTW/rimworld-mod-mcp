@@ -7,9 +7,9 @@ namespace RimWorldModMcp.PlatformContracts.Tests;
 /// Bridge 送出的 NDJSON 格式契約。
 ///
 /// <para>
-/// Bridge 跑在 Unity Mono 的 net472 上，不能相依 <c>System.Text.Json</c>，
+/// Bridge 跑在 Unity Mono 的 net472 上，不能相依 System.Text.Json，
 /// 所以 JSON 是手寫逐字元組出來的。這個測試專案直接以原始碼連結
-/// 引入同一份 <c>DiagnosticPayload.cs</c>，在行程內驗證那段邏輯。
+/// 引入同一份 DiagnosticPayload.cs，在行程內驗證那段邏輯。
 /// </para>
 /// <para>
 /// Python 時代這件事得靠一個叫 EscapeProbe 的獨立主控台程式 + base64-over-stdin

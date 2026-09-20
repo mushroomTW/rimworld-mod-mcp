@@ -8,7 +8,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 ///
 /// <para>
 /// MCP Server 是常駐行程，反編譯器快取也跟著常駐。若參考組件在解析後仍被
-/// memory-map 鎖住，使用者的 <c>dotnet build</c> 就會撞上 MSB3021／MSB3027。
+/// memory-map 鎖住，使用者的 dotnet build 就會撞上 MSB3021／MSB3027。
 /// </para>
 /// </summary>
 public sealed class MemberDecompilerTests : IDisposable

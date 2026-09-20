@@ -95,15 +95,18 @@ public sealed class TestCycleTools(
     {
         // 上限 50 秒：常見 MCP client 的單次工具呼叫逾時約 60 秒，超過的話 client 先報錯、
         // server 還在等，agent 看到的是工具壞掉而不是空結果。
+        // (since_at, since_sequence) 是 DiagnosticCursor 的線上契約形狀：參數必須維持兩個
+        // snake_case 欄位，內部先綁成一個游標再用，避免兩值散落傳遞。
+        var since = new DiagnosticCursor(since_at, since_sequence);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(wait_seconds, 0, 50));
-        var records = Filter(diagnostics.ReadSince(since_at, since_sequence), type);
+        var records = Filter(diagnostics.ReadSince(since), type);
 
         // 沒有新東西就等：daemon 是另一個行程寫檔，這裡只能輪詢，但把輪詢
         // 留在 server 端，agent 的一次呼叫就抵過原本十次「問了又沒有」。
         while (records.Count == 0 && DateTimeOffset.UtcNow < deadline)
         {
             await Task.Delay(500, cancellationToken).ConfigureAwait(false);
-            records = Filter(diagnostics.ReadSince(since_at, since_sequence), type);
+            records = Filter(diagnostics.ReadSince(since), type);
         }
 
         var textLimit = Math.Clamp(max_text_length, 100, 20000);
@@ -111,7 +114,7 @@ public sealed class TestCycleTools(
         // crash loop 可以在幾秒內產生數千筆診斷，一定要有筆數上限——
         // 這是所有查詢型工具裡最容易爆量的一個。
         var effectiveLimit = Math.Clamp(limit, 1, 500);
-        var (page, cursor) = OldestFirstPage(records, effectiveLimit);
+        var (page, last) = OldestFirstPage(records, effectiveLimit);
 
         // error_count / warning_count 永遠是整個場次的總數，不受 since_at 影響——
         // 輪詢中的 agent 看到 error_count=0 會直接下「測試無錯誤」的結論。
@@ -128,13 +131,13 @@ public sealed class TestCycleTools(
             // 游標只能推進到「這一頁實際回傳」的最後一筆。複合鍵 (At, Sequence)
             // 讓同毫秒的整批也能切開：limit 是硬上限，被截掉的下半批在下一輪
             // 用這個 (latest_at, latest_sequence) 照樣拿得到。
-            LatestAt = cursor?.At ?? since_at,
-            LatestSequence = cursor?.Sequence ?? since_sequence,
+            LatestAt = last?.At ?? since.At,
+            LatestSequence = last?.Sequence ?? since.Sequence,
         };
     });
 
     /// <summary>
-    /// 依 <c>(At, Sequence)</c> 由舊到新取一頁。複合鍵保證同毫秒的整批有穩定全序，
+    /// 依 (At, Sequence) 由舊到新取一頁。複合鍵保證同毫秒的整批有穩定全序，
     /// 切頁不會把同毫秒的筆整批帶上或漏掉，<paramref name="limit"/> 因此是硬上限。
     /// 回傳頁尾那筆當作下一頁的游標。
     /// </summary>
@@ -254,7 +257,7 @@ public sealed record TestSessionResult
     [JsonPropertyName("bridge_state")]
     public string? BridgeState { get; init; }
 
-    /// <summary><c>prebuilt</c> (shipped with the tool, no SDK needed) or <c>built</c> (compiled locally against the installed game).</summary>
+    /// <summary>prebuilt (shipped with the tool, no SDK needed) or built (compiled locally against the installed game).</summary>
     [JsonPropertyName("bridge_origin")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BridgeOrigin { get; init; }
@@ -262,7 +265,7 @@ public sealed record TestSessionResult
     [JsonPropertyName("bridge_reason")]
     public string? BridgeReason { get; init; }
 
-    /// <summary><c>started</c>, <c>reused</c>, or <c>unavailable</c>.</summary>
+    /// <summary>started, reused, or unavailable.</summary>
     [JsonPropertyName("daemon_state")]
     public string? DaemonState { get; init; }
 
@@ -298,7 +301,7 @@ public sealed record TestSessionResult
 /// <summary>In-game state as reported by the bridge.</summary>
 public sealed record GameStateSummary
 {
-    /// <summary><c>Entry</c> (main menu), <c>MapInitializing</c>, or <c>Playing</c>.</summary>
+    /// <summary>Entry (main menu), MapInitializing, or Playing.</summary>
     [JsonPropertyName("program_state")]
     public required string ProgramState { get; init; }
 
@@ -395,7 +398,7 @@ public sealed record DiagnosticSummary
     [JsonPropertyName("text_truncated")]
     public required bool TextTruncated { get; init; }
 
-    /// <summary><c>bridge</c> or <c>player.log</c>.</summary>
+    /// <summary>bridge or player.log.</summary>
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 

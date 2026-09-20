@@ -5,8 +5,8 @@ namespace RimWorldModMcp.Indexing.Tests;
 
 /// <summary>
 /// 泛型外層底下的巢狀型別。IL 會讓巢狀型別重新宣告外層的泛型參數，
-/// 一不小心 <c>Verse.Dijkstra`1+DistanceComparer</c> 就會被組成 <c>Verse.Dijkstra&lt;T&gt;</c>——
-/// 巢狀名稱消失、與外層撞同一個 fqn、parent 又是沒人查得到的原始 <c>Verse.Dijkstra`1</c>。
+/// 一不小心 Verse.Dijkstra`1+DistanceComparer 就會被組成 Verse.Dijkstra＜T＞——
+/// 巢狀名稱消失、與外層撞同一個 fqn、parent 又是沒人查得到的原始 Verse.Dijkstra`1。
 /// 遊戲本體裡就有四個這樣的型別。
 /// </summary>
 public sealed class NestedGenericTypeTests : IDisposable

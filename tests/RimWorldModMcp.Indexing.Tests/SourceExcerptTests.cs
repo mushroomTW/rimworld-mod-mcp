@@ -2,7 +2,7 @@ using RimWorldModMcp.Indexing.Query;
 
 namespace RimWorldModMcp.Indexing.Tests;
 
-/// <summary>反編譯檔的逐行分頁：下一頁從 <c>EndLine + 1</c> 接著讀就能拼出整份。</summary>
+/// <summary>反編譯檔的逐行分頁：下一頁從 EndLine + 1 接著讀就能拼出整份。</summary>
 public sealed class SourceExcerptTests
 {
     private const string Text = "line1\r\nline2\r\nline3\r\nline4";

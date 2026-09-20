@@ -20,7 +20,7 @@ public sealed record ModSearchResult(IReadOnlyList<SourceHit> Hits, bool SourceI
 /// 按需檢視已安裝 Mod 的組件。
 ///
 /// <para>
-/// 反編譯結果與符號都存進同一個索引資料庫，用 <c>mod:&lt;packageId&gt;:&lt;DLL 相對路徑&gt;</c>
+/// 反編譯結果與符號都存進同一個索引資料庫，用 mod:＜packageId＞:＜DLL 相對路徑＞
 /// 當作組件鍵與遊戲本體的索引區隔開。這樣 Mod 的原始碼搜尋可以直接沿用
 /// 既有的 FTS 索引，不需要另一套檔案快取。
 /// </para>
@@ -43,9 +43,9 @@ public sealed class ModInspectionService(
     /// 找出 Mod 的所有組件並在必要時建立索引。
     ///
     /// <para>
-    /// 遞迴掃描整個 Mod 目錄，因此 <c>Assemblies/1.5/*.dll</c> 這種常見的
-    /// 多版本佈局也能抓到——Python 版只看 <c>Assemblies/</c> 頂層而漏掉它們。
-    /// <c>Source/</c>、<c>bin/</c>、<c>obj/</c> 底下的 DLL 是原始碼專案與建置產物，不算 Mod 組件。
+    /// 遞迴掃描整個 Mod 目錄，因此 Assemblies/1.5/*.dll 這種常見的
+    /// 多版本佈局也能抓到——Python 版只看 Assemblies/ 頂層而漏掉它們。
+    /// Source/、bin/、obj/ 底下的 DLL 是原始碼專案與建置產物，不算 Mod 組件。
     /// </para>
     /// </summary>
     public IReadOnlyList<ModAssemblyInfo> Inspect(string packageId, string modPath, bool force = false)
@@ -126,7 +126,7 @@ public sealed class ModInspectionService(
 
     /// <summary>
     /// 搜尋 Mod 原始碼；尚未索引時不同步反編譯，而是在背景啟動索引並立刻回報
-    /// <c>Indexing=true</c>。大 Mod 反編譯要幾分鐘，同步做會撞上 MCP client 的呼叫逾時：
+    /// Indexing=true。大 Mod 反編譯要幾分鐘，同步做會撞上 MCP client 的呼叫逾時：
     /// client 收到逾時錯誤、server 端卻還在跑，下一次呼叫又卡在鎖上。
     /// </summary>
     public ModSearchResult TrySearchSource(
@@ -251,11 +251,11 @@ public sealed class ModInspectionService(
 
     /// <summary>
     /// 把 packageId 轉成安全的鎖檔名：不同 Mod 互不阻塞，同 Mod 仍序列化。
-    /// 鎖檔名僅用於 <c>CriticalSectionLock</c> 的檔名，需避開路徑分隔字元。
-    /// 非 <c>[a-z0-9._-]</c> 字元一律壓成 <c>_</c>，理論上 <c>foo/bar</c> 與
-    /// <c>foo_bar</c> 會撞到同一個鎖——但 packageId 規範本就是小寫加 <c>._-</c>，
+    /// 鎖檔名僅用於 CriticalSectionLock 的檔名，需避開路徑分隔字元。
+    /// 非 [a-z0-9._-] 字元一律壓成 _，理論上 foo/bar 與
+    /// foo_bar 會撞到同一個鎖——但 packageId 規範本就是小寫加 ._-，
     /// 實務撞不到；撞到也只是把兩個 Mod 序列化，不影響正確性。
-    /// 輸出不含分隔符，不會跳出鎖目錄（見 <c>CriticalSectionLock.LockPath</c>）。
+    /// 輸出不含分隔符，不會跳出鎖目錄（見 CriticalSectionLock.LockPath）。
     /// </summary>
     public static string LockName(string packageId)
     {

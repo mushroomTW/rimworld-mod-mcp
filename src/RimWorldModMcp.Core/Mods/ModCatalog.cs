@@ -7,7 +7,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
 {
     /// <summary>
     /// 列出使用者安裝的 Mod（本機 Mods 目錄與 Steam Workshop）。
-    /// 不含 Core 與 DLC——那些在 <c>Data/</c> 底下，由 <see cref="BuiltinPacks"/> 提供。
+    /// 不含 Core 與 DLC——那些在 Data/ 底下，由 <see cref="BuiltinPacks"/> 提供。
     /// </summary>
     public IReadOnlyList<ModInfo> Installed()
     {
@@ -22,7 +22,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
 
     /// <summary>
     /// 列出 Core 與已安裝的 DLC。
-    /// 這些必須另外處理：它們住在 <c>Data/</c>，不在 Mods 目錄裡，
+    /// 這些必須另外處理：它們住在 Data/，不在 Mods 目錄裡，
     /// 但測試場次的 activeMods 清單需要它們。
     /// </summary>
     public IReadOnlyList<ModInfo> BuiltinPacks()

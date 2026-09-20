@@ -8,7 +8,7 @@ public interface IProcessHost
 {
     /// <summary>
     /// 這個 PID 是否還活著。
-    /// <b>判定不確定時一律回傳 <c>true</c>。</b>理由見實作註解。
+    /// 判定不確定時一律回傳 true。理由見實作註解。
     /// </summary>
     bool IsAlive(int processId);
 

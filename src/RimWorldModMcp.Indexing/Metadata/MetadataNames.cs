@@ -5,7 +5,7 @@ namespace RimWorldModMcp.Indexing.Metadata;
 /// <summary>從 metadata 控制代碼組出完整型別名稱。</summary>
 internal static class MetadataNames
 {
-    /// <summary>型別定義的完整名稱，巢狀型別以 <c>+</c> 連接外層。</summary>
+    /// <summary>型別定義的完整名稱，巢狀型別以 + 連接外層。</summary>
     internal static string FullName(MetadataReader reader, TypeDefinition type)
     {
         var name = reader.GetString(type.Name);
@@ -54,7 +54,7 @@ internal static class MetadataNames
         };
     }
 
-    /// <summary>把 metadata 的 arity 標記（<c>List`1</c>）換成可讀的泛型參數列表。</summary>
+    /// <summary>把 metadata 的 arity 標記（List`1）換成可讀的泛型參數列表。</summary>
     internal static string WithGenericParameters(string fullName, IReadOnlyList<string> parameters)
     {
         var backtick = fullName.LastIndexOf('`');

@@ -12,7 +12,7 @@ public sealed record ModInfo
 
     public required string Path { get; init; }
 
-    /// <summary><c>local</c>、<c>workshop</c>、<c>core</c>、<c>expansion</c> 或 <c>workspace</c>。</summary>
+    /// <summary>local、workshop、core、expansion 或 workspace。</summary>
     public required string Source { get; init; }
 
     public IReadOnlyList<string> Dependencies { get; init; } = [];
@@ -31,7 +31,7 @@ public static class AboutXml
 {
     /// <summary>
     /// 讀取一個 Mod 目錄的 About.xml。
-    /// 缺少 packageId 或檔案無法解析時回傳 <c>null</c>——那代表這個目錄不是 Mod。
+    /// 缺少 packageId 或檔案無法解析時回傳 null——那代表這個目錄不是 Mod。
     /// </summary>
     public static ModInfo? Parse(string modDirectory, string source)
     {
@@ -82,8 +82,8 @@ public static class AboutXml
 
     /// <summary>
     /// 讀出一個清單元素裡的 packageId。
-    /// 同時接受 <c>&lt;li&gt;&lt;packageId&gt;x&lt;/packageId&gt;&lt;/li&gt;</c> 與
-    /// <c>&lt;li&gt;x&lt;/li&gt;</c> 兩種寫法——兩種在實際的 Mod 裡都很常見。
+    /// 同時接受 ＜li＞＜packageId＞x＜/packageId＞＜/li＞ 與
+    /// ＜li＞x＜/li＞ 兩種寫法——兩種在實際的 Mod 裡都很常見。
     /// </summary>
     private static List<string> PackageIds(XElement? container)
     {

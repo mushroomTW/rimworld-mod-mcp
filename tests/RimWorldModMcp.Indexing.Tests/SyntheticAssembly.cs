@@ -8,7 +8,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// 用 Roslyn 把 C# 原始碼即時編成真的組件。
 ///
 /// <para>
-/// 這讓符號讀取器可以對著<b>真實的 IL metadata</b> 測試，而不是對 mock 測。
+/// 這讓符號讀取器可以對著真實的 IL metadata 測試，而不是對 mock 測。
 /// 也因此不需要把二進位 fixture 進版控，更不需要安裝 RimWorld。
 /// </para>
 /// </summary>

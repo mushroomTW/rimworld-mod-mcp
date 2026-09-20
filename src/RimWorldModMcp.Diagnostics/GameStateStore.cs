@@ -8,7 +8,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// <summary>Bridge 回報的一份遊戲狀態。</summary>
 public sealed record GameStateRecord
 {
-    /// <summary>RimWorld 的 <c>ProgramState</c>：<c>Entry</c>、<c>MapInitializing</c> 或 <c>Playing</c>。</summary>
+    /// <summary>RimWorld 的 ProgramState：Entry、MapInitializing 或 Playing。</summary>
     [JsonPropertyName("program_state")]
     public required string ProgramState { get; init; }
 
@@ -68,7 +68,7 @@ public sealed class GameStateStore(StoreDirectories store)
 
     public void Write(GameStateRecord record) => AtomicJson.Write(store.GameStateFile, record, JsonOptions);
 
-    /// <summary>沒有回報過、或檔案正在被覆寫時回 <c>null</c>。</summary>
+    /// <summary>沒有回報過、或檔案正在被覆寫時回 null。</summary>
     public GameStateRecord? Read()
     {
         try

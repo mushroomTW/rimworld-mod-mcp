@@ -4,7 +4,7 @@ namespace RimWorldModMcp.Indexing.Storage;
 
 /// <summary>
 /// SQLite 損毀錯誤的共用判定。三處（ToolGuard 的提示、Mod 背景索引的錯誤訊息、
-/// rebuild_index 的重試）原本各自寫 <c>e.SqliteErrorCode is 11 or 26</c>，
+/// rebuild_index 的重試）原本各自寫 e.SqliteErrorCode is 11 or 26，
 /// 抽到這裡避免漏改其中一處——那是「損毀」的同一件事，不該有三份副本。
 /// </summary>
 public static class SqliteCorruption

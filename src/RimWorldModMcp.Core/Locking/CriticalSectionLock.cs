@@ -38,7 +38,7 @@ public sealed record LockRecord
 /// 原子性來自 <see cref="FileMode.CreateNew"/>：同一時間只有一個程序能成功建立鎖檔。
 /// </para>
 /// <para>
-/// <b>使用範圍的紀律</b>：這個鎖只保護短暫的臨界區（例如「建連結→寫設定→啟動遊戲」）。
+/// 使用範圍的紀律：這個鎖只保護短暫的臨界區（例如「建連結→寫設定→啟動遊戲」）。
 /// 長時間的狀態（測試場次進行中）改由狀態檔維持，否則忘記停止的場次會把鎖
 /// 留在長壽的 MCP server 程序名下，殘骸回收永遠不會觸發。
 /// </para>
@@ -122,7 +122,7 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         }
     }
 
-    /// <summary>以 <c>using</c> 持有鎖，離開範圍時自動釋放。</summary>
+    /// <summary>以 using 持有鎖，離開範圍時自動釋放。</summary>
     public IDisposable Hold(string name, IReadOnlyDictionary<string, string>? details = null)
     {
         var token = Acquire(name, details);

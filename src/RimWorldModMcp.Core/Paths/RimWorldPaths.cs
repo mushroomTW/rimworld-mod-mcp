@@ -1,7 +1,7 @@
 namespace RimWorldModMcp.Core.Paths;
 
 /// <summary>
-/// 偵測到的 RimWorld 相關路徑。任一欄位為 <c>null</c> 代表該項目不存在或驗證未通過。
+/// 偵測到的 RimWorld 相關路徑。任一欄位為 null 代表該項目不存在或驗證未通過。
 /// </summary>
 public sealed record RimWorldPaths(
     string? InstallRoot,

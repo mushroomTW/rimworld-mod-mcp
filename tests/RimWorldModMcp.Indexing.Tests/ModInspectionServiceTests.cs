@@ -13,7 +13,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// 多版本 Mod 的組件鍵與索引生命週期。
 ///
 /// <para>
-/// 典型的 Workshop Mod 在 <c>1.5/Assemblies</c> 與 <c>1.6/Assemblies</c> 各放一份同名 DLL，
+/// 典型的 Workshop Mod 在 1.5/Assemblies 與 1.6/Assemblies 各放一份同名 DLL，
 /// 組件鍵必須讓人看得出是哪一份，而且要能拿版本片段當篩選條件。
 /// </para>
 /// </summary>
@@ -71,7 +71,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     }
 
     /// <summary>
-    /// <c>Source/</c> 底下的 bin／obj 是使用者自己的建置產物（常含測試組件），
+    /// Source/ 底下的 bin／obj 是使用者自己的建置產物（常含測試組件），
     /// 遊戲不會載入它們，索引只是雜訊，還會讓 dotnet build 撞上被佔用的 DLL。
     /// </summary>
     [Fact]

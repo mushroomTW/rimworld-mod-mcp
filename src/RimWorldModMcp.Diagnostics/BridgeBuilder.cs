@@ -6,7 +6,7 @@ using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Diagnostics;
 
-/// <summary>Bridge preparation result. <paramref name="Origin"/> 是 <c>prebuilt</c> 或 <c>built</c>。</summary>
+/// <summary>Bridge preparation result. <paramref name="Origin"/> 是 prebuilt 或 built。</summary>
 public sealed record BridgeBuild(bool Success, string? ModDirectory, bool Rebuilt, string? Error, string? Origin = null);
 
 /// <summary>

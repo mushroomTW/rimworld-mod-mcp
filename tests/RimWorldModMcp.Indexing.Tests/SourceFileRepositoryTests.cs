@@ -5,7 +5,7 @@ using RimWorldModMcp.Indexing.Storage;
 namespace RimWorldModMcp.Indexing.Tests;
 
 /// <summary>
-/// <c>source_file</c> 與 <c>source_fts</c> 的同步不變式。
+/// source_file 與 source_fts 的同步不變式。
 ///
 /// <para>
 /// FTS5 虛擬表不支援 UPSERT，且 external content 表對同 rowid 重複插入

@@ -14,22 +14,22 @@ public sealed record DefReferenceCandidate(string DefName, string FilePath, int 
 ///
 /// <para>
 /// Python 版的作法是對每一行反編譯後的 C# 跑
-/// <c>"([A-Z][A-Za-z0-9_]{2,})"</c> 這個 regex 抓字串字面量，再比對已知 defName。
+/// "([A-Z][A-Za-z0-9_]{2,})" 這個 regex 抓字串字面量，再比對已知 defName。
 /// 那個作法有兩個問題：會誤中註解與無關字串，而且完全抓不到
-/// <c>ThingDefOf.Steel</c> 這種 RimWorld 最常見的引用形式——它根本不是字串。
+/// ThingDefOf.Steel 這種 RimWorld 最常見的引用形式——它根本不是字串。
 /// </para>
 /// <para>
-/// 這裡改用兩條精確的路徑：符號表裡的 <c>*DefOf</c> 靜態欄位，以及 Def XML
+/// 這裡改用兩條精確的路徑：符號表裡的 *DefOf 靜態欄位，以及 Def XML
 /// 之間的交叉引用。兩者都是結構化資料，不需要猜。
 /// </para>
 /// </summary>
 public static class DefReferenceAnalyzer
 {
     /// <summary>
-    /// 從符號表找出所有 <c>*DefOf</c> 類別的靜態欄位引用。
+    /// 從符號表找出所有 *DefOf 類別的靜態欄位引用。
     ///
     /// <para>
-    /// RimWorld 用 <c>[DefOf]</c> 標記的靜態類別（<c>ThingDefOf</c>、<c>JobDefOf</c>…）
+    /// RimWorld 用 [DefOf] 標記的靜態類別（ThingDefOf、JobDefOf…）
     /// 在載入時由遊戲把同名的 Def 填進同名欄位。因此「欄位名」就是「defName」，
     /// 這是編譯期就確定的對應關係，不需要語意分析也不需要猜。
     /// </para>
@@ -72,12 +72,12 @@ public static class DefReferenceAnalyzer
     }
 
     /// <summary>
-    /// 從已解析的 <c>&lt;Defs&gt;</c> 根節點收集 Def XML 交叉引用的<b>候選</b>。
+    /// 從已解析的 ＜Defs＞ 根節點收集 Def XML 交叉引用的候選。
     ///
     /// <para>
-    /// Def 彼此以 defName 相互指涉——<c>&lt;costList&gt;&lt;Steel&gt;10&lt;/Steel&gt;</c>、
-    /// <c>&lt;researchPrerequisites&gt;&lt;li&gt;Smithing&lt;/li&gt;</c>、
-    /// <c>&lt;ParentName="BaseGun"&gt;</c> 等等。這些都是結構化位置，
+    /// Def 彼此以 defName 相互指涉——＜costList＞＜Steel＞10＜/Steel＞、
+    /// ＜researchPrerequisites＞＜li＞Smithing＜/li＞、
+    /// ＜ParentName="BaseGun"＞ 等等。這些都是結構化位置，
     /// 元素名稱本身就是語境，不需要靠字串比對猜測。
     /// </para>
     /// <para>
@@ -154,7 +154,7 @@ public static class DefReferenceAnalyzer
         return hasLetter;
     }
 
-    /// <summary>組出可讀的語境字串，例如 <c>ThingDef/costList/Steel</c>。</summary>
+    /// <summary>組出可讀的語境字串，例如 ThingDef/costList/Steel。</summary>
     private static string ElementPath(XElement element)
     {
         var parts = new List<string>();

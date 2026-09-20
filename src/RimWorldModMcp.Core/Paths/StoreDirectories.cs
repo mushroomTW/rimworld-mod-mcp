@@ -5,8 +5,8 @@ namespace RimWorldModMcp.Core.Paths;
 ///
 /// <para>
 /// Python 版用 platformdirs，在 Windows 會產生雙層的
-/// <c>%LOCALAPPDATA%\RimWorldMcp\RimWorldMcp\Cache</c>。C# 版改用 .NET 的自然佈局：
-/// <c>%LOCALAPPDATA%\RimWorldModMcp\</c> 單層，快取放 <c>Cache\</c> 子目錄。
+/// %LOCALAPPDATA%\RimWorldMcp\RimWorldMcp\Cache。C# 版改用 .NET 的自然佈局：
+/// %LOCALAPPDATA%\RimWorldModMcp\ 單層，快取放 Cache\ 子目錄。
 /// </para>
 /// <para>
 /// 目錄一律 lazy 建立——光是建構這個物件不得產生檔案系統副作用，

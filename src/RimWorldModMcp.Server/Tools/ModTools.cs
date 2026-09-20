@@ -138,7 +138,7 @@ public sealed record ModSummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; init; }
 
-    /// <summary><c>local</c>, <c>workshop</c>, <c>core</c>, or <c>expansion</c>.</summary>
+    /// <summary>local, workshop, core, or expansion.</summary>
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 
@@ -179,7 +179,7 @@ public sealed record ModAssemblySummary
     [JsonPropertyName("name")]
     public required string Name { get; init; }
 
-    /// <summary>Index key of the assembly (<c>mod:&lt;packageId&gt;:&lt;relative DLL path&gt;</c>); the query tools' assembly filter matches against it.</summary>
+    /// <summary>Index key of the assembly (mod:＜packageId＞:＜relative DLL path＞); the query tools' assembly filter matches against it.</summary>
     [JsonPropertyName("assembly")]
     public required string Assembly { get; init; }
 

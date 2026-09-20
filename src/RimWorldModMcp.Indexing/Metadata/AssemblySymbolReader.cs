@@ -340,11 +340,11 @@ public sealed class AssemblySymbolReader
     /// 成本與收益不成比例。
     ///
     /// <para>
-    /// 泛型實例化的基底（<c>class Foo : Comp&lt;Bar&gt;</c>）的 handle 是
+    /// 泛型實例化的基底（class Foo : Comp＜Bar＞）的 handle 是
     /// TypeSpecification 而不是 TypeDefinition——不解開它的話，鏈在第一層就斷，
     /// RimWorld 大量以泛型為基底的家族（Dialog_*、CompProperties_* 等）
     /// 在 find_descendants 全部查不到。鏈上存的是去除引數的定義名稱，
-    /// 讓 <c>Descendants</c> 的精確比對不受實例化引數影響。
+    /// 讓 Descendants 的精確比對不受實例化引數影響。
     /// </para>
     /// </summary>
     private static List<string> BaseChain(MetadataReader reader, TypeDefinition type, GenericContext context)
@@ -424,7 +424,7 @@ public sealed class AssemblySymbolReader
         }
     }
 
-    /// <summary>去掉 arity 標記（<c>`1</c>）與泛型引數列表（<c>&lt;...&gt;</c>）。</summary>
+    /// <summary>去掉 arity 標記（`1）與泛型引數列表（＜...＞）。</summary>
     private static string StripGenericSuffix(string name)
     {
         var backtick = name.IndexOf('`');
@@ -629,11 +629,11 @@ public sealed class AssemblySymbolReader
     }
 
     /// <summary>
-    /// 型別的顯示用完整名稱：<c>Ns.Outer&lt;T&gt;+Inner&lt;U&gt;</c>。
+    /// 型別的顯示用完整名稱：Ns.Outer＜T＞+Inner＜U＞。
     ///
     /// <para>
     /// IL 裡巢狀型別會把外層的泛型參數重新宣告一次，直接拿全部參數去換掉最後一個
-    /// arity 標記，<c>Ns.Outer`1+Inner</c> 會變成 <c>Ns.Outer&lt;T&gt;</c>——巢狀名稱整個消失，
+    /// arity 標記，Ns.Outer`1+Inner 會變成 Ns.Outer＜T＞——巢狀名稱整個消失，
     /// 還跟外層型別撞同一個 fqn。這裡逐層組：每一層只放自己新增的參數。
     /// </para>
     /// </summary>

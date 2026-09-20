@@ -107,7 +107,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
 
     /// <summary>
     /// 這是改寫的核心價值：完整的繼承鏈。
-    /// Python 版的 <c>parent_fqn</c> 只有一層，回答不了「哪些類別繼承 ThingComp」這種
+    /// Python 版的 parent_fqn 只有一層，回答不了「哪些類別繼承 ThingComp」這種
     /// RimWorld modding 的核心問題。
     /// </summary>
     [Fact]
@@ -163,7 +163,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
     }
 
     /// <summary>
-    /// <c>ThingDefOf.Steel</c> 這種靜態欄位是 RimWorld 最常見的 def 引用形式。
+    /// ThingDefOf.Steel 這種靜態欄位是 RimWorld 最常見的 def 引用形式。
     /// 必須被索引到，Roslyn 的引用分析才有東西可比對。
     /// </summary>
     [Fact]

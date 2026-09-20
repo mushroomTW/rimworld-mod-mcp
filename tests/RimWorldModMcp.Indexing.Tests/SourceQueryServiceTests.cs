@@ -112,7 +112,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     }
 
     /// <summary>
-    /// 分組寫法 <c>(a|b)</c> 的關鍵字也要能抽出，不能退回全掃。
+    /// 分組寫法 (a|b) 的關鍵字也要能抽出，不能退回全掃。
     /// 50 個 filler 保證全掃的前 40 個檔看不到目標。
     /// </summary>
     [Fact]
@@ -134,7 +134,7 @@ public sealed class SourceQueryServiceTests : IDisposable
 
     /// <summary>
     /// 群組或 lookaround 內部的 alternation 是「條件」不是「分支」：
-    /// <c>Foo(Bar|Baz)?</c>、<c>Foo(?!Bar)</c> 的 Bar 不是必定出現，抽成必要關鍵字
+    /// Foo(Bar|Baz)?、Foo(?!Bar) 的 Bar 不是必定出現，抽成必要關鍵字
     /// 會把只含 Foo 的檔案在候選階段就濾掉（靜默漏召回）。
     /// 50 個 filler 在目標之前插入（rowid 在前）：全掃 fallback 只看前 limit*4=40 個檔，
     /// 目標排在後面必然看不到；只有「抽到 Foo、走 FTS」能召回。
@@ -161,9 +161,9 @@ public sealed class SourceQueryServiceTests : IDisposable
     }
 
     /// <summary>
-    /// 必要群組內的分支 <c>Foo(Bar|Baz)</c>：候選階段放大到「含 Foo」的所有檔，
-    /// regex 自己負責精確比對；把分支切成 <c>Foo(Bar</c> / <c>Baz)</c> 雖然對
-    /// <c>FooBar</c> 仍可召回，但關鍵字變成 <c>Foo AND Bar</c>，含 Foo 的其他檔
+    /// 必要群組內的分支 Foo(Bar|Baz)：候選階段放大到「含 Foo」的所有檔，
+    /// regex 自己負責精確比對；把分支切成 Foo(Bar / Baz) 雖然對
+    /// FooBar 仍可召回，但關鍵字變成 Foo AND Bar，含 Foo 的其他檔
     /// 會在候選階段消失，等於把 regex 的決定權提前搶走。
     /// </summary>
     [Fact]
@@ -199,7 +199,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     }
 
     /// <summary>
-    /// 關鍵字抽取曾把 <c>\bFoo\b</c> 抽成 <c>bFoo</c>：反斜線被拿掉、b 黏上去，
+    /// 關鍵字抽取曾把 \bFoo\b 抽成 bFoo：反斜線被拿掉、b 黏上去，
     /// FTS 零候選、regex 沒機會跑，最常見的 regex 寫法直接靜默回零筆。
     /// </summary>
     [Fact]

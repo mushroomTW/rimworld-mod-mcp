@@ -9,8 +9,8 @@ namespace RimWorldModMcp.Indexing.Pipeline;
 /// 判斷索引是否還對得上目前的遊戲安裝。
 ///
 /// <para>
-/// Python 版只雜湊 <c>Version.txt</c>、組件 DLL 的大小與時間戳，以及各 pack 的
-/// <b>目錄名稱</b>——Def XML 的內容完全不參與。手動編輯 <c>Data/Core/Defs/*.xml</c>
+/// Python 版只雜湊 Version.txt、組件 DLL 的大小與時間戳，以及各 pack 的
+/// 目錄名稱——Def XML 的內容完全不參與。手動編輯 Data/Core/Defs/*.xml
 /// 或新增／刪除單一 Def 檔案之後，索引仍會回報 fresh。那是真正的正確性缺口，
 /// 這裡把 Def 檔案也納入指紋。
 /// </para>
@@ -24,11 +24,11 @@ public sealed class IndexFingerprint
 
     /// <summary>
     /// 指紋計算要對兩萬個 Def XML 各做一次 stat，是幾百毫秒到數秒的操作，
-    /// 而 <c>rimworld_status</c> 每次呼叫都會算一次。短 TTL 記憶化。
+    /// 而 rimworld_status 每次呼叫都會算一次。短 TTL 記憶化。
     /// </summary>
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(10);
 
-    /// <summary>計算目前安裝的指紋。偵測不到遊戲時回傳 <c>null</c>。</summary>
+    /// <summary>計算目前安裝的指紋。偵測不到遊戲時回傳 null。</summary>
     public string? Compute(RimWorldPaths paths)
     {
         if (paths.ManagedDir is null || paths.DataDir is null)

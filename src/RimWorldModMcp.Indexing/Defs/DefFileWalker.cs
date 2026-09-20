@@ -7,10 +7,10 @@ internal sealed record DefFile(string AbsolutePath, string RelativePath, long Le
 internal sealed record DefPack(string Name, IReadOnlyList<DefFile> Files);
 
 /// <summary>
-/// <c>Data/</c> 的單一走訪來源。
+/// Data/ 的單一走訪來源。
 ///
 /// <para>
-/// Def 掃描、引用分析與指紋計算過去各自走訪一次 <c>Data/</c>——兩萬個檔案
+/// Def 掃描、引用分析與指紋計算過去各自走訪一次 Data/——兩萬個檔案
 /// 走三遍、其中兩遍還各自解析一次 XML。現在三者都吃這裡的同一份清單：
 /// 順序固定（pack 與檔案都排序），指紋的雜湊輸入才不會因走訪方式而漂移。
 /// </para>

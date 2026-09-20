@@ -73,7 +73,7 @@ public sealed record SymbolRecord
 
     /// <summary>
     /// 組件檔案的實際路徑，反編譯時用來定位。Mod 組件的 <see cref="Assembly"/>
-    /// 是 <c>mod:pkg:Name:hash</c> 形式的索引鍵，拼不回檔案路徑，必須另外存。
+    /// 是 mod:pkg:Name:hash 形式的索引鍵，拼不回檔案路徑，必須另外存。
     /// </summary>
     public string? AssemblyPath { get; init; }
 
@@ -90,10 +90,10 @@ public sealed record SymbolRecord
 
     public required string Signature { get; init; }
 
-    /// <summary>由近到遠的基底型別鏈，以 <c>|</c> 分隔。僅型別符號有值。</summary>
+    /// <summary>由近到遠的基底型別鏈，以 | 分隔。僅型別符號有值。</summary>
     public string? BaseChain { get; init; }
 
-    /// <summary>實作的介面，以 <c>|</c> 分隔。僅型別符號有值。</summary>
+    /// <summary>實作的介面，以 | 分隔。僅型別符號有值。</summary>
     public string? Interfaces { get; init; }
 
     public required string Accessibility { get; init; }

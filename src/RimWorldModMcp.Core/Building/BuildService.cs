@@ -19,7 +19,7 @@ public sealed record BuildDiagnostic(
 /// <summary>Build result. XML-only and C# mods populate different fields.</summary>
 public sealed record BuildResult
 {
-    /// <summary><c>xml_only</c> or <c>csharp</c>.</summary>
+    /// <summary>xml_only or csharp.</summary>
     [JsonPropertyName("kind")]
     public required string Kind { get; init; }
 
@@ -61,8 +61,8 @@ public sealed record BuildResult
 /// 驗證並建置 Mod。
 ///
 /// <para>
-/// 建置失敗時回傳<b>結構化診斷</b>（錯誤代碼、檔名、行列），而不是一整包 MSBuild 的
-/// 文字輸出。Python 版回傳 <c>stdout[-12000:]</c>，呼叫端得自己從裡面猜哪裡錯了，
+/// 建置失敗時回傳結構化診斷（錯誤代碼、檔名、行列），而不是一整包 MSBuild 的
+/// 文字輸出。Python 版回傳 stdout[-12000:]，呼叫端得自己從裡面猜哪裡錯了，
 /// 而且那一萬多字元會直接佔掉呼叫端的 context。
 /// </para>
 /// </summary>

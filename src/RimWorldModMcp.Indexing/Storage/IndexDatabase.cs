@@ -88,10 +88,10 @@ public sealed class IndexDatabase(StoreDirectories store)
     }
 
     /// <summary>
-    /// 資料庫目前是否健康（結構版本相符且 <c>quick_check</c> 通過）。
-    /// 純偵測，不觸發任何重建或重設——<c>rimworld_status</c> 用它在「行程中途
-    /// 損毀」時仍能回報 <c>healthy=false</c>，呼叫端才知道要 rebuild_index。
-    /// 每次呼叫跑一次 <c>quick_check</c>，大資料庫可能耗時數百毫秒；status 不是
+    /// 資料庫目前是否健康（結構版本相符且 quick_check 通過）。
+    /// 純偵測，不觸發任何重建或重設——rimworld_status 用它在「行程中途
+    /// 損毀」時仍能回報 healthy=false，呼叫端才知道要 rebuild_index。
+    /// 每次呼叫跑一次 quick_check，大資料庫可能耗時數百毫秒；status 不是
     /// 熱路徑，可接受。
     /// </summary>
     public bool Healthy()
@@ -108,7 +108,7 @@ public sealed class IndexDatabase(StoreDirectories store)
     }
 
     /// <summary>
-    /// 結構版本相符且 <c>quick_check</c> 通過才算可用。任何一步拋出 SQLite 例外
+    /// 結構版本相符且 quick_check 通過才算可用。任何一步拋出 SQLite 例外
     /// （例如檔頭已經不是資料庫）也視為不可用。
     /// </summary>
     private static bool IsUsable(SqliteConnection connection)

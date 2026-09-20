@@ -135,7 +135,7 @@ public static class SourceFileRepository
         command.ExecuteNonQuery();
     }
 
-    /// <summary>讀出一個反編譯檔的完整內容；鍵不存在時回傳 <c>null</c>。</summary>
+    /// <summary>讀出一個反編譯檔的完整內容；鍵不存在時回傳 null。</summary>
     public static string? Read(SqliteConnection connection, string assembly, string path)
     {
         using var command = connection.CreateCommand();
@@ -152,7 +152,7 @@ public static class SourceFileRepository
         return (long)command.ExecuteScalar()!;
     }
 
-    /// <summary>只算遊戲本體的檔案，不含 <c>mod:</c> 前綴的 Mod 組件。</summary>
+    /// <summary>只算遊戲本體的檔案，不含 mod: 前綴的 Mod 組件。</summary>
     public static long CountGame(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
@@ -256,7 +256,7 @@ public static class DefReferenceRepository
     }
 
     /// <summary>
-    /// 把暫存表裡的引用候選以 defName 名冊過濾後寫進 <c>def_reference</c>，
+    /// 把暫存表裡的引用候選以 defName 名冊過濾後寫進 def_reference，
     /// 然後丟掉暫存表。
     ///
     /// <para>

@@ -7,9 +7,9 @@ namespace RimWorldModMcp.Core.Platform;
 /// 以 UTF-8 位元組為單位的文字截斷。
 ///
 /// <para>
-/// 所有 <c>max_bytes</c> 類參數都必須經過這裡。Python 版的截斷一律以 UTF-8 byte 計算，
-/// 若在 C# 改用 <c>string.Substring</c>（UTF-16 char 語意）會產生不同的截斷點，
-/// 連帶讓 <c>*_truncated</c> 旗標的判定跟著漂移。
+/// 所有 max_bytes 類參數都必須經過這裡。Python 版的截斷一律以 UTF-8 byte 計算，
+/// 若在 C# 改用 string.Substring（UTF-16 char 語意）會產生不同的截斷點，
+/// 連帶讓 *_truncated 旗標的判定跟著漂移。
 /// </para>
 /// </summary>
 public static class Utf8Text

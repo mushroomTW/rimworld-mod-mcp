@@ -4,7 +4,7 @@ using RimWorldModMcp.Indexing.Model;
 
 namespace RimWorldModMcp.Indexing.Storage;
 
-/// <summary><c>symbol</c> 表的唯一存取點。</summary>
+/// <summary>symbol 表的唯一存取點。</summary>
 public static class SymbolRepository
 {
     private const string AssemblyParam = "$assembly";
@@ -316,7 +316,7 @@ public static class SymbolRepository
     }
 
     /// <summary>
-    /// 取名稱最後一段（去掉 namespace 與 <c>()</c>），依大小寫邊界切詞，
+    /// 取名稱最後一段（去掉 namespace 與 ()），依大小寫邊界切詞，
     /// 只留長度 ≥ 3 的詞、最長的兩個。
     /// </summary>
     private static List<string> CamelCaseTokens(string name)
@@ -364,11 +364,11 @@ public static class SymbolRepository
     }
 
     /// <summary>
-    /// 把呼叫端給的 namespace 或型別名稱解析成索引裡的正式寫法；不存在回 <c>null</c>。
+    /// 把呼叫端給的 namespace 或型別名稱解析成索引裡的正式寫法；不存在回 null。
     ///
     /// <para>
-    /// 大小寫不分：<c>verse.ai</c> 解析成 <c>Verse.AI</c>。之前存在性用 LIKE（不分大小寫）判、
-    /// 列子項用 <c>=</c>（分大小寫）查，<c>verse</c> 會通過檢查卻列出空清單——正是這個
+    /// 大小寫不分：verse.ai 解析成 Verse.AI。之前存在性用 LIKE（不分大小寫）判、
+    /// 列子項用 =（分大小寫）查，verse 會通過檢查卻列出空清單——正是這個
     /// 檢查想避免的「不存在」與「沒有成員」混在一起。有完全同大小寫的候選時優先。
     /// </para>
     /// </summary>

@@ -12,13 +12,13 @@ public sealed record SourceIndexProgress(bool Running, bool Completed, int Files
 /// 第三層索引：把整個組件反編譯後存進資料庫供全文搜尋。
 ///
 /// <para>
-/// 這是唯一分鐘級的步驟，所以刻意不放在 <c>rebuild_index</c> 的同步流程裡。
+/// 這是唯一分鐘級的步驟，所以刻意不放在 rebuild_index 的同步流程裡。
 /// Def 搜尋、符號查詢與單一成員反編譯都不依賴它，因此索引建好之後立刻可用；
-/// 只有 <c>search_source</c> 需要等這一層完成。
+/// 只有 search_source 需要等這一層完成。
 /// </para>
 /// <para>
-/// 反編譯結果存進 <c>source_file</c> 表而不是落地成上萬個檔案——Python 版
-/// 在快取目錄產生的檔案樹，每次 <c>search_source</c> 都要整個掃過一遍。
+/// 反編譯結果存進 source_file 表而不是落地成上萬個檔案——Python 版
+/// 在快取目錄產生的檔案樹，每次 search_source 都要整個掃過一遍。
 /// </para>
 /// </summary>
 public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locator)
@@ -205,11 +205,11 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
     /// <summary>
     /// 尚未完成、也沒有失敗紀錄的原始碼索引是「被中斷」的（多半是行程重啟）。
     /// 呼叫端據此決定要不要在啟動時續跑。
-    /// <c>CountGame &gt; 0</c> 的取捨：第一批 200 檔寫入前就中斷的話，資料表是空的，
-    /// 這裡回 false，啟動時不續跑——那些檔案在 <c>rebuild_index</c> 之後本來就會重跑，
+    /// CountGame ＞ 0 的取捨：第一批 200 檔寫入前就中斷的話，資料表是空的，
+    /// 這裡回 false，啟動時不續跑——那些檔案在 rebuild_index 之後本來就會重跑，
     /// 沒有「只差一點就完成」的便宜續跑可省；要讓它把「從零開始」也當續跑的話，
-    /// 每次啟動都會多跑一次背景索引，而正常完成後 <c>source_indexed=true</c> 根本不會
-    /// 走到這裡。回 false 的後果只是 <c>rimworld_status</c> 顯示「未建」而非「中斷」，
+    /// 每次啟動都會多跑一次背景索引，而正常完成後 source_indexed=true 根本不會
+    /// 走到這裡。回 false 的後果只是 rimworld_status 顯示「未建」而非「中斷」，
     /// 呼叫端 rebuild_index 即可。
     /// </summary>
     public bool IsInterrupted()

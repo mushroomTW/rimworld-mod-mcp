@@ -297,9 +297,9 @@ public sealed partial class TestEnvironmentPreparer(
     }
 
     /// <summary>
-    /// RimWorld（Unity 2022，Windows）的 <c>fullscreen=True</c> 走 FullScreenWindow，
+    /// RimWorld（Unity 2022，Windows）的 fullscreen=True 走 FullScreenWindow，
     /// 也就是無邊框全螢幕視窗；解析度沿用 Prefs 原本的 screenWidth/screenHeight。
-    /// 找不到 <c>&lt;fullscreen&gt;</c> 元素時原樣回傳（同一個字串實例）。
+    /// 找不到 ＜fullscreen＞ 元素時原樣回傳（同一個字串實例）。
     /// </summary>
     public static string WithFullscreen(string prefsXml, bool fullscreen)
     {
@@ -318,7 +318,7 @@ public sealed partial class TestEnvironmentPreparer(
     private static partial Regex FullscreenElement();
 
     /// <summary>
-    /// RimWorld 以 <c>Mod_&lt;Mod 資料夾名&gt;_&lt;Mod 類別名&gt;.xml</c> 讀取 ModSettings，
+    /// RimWorld 以 Mod_＜Mod 資料夾名＞_＜Mod 類別名＞.xml 讀取 ModSettings，
     /// 而測試場次裡受測 Mod 的資料夾名是臨時連結名——從使用者正式環境複製來的
     /// 設定檔若不改名，遊戲會當作沒有設定。類別名取最後一個底線之後的部分。
     /// </summary>

@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// 泛型基底鏈的解析。
 ///
 /// <para>
-/// <c>class Foo : Comp&lt;Bar&gt;</c> 的基底 handle 是 TypeSpecification 而非
+/// class Foo : Comp＜Bar＞ 的基底 handle 是 TypeSpecification 而非
 /// TypeDefinition——不解開它，繼承鏈在第一層就斷，RimWorld 大量以泛型為
 /// 基底的家族在 find_descendants 全部隱形。
 /// </para>

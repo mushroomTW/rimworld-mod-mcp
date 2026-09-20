@@ -8,7 +8,7 @@ namespace RimWorldModMcp.PlatformContracts.Tests;
 /// <para>
 /// 這些契約若在某個 OS 上悄悄改變，清理邏輯會靜默失效——最壞的情況是把使用者的
 /// Mod 原始碼刪掉。因此每一條都必須在三個 OS 的 CI 上真的執行，
-/// 不使用 <c>Skip</c>：Windows 專屬的事實改用雙分支斷言，讓每個平台都斷言到真實行為。
+/// 不使用 Skip：Windows 專屬的事實改用雙分支斷言，讓每個平台都斷言到真實行為。
 /// </para>
 /// </summary>
 public sealed class DirectoryLinkContracts : IDisposable
@@ -82,7 +82,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 契約：連結的三重防線（前綴、reparse point、解析後目標相符）在每個平台各自成立。
     ///
     /// <para>
-    /// Python 版這條是 Windows-only 的 <c>is_symlink() is False</c> 斷言。
+    /// Python 版這條是 Windows-only 的 is_symlink() is False 斷言。
     /// 在 .NET 改成斷言每一重防線的實際依據——ReparsePoint 屬性與 ResolveLinkTarget——
     /// 讓三個平台都能驗到同一組不變式。
     /// </para>
@@ -126,7 +126,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 契約：移除連結只拆掉連結本身，目標目錄的內容必須完好。
     ///
     /// <para>
-    /// 這是整組契約裡最重要的一條。<c>Directory.Delete(path, recursive: true)</c>
+    /// 這是整組契約裡最重要的一條。Directory.Delete(path, recursive: true)
     /// 會遞迴走進 junction 把目標內容刪光，等於毀掉使用者的 Mod 原始碼。
     /// 這條測試就是那個行為的防線。
     /// </para>
@@ -163,7 +163,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 契約：連結目標位於「會被重新導向的路徑」底下時，仍必須被認出是自家連結。
     ///
     /// <para>
-    /// 這條是端對端測試抓到的真實迴歸。<c>ResolveLinkTarget(returnFinalTarget: true)</c>
+    /// 這條是端對端測試抓到的真實迴歸。ResolveLinkTarget(returnFinalTarget: true)
     /// 會穿透所有層級的重新導向（企業資料夾重新導向、OneDrive 已知資料夾移動、
     /// 打包應用程式的容器虛擬化），使得完全解析後的路徑與當初寫入 reparse point
     /// 的字串完全不同。當時只解析比對的其中一邊，導致自家連結被誤判成別人的，

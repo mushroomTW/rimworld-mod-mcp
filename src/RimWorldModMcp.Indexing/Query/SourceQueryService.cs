@@ -202,18 +202,18 @@ public sealed class SourceQueryService
     }
 
     /// <summary>
-    /// 按「不在任何群組內」的未跳脫 <c>|</c> 切分支。
+    /// 按「不在任何群組內」的未跳脫 | 切分支。
     ///
     /// <para>
-    /// 群組深度以 <c>(</c>/<c>)</c> 計算，跳過 <c>\(</c>、<c>\)</c> 與字元類 <c>[...]</c>。
-    /// lookaround（<c>(?!</c>、<c>(?=</c>、<c>(?&lt;!</c>、<c>(?&lt;=</c>）內的 <c>|</c> 是條件
-    /// 不是分支，不能切——切開的話 <c>Foo(Bar|Baz)?</c> 會變成 <c>Foo(Bar</c> / <c>Baz)?</c>，
-    /// 第一支抽到 <c>"Foo" AND "Bar"</c>，只含 Foo 的檔案在候選階段就被濾掉（靜默漏召回）。
+    /// 群組深度以 (/) 計算，跳過 \(、\) 與字元類 [...]。
+    /// lookaround（前瞻與後瞻群組，例如以 (?=、(?! 開頭者）內的 | 是條件
+    /// 不是分支，不能切——切開的話 Foo(Bar|Baz)? 會變成 Foo(Bar / Baz)?，
+    /// 第一支抽到 "Foo" AND "Bar"，只含 Foo 的檔案在候選階段就被濾掉（靜默漏召回）。
     /// </para>
     /// <para>
-    /// 整個 pattern 就是一個群組（<c>(a|b)</c>、<c>(DeregisterZone|Delete)</c>）時，先把
-    /// 外層括號剝掉再切——內層的 <c>|</c> 語意上就是頂層分支，兩邊都是完整候選，維持
-    /// 「分組 alternation 以 OR 取聯集」的行為。<c>(?…</c> 開頭（lookaround、non-capturing）
+    /// 整個 pattern 就是一個群組（(a|b)、(DeregisterZone|Delete)）時，先把
+    /// 外層括號剝掉再切——內層的 | 語意上就是頂層分支，兩邊都是完整候選，維持
+    /// 「分組 alternation 以 OR 取聯集」的行為。(?… 開頭（lookaround、non-capturing）
     /// 不剝，那些群組的內容不是完整候選。
     /// </para>
     /// </summary>
@@ -285,7 +285,7 @@ public sealed class SourceQueryService
         return branches;
     }
 
-    /// <summary><paramref name="pattern"/>[0] 的 <c>(</c> 對應的閉括號位置；找不到回 -1。</summary>
+    /// <summary><paramref name="pattern"/>[0] 的 ( 對應的閉括號位置；找不到回 -1。</summary>
     private static int MatchingParen(string pattern)
     {
         var depth = 0;
@@ -332,12 +332,12 @@ public sealed class SourceQueryService
     }
 
     /// <summary>
-    /// 抽出單一分支裡<b>必定出現</b>的字面詞當全文關鍵字。候選階段只求召回不求精準，
+    /// 抽出單一分支裡必定出現的字面詞當全文關鍵字。候選階段只求召回不求精準，
     /// 所以寧可少抽也不能抽錯：抽到一個其實不必出現的詞，含有目標的檔案會在候選階段
     /// 就被濾掉，regex 根本沒機會跑，結果是靜默的零筆。因此：
-    /// 跳脫序列（<c>\b</c>、<c>\s</c>、<c>\.</c>）整個當作分隔——直接拿掉反斜線會把
-    /// <c>\bFoo\b</c> 抽成 <c>bFoo</c>；字元類 <c>[...]</c> 與可選片段
-    /// （<c>?</c>、<c>*</c>、<c>{0,</c> 之前的字元或群組）不是必定出現，一律不抽。
+    /// 跳脫序列（\b、\s、\.）整個當作分隔——直接拿掉反斜線會把
+    /// \bFoo\b 抽成 bFoo；字元類 [...] 與可選片段
+    /// （?、*、{0, 之前的字元或群組）不是必定出現，一律不抽。
     /// source_fts 用 trigram tokenizer，關鍵字是子字串也找得到。
     /// </summary>
     private static string[] KeywordsForBranch(string branch)
@@ -362,7 +362,7 @@ public sealed class SourceQueryService
             .Take(4)];
     }
 
-    /// <summary>依序套用；跳脫序列必須最先處理，<c>\[</c> 才不會被當成字元類的開頭。</summary>
+    /// <summary>依序套用；跳脫序列必須最先處理，\[ 才不會被當成字元類的開頭。</summary>
     private static readonly (string Pattern, string Replacement)[] KeywordCleanups =
     [
         // \b \s \. \x41 A 等跳脫序列：整個換成分隔，不能只拿掉反斜線。
@@ -384,8 +384,8 @@ public sealed class SourceQueryService
     ];
 
     /// <summary>
-    /// glob → LIKE。必須自己逐字元轉換：LIKE 的跳脫（<c>%</c>、<c>_</c>）與
-    /// glob 的萬用字元（<c>*</c>、<c>?</c>）是兩套不相干的字彙，先跳脫再替換
+    /// glob → LIKE。必須自己逐字元轉換：LIKE 的跳脫（%、_）與
+    /// glob 的萬用字元（*、?）是兩套不相干的字彙，先跳脫再替換
     /// 會找不到目標序列，讓 file_pattern 靜默失效。
     /// </summary>
     private static string GlobToLike(string pattern)

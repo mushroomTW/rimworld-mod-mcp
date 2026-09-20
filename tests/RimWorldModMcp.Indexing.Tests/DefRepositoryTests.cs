@@ -131,7 +131,7 @@ public sealed class DefRepositoryTests : IDisposable
     }
 
     /// <summary>
-    /// 契約：只有 <c>*</c> 的查詢沒有可用搜尋詞，應退化成「無條件回傳到上限」
+    /// 契約：只有 * 的查詢沒有可用搜尋詞，應退化成「無條件回傳到上限」
     /// 而不是變成錯誤或回傳空集合。
     /// </summary>
     [Fact]
@@ -220,9 +220,9 @@ public sealed class DefRepositoryTests : IDisposable
     }
 
     /// <summary>
-    /// FTS5 預設把底線當分隔字元，所以 <c>Gun_Revolver</c> 會被切成兩個 token。
+    /// FTS5 預設把底線當分隔字元，所以 Gun_Revolver 會被切成兩個 token。
     /// RimWorld 的 defName 大量使用底線，這個行為直接影響搜尋手感，
-    /// 因此明確測起來——日後若有人加上 <c>tokenchars '_'</c>，這條會紅。
+    /// 因此明確測起來——日後若有人加上 tokenchars '_'，這條會紅。
     /// </summary>
     [Fact]
     public void UnderscoreIsATokenSeparator()

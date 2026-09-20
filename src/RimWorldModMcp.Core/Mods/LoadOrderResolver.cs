@@ -10,9 +10,9 @@ public sealed record LoadOrder(
 /// 依相依關係決定 Mod 的載入順序。
 ///
 /// <para>
-/// 硬相依（<c>modDependencies</c>）缺少時列進 <see cref="LoadOrder.Missing"/>，
-/// 由呼叫端決定要不要中止；軟排序（<c>loadAfter</c>、<c>loadBefore</c>）缺少時只記錄不影響結果。
-/// <c>incompatibleWith</c> 雙方都在選集內則直接拒絕。
+/// 硬相依（modDependencies）缺少時列進 <see cref="LoadOrder.Missing"/>，
+/// 由呼叫端決定要不要中止；軟排序（loadAfter、loadBefore）缺少時只記錄不影響結果。
+/// incompatibleWith 雙方都在選集內則直接拒絕。
 /// </para>
 /// </summary>
 public sealed class LoadOrderResolver

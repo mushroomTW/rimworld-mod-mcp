@@ -95,8 +95,8 @@ public sealed partial class RimWorldLocator
 
     /// <summary>
     /// Workshop 內容目錄是從安裝路徑往上推導的：
-    /// <c>&lt;lib&gt;/steamapps/common/RimWorld</c> 往上兩層到 <c>&lt;lib&gt;/steamapps</c>，
-    /// 再進 <c>workshop/content/294100</c>。
+    /// ＜lib＞/steamapps/common/RimWorld 往上兩層到 ＜lib＞/steamapps，
+    /// 再進 workshop/content/294100。
     /// 若使用者用環境變數指定了不在 Steam 結構下的路徑，這個推導會落空而回傳 null——這是既有行為。
     /// </summary>
     private static string? WorkshopDirectory(string install)

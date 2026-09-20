@@ -16,7 +16,7 @@ public sealed record TestModSet(
 /// 在隔離環境中啟動 RimWorld 測試開發中的 Mod。
 ///
 /// <para>
-/// 隔離靠三件事：<c>-savedatafolder</c> 指向暫存目錄（不碰使用者的存檔與設定）、
+/// 隔離靠三件事：-savedatafolder 指向暫存目錄（不碰使用者的存檔與設定）、
 /// 自產的 ModsConfig.xml（只啟用這次要測的 Mod 與其相依）、
 /// 以及 Mods 目錄下的臨時連結（不複製檔案，改動立即生效）。
 /// </para>

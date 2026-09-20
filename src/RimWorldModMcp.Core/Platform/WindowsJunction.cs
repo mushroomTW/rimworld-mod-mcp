@@ -10,14 +10,14 @@ namespace RimWorldModMcp.Core.Platform;
 /// Windows directory junction（mount point 類型的 reparse point）的建立。
 ///
 /// <para>
-/// <b>為什麼不用 <c>Directory.CreateSymbolicLink</c></b>：那建立的是 symbolic link，
+/// 為什麼不用 Directory.CreateSymbolicLink：那建立的是 symbolic link，
 /// 在 Windows 上需要 SeCreateSymbolicLinkPrivilege——也就是管理員權限或已開啟開發者模式。
 /// junction 則是一般使用者就能建立。Python 版刻意選 junction 正是為了這一點，
 /// 這個決策不可以在改寫時被「簡化」成 symlink，否則沒有管理員權限的使用者會完全無法測試 Mod。
 /// </para>
 /// <para>
 /// BCL 沒有提供建立 junction 的 API，因此只能自行對
-/// <c>DeviceIoControl(FSCTL_SET_REPARSE_POINT)</c> 做 P/Invoke。
+/// DeviceIoControl(FSCTL_SET_REPARSE_POINT) 做 P/Invoke。
 /// </para>
 /// </summary>
 [SupportedOSPlatform("windows")]

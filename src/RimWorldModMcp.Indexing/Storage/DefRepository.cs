@@ -5,7 +5,7 @@ using RimWorldModMcp.Indexing.Model;
 namespace RimWorldModMcp.Indexing.Storage;
 
 /// <summary>
-/// <c>def</c> 與 <c>def_fts</c> 的唯一存取點。
+/// def 與 def_fts 的唯一存取點。
 ///
 /// <para>
 /// FTS5 的 external content 表有一條容易寫錯的不變式：清空時必須讓 FTS 先失效，
@@ -40,7 +40,7 @@ public static class DefRepository
     ///
     /// <para>
     /// 這裡刻意不逐筆維護 FTS 索引。external content 表可以在內容全部就位之後
-    /// 一次重建，省掉每一列額外的 <c>RETURNING id</c> 往返與一次 FTS 寫入——
+    /// 一次重建，省掉每一列額外的 RETURNING id 往返與一次 FTS 寫入——
     /// 十萬列的規模下差距是數量級的。
     /// </para>
     /// </summary>

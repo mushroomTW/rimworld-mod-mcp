@@ -8,7 +8,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// <summary>一個測試場次的狀態。</summary>
 public sealed record TestSession
 {
-    /// <summary><c>idle</c>、<c>starting</c>、<c>running</c> 或 <c>stopped</c>。</summary>
+    /// <summary>idle、starting、running 或 stopped。</summary>
     [JsonPropertyName("state")]
     public required string State { get; init; }
 
@@ -81,14 +81,14 @@ public sealed record TestLink(
 /// <summary>Bridge 的可用狀態。</summary>
 public sealed record BridgeState
 {
-    /// <summary><c>active</c> 或 <c>unavailable</c>。</summary>
+    /// <summary>active 或 unavailable。</summary>
     [JsonPropertyName("state")]
     public required string State { get; init; }
 
     [JsonPropertyName("package_id")]
     public string? PackageId { get; init; }
 
-    /// <summary><c>prebuilt</c>（工具隨附、依遊戲版本直接使用）或 <c>built</c>（就地以本機遊戲組件建置）。</summary>
+    /// <summary>prebuilt（工具隨附、依遊戲版本直接使用）或 built（就地以本機遊戲組件建置）。</summary>
     [JsonPropertyName("origin")]
     public string? Origin { get; init; }
 
@@ -99,7 +99,7 @@ public sealed record BridgeState
 /// <summary>診斷 daemon 的狀態。</summary>
 public sealed record DaemonState
 {
-    /// <summary><c>started</c>（本輪啟動）、<c>reused</c>（沿用既有）或 <c>unavailable</c>。</summary>
+    /// <summary>started（本輪啟動）、reused（沿用既有）或 unavailable。</summary>
     [JsonPropertyName("state")]
     public required string State { get; init; }
 

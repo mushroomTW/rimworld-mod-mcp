@@ -4,8 +4,8 @@ using RimWorldModMcp.Bridge;
 namespace RimWorldModMcp.PlatformContracts.Tests;
 
 /// <summary>
-/// Bridge 送出的 <c>game_state</c> 行格式契約。與 <see cref="DiagnosticPayloadContracts"/>
-/// 相同的做法：以原始碼連結引入 <c>GameStatePayload.cs</c>，在行程內驗證。
+/// Bridge 送出的 game_state 行格式契約。與 <see cref="DiagnosticPayloadContracts"/>
+/// 相同的做法：以原始碼連結引入 GameStatePayload.cs，在行程內驗證。
 /// </summary>
 public sealed class GameStatePayloadContracts
 {

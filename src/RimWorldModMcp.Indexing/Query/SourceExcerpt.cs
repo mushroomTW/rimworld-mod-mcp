@@ -9,7 +9,7 @@ public sealed record SourceExcerpt(string Text, int StartLine, int EndLine, int 
     /// 從 <paramref name="startLine"/> 起取最多 <paramref name="maxBytes"/> 個 UTF-8 位元組的整行。
     ///
     /// <para>
-    /// 以行而不是位元組做分頁：搜尋結果給的就是行號，下一頁直接從 <c>EndLine + 1</c>
+    /// 以行而不是位元組做分頁：搜尋結果給的就是行號，下一頁直接從 EndLine + 1
     /// 接著讀，呼叫端不必自己換算位元組偏移。只有單獨一行就超過上限時才會切在行中間。
     /// </para>
     /// </summary>

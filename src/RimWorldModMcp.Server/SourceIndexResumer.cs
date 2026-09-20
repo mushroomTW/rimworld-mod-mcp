@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Server;
 ///
 /// <para>
 /// 第三層索引在背景跑好幾分鐘，MCP client 一關 server 就跟著死，下一個場次
-/// 只會看到 <c>source_indexed=false</c>、沒有在跑、也沒有錯誤——唯一的出路是
+/// 只會看到 source_indexed=false、沒有在跑、也沒有錯誤——唯一的出路是
 /// 再叫一次 rebuild_index，而那會連第一層與所有 Mod 的索引一起清掉重來。
 /// 這裡把「使用者已經要求過、只是沒做完」的工作接著做完；出過錯的不碰。
 /// </para>

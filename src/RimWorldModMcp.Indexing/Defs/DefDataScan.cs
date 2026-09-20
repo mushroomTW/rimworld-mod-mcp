@@ -6,7 +6,7 @@ using RimWorldModMcp.Indexing.Semantics;
 namespace RimWorldModMcp.Indexing.Defs;
 
 /// <summary>
-/// <c>Data/</c> 的單趟內容掃描：每個檔案讀一次、解析一次，同時產出
+/// Data/ 的單趟內容掃描：每個檔案讀一次、解析一次，同時產出
 /// Def 記錄與引用候選。
 ///
 /// <para>
