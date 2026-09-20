@@ -60,6 +60,16 @@ public sealed class LoadOrderResolverTests
         Assert.Equal("ludeon.rimworld", order.Active[0]);
     }
 
+    /// <summary>幾乎每個 Mod 都 loadAfter Core；Core 永遠啟用，不是「被略過的軟排序」。</summary>
+    [Fact]
+    public void LoadAfterCoreIsNotReportedAsSkipped()
+    {
+        var mod = Mod("a.solo", loadAfter: ["ludeon.rimworld", "ludeon.rimworld.royalty"]);
+        var order = new LoadOrderResolver().Resolve([mod], [mod]);
+
+        Assert.Equal(["ludeon.rimworld.royalty"], order.SkippedLoadAfter);
+    }
+
     [Fact]
     public void MissingHardDependencyIsReported()
     {

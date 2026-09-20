@@ -1,12 +1,16 @@
 using System.Text;
+using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Core.Workspace;
 
 /// <summary>建立新 Mod 的目錄骨架。</summary>
-public sealed class ModScaffolder
+public sealed class ModScaffolder(RimWorldLocator? locator = null)
 {
     private static readonly string[] Folders = ["About", "Defs", "Patches", "Textures", "Sounds", "Source"];
+
+    /// <summary>偵測不到遊戲版本時 supportedVersions 的退路。</summary>
+    private const string FallbackGameVersion = "1.6";
 
     /// <summary>
     /// 在 <paramref name="parentPath"/> 底下建立一個新 Mod。
@@ -42,7 +46,9 @@ public sealed class ModScaffolder
                 Directory.CreateDirectory(Path.Combine(modPath, folder));
             }
 
-            File.WriteAllText(Path.Combine(modPath, "About", "About.xml"), AboutXml(name, normalisedId), new UTF8Encoding(false));
+            // supportedVersions 跟著實際安裝的遊戲走：寫死 1.6 的骨架在 1.5 上一載入就是版本不符警告。
+            var gameVersion = GameVersion.ReadMajorMinor(locator?.Detect().InstallRoot) ?? FallbackGameVersion;
+            File.WriteAllText(Path.Combine(modPath, "About", "About.xml"), AboutXml(name, normalisedId, gameVersion), new UTF8Encoding(false));
 
             if (withCode)
             {
@@ -102,14 +108,14 @@ public sealed class ModScaffolder
         return cleaned;
     }
 
-    private static string AboutXml(string name, string packageId) => $"""
+    private static string AboutXml(string name, string packageId, string gameVersion) => $"""
         <?xml version="1.0" encoding="utf-8"?>
         <ModMetaData>
           <name>{System.Security.SecurityElement.Escape(name)}</name>
           <author>Unknown</author>
           <packageId>{packageId}</packageId>
           <supportedVersions>
-            <li>1.6</li>
+            <li>{gameVersion}</li>
           </supportedVersions>
           <description>A RimWorld mod.</description>
         </ModMetaData>

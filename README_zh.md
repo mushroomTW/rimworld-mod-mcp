@@ -222,14 +222,10 @@ dotnet test RimWorldModMcp.slnx
 
 CI 在 Windows、macOS 與 Ubuntu 上執行平台契約測試——junction 的行為與程序存活語意在各平台不同，只在一個平台驗證等於失去防護。
 
-開發用的子指令（不對外文件化，方便排查）：
+開發用的子指令（不在工具清單裡，方便排查）：
 
 ```bash
 dotnet run --project src/RimWorldModMcp.Server -- detect      # 顯示偵測到的路徑
-dotnet run --project src/RimWorldModMcp.Server -- index       # 建一次索引並回報統計
-dotnet run --project src/RimWorldModMcp.Server -- symbols     # 只跑符號讀取
-dotnet run --project src/RimWorldModMcp.Server -- decompile X # 反編譯符號 X
-dotnet run --project src/RimWorldModMcp.Server -- linkcheck P  # 診斷測試連結為何未被清理
 ```
 
 ## 授權

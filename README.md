@@ -222,14 +222,10 @@ dotnet test RimWorldModMcp.slnx
 
 CI runs the platform contract tests on Windows, macOS, and Ubuntu — junction behaviour and process liveness semantics differ per platform, so verifying on only one would lose the protection they provide.
 
-Development subcommands (undocumented in the tool listing, useful for troubleshooting):
+Development subcommand (not part of the tool listing, useful for troubleshooting):
 
 ```bash
 dotnet run --project src/RimWorldModMcp.Server -- detect      # show detected paths
-dotnet run --project src/RimWorldModMcp.Server -- index       # build the index and report stats
-dotnet run --project src/RimWorldModMcp.Server -- symbols     # run symbol reading only
-dotnet run --project src/RimWorldModMcp.Server -- decompile X # decompile symbol X
-dotnet run --project src/RimWorldModMcp.Server -- linkcheck P  # diagnose why a test link was not cleaned up
 ```
 
 ## License

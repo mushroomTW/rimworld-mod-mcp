@@ -96,7 +96,7 @@ public sealed partial class TestEnvironmentPreparer(
                 }
             }
 
-            WriteModsConfig(configDirectory, paths.ModsConfig, activeMods);
+            WriteModsConfig(configDirectory, paths.ModsConfig, activeMods, GameVersion.ReadMajorMinor(paths.InstallRoot));
             CopyPrefs(configDirectory, paths.PrefsXml);
             SeedConfig(configDirectory, seedConfigFiles, testFolderName);
             ApplyFullscreen(configDirectory, fullscreen);
@@ -183,9 +183,9 @@ public sealed partial class TestEnvironmentPreparer(
         return null;
     }
 
-    private static void WriteModsConfig(string configDirectory, string? existingConfig, IReadOnlyList<string> activeMods)
+    private static void WriteModsConfig(string configDirectory, string? existingConfig, IReadOnlyList<string> activeMods, string? installedVersion)
     {
-        var (version, knownExpansions) = ReadConfigValues(existingConfig);
+        var (version, knownExpansions) = ReadConfigValues(existingConfig, installedVersion ?? "1.6");
 
         var document = new XElement("ModsConfigData",
             new XElement("version", version),
@@ -198,12 +198,15 @@ public sealed partial class TestEnvironmentPreparer(
             new UTF8Encoding(false));
     }
 
-    /// <summary>沿用使用者現有設定的遊戲版本與已知 DLC，避免遊戲把 DLC 當成新安裝。</summary>
-    private static (string Version, IReadOnlyList<string> KnownExpansions) ReadConfigValues(string? path)
+    /// <summary>
+    /// 沿用使用者現有設定的遊戲版本與已知 DLC，避免遊戲把 DLC 當成新安裝。
+    /// 沒有現成設定（第一次啟動的遊戲）時退回 Version.txt 讀到的版本。
+    /// </summary>
+    private static (string Version, IReadOnlyList<string> KnownExpansions) ReadConfigValues(string? path, string fallbackVersion)
     {
         if (path is null || !File.Exists(path))
         {
-            return ("1.6", []);
+            return (fallbackVersion, []);
         }
 
         try
@@ -212,7 +215,7 @@ public sealed partial class TestEnvironmentPreparer(
 
             if (root is null)
             {
-                return ("1.6", []);
+                return (fallbackVersion, []);
             }
 
             var version = root.Element("version")?.Value.Trim();
@@ -222,11 +225,11 @@ public sealed partial class TestEnvironmentPreparer(
                 .Where(v => v.Length > 0)
                 .ToList();
 
-            return (string.IsNullOrEmpty(version) ? "1.6" : version, expansions);
+            return (string.IsNullOrEmpty(version) ? fallbackVersion : version, expansions);
         }
         catch (Exception e) when (e is IOException or System.Xml.XmlException)
         {
-            return ("1.6", []);
+            return (fallbackVersion, []);
         }
     }
 

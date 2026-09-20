@@ -181,6 +181,11 @@ public sealed class LoadOrderResolver
             {
                 visit(after);
             }
+            else if (after == CorePackageId)
+            {
+                // Core 永遠排第一、永遠啟用；幾乎每個 Mod 都宣告 loadAfter Core，
+                // 把它列進 skipped_load_after 只會讓呼叫端以為少載了什麼。
+            }
             else if (!skippedLoadAfter.Contains(after, StringComparer.Ordinal))
             {
                 // 軟排序目標不在選集內：記錄下來讓使用者知道，但不視為錯誤。

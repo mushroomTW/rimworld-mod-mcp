@@ -109,7 +109,7 @@ public sealed class TestCycleTools(
         // crash loop 可以在幾秒內產生數千筆診斷，一定要有筆數上限——
         // 這是所有查詢型工具裡最容易爆量的一個。
         var effectiveLimit = Math.Clamp(limit, 1, 500);
-        var page = records.Take(effectiveLimit).ToList();
+        var page = OldestFirstPage(records, effectiveLimit);
 
         // error_count / warning_count 永遠是整個場次的總數，不受 since_at 影響——
         // 輪詢中的 agent 看到 error_count=0 會直接下「測試無錯誤」的結論。
@@ -123,9 +123,34 @@ public sealed class TestCycleTools(
             LimitReached = records.Count > page.Count,
             ErrorCount = all.Count(r => r.Type == "error"),
             WarningCount = all.Count(r => r.Type == "warning"),
-            LatestAt = records.Count == 0 ? since_at : records.Max(r => r.At),
+            // 游標只能推進到「這一頁實際回傳」的最後一筆。之前取的是全部符合項的最大值：
+            // 一次冒出超過 limit 筆時，被截掉的那些下一輪 since_at 就再也拿不到。
+            LatestAt = page.Count == 0 ? since_at : page[^1].At,
         };
     });
+
+    /// <summary>
+    /// 依時間由舊到新取一頁。頁尾若正好切在同一毫秒的幾筆中間，整批一起帶上——
+    /// since_at 是嚴格大於的比較，切開的話另一半會永遠漏掉。limit 因此是軟上限。
+    /// </summary>
+    private static List<DiagnosticRecord> OldestFirstPage(IReadOnlyList<DiagnosticRecord> records, int limit)
+    {
+        var ordered = records.OrderBy(r => r.At).ToList();
+
+        if (ordered.Count <= limit)
+        {
+            return ordered;
+        }
+
+        var end = limit;
+
+        while (end < ordered.Count && ordered[end].At == ordered[end - 1].At)
+        {
+            end++;
+        }
+
+        return ordered[..end];
+    }
 
     private static IReadOnlyList<DiagnosticRecord> Filter(IReadOnlyList<DiagnosticRecord> records, string? type)
         => string.IsNullOrEmpty(type)

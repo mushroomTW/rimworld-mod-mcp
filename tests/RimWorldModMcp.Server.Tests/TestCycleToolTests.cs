@@ -154,6 +154,37 @@ public sealed class TestCycleToolTests : IAsyncLifetime
         Assert.Equal("second", newer.GetProperty("results")[0].GetProperty("first_line").GetString());
     }
 
+    /// <summary>
+    /// 一次冒出超過 limit 筆時，游標只能推進到本頁最後一筆；之前取的是全部的最大值，
+    /// 被截掉的下一輪就永遠拿不到。crash loop 幾秒內就會超過預設的 50 筆。
+    /// </summary>
+    [Fact]
+    public async Task CursorNeverSkipsEntriesCutOffByTheLimit()
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            _diagnostics.Add("error", $"e{i}", $"e{i}", "bridge", "run-1");
+            await Task.Delay(3); // 時間戳遞增，頁面切割才有意義。
+        }
+
+        var seen = new List<string>();
+        long cursor = 0;
+
+        for (var page = 0; page < 5; page++)
+        {
+            var result = await _server.CallAsync("list_test_diagnostics", Args(("limit", 2), ("since_at", cursor)));
+            seen.AddRange(result.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("first_line").GetString()!));
+            cursor = result.GetProperty("latest_at").GetInt64();
+
+            if (result.GetProperty("count").GetInt32() == 0)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(["e0", "e1", "e2", "e3", "e4"], seen);
+    }
+
     [Fact]
     public async Task StopTestRequiresConfirmation()
     {
