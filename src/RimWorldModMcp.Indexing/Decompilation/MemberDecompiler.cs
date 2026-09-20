@@ -19,7 +19,7 @@ namespace RimWorldModMcp.Indexing.Decompilation;
 /// 錯誤是真的例外，而且可以精確到「只反編譯這一個方法」。
 /// </para>
 /// </summary>
-public sealed class MemberDecompiler(RimWorldLocator? locator = null) : IDisposable
+public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
 {
     // CSharpDecompiler 不是 thread-safe，每個組件各自持有一個實例並在使用時上鎖。
     private readonly ConcurrentDictionary<string, Lazy<DecompilerHandle>> _handles = new(StringComparer.OrdinalIgnoreCase);
@@ -124,7 +124,7 @@ public sealed class MemberDecompiler(RimWorldLocator? locator = null) : IDisposa
         {
             var lazy = _handles.GetOrAdd(
                 assemblyPath,
-                path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path, stamp, locator?.Detect().ManagedDir)));
+                path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path, stamp, locator.Detect().ManagedDir)));
 
             var handle = lazy.Value;
 

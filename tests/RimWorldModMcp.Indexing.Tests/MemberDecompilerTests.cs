@@ -1,3 +1,4 @@
+using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Indexing.Decompilation;
 
 namespace RimWorldModMcp.Indexing.Tests;
@@ -33,7 +34,7 @@ public sealed class MemberDecompilerTests : IDisposable
         """;
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "rwmm-decomp-" + Guid.NewGuid().ToString("n")[..12]);
-    private readonly MemberDecompiler _decompiler = new();
+    private readonly MemberDecompiler _decompiler = new(new RimWorldLocator());
 
     public void Dispose()
     {

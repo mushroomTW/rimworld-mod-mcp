@@ -185,6 +185,7 @@ public sealed class LoadOrderResolver
             {
                 // Core 永遠排第一、永遠啟用；幾乎每個 Mod 都宣告 loadAfter Core，
                 // 把它列進 skipped_load_after 只會讓呼叫端以為少載了什麼。
+                continue;
             }
             else if (!skippedLoadAfter.Contains(after, StringComparer.Ordinal))
             {

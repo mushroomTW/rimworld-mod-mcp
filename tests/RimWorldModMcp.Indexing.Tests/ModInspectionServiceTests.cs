@@ -32,7 +32,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     private readonly string _root;
     private readonly string _modPath;
     private readonly IndexDatabase _database;
-    private readonly MemberDecompiler _decompiler = new();
+    private readonly MemberDecompiler _decompiler = new(new RimWorldLocator());
     private readonly ModInspectionService _service;
 
     public ModInspectionServiceTests()
