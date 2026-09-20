@@ -36,7 +36,7 @@ public sealed class WorkspaceTools(
         };
     });
 
-    [McpServerTool(Name = "build_mod", UseStructuredContent = true)]
+    [McpServerTool(Name = "build_mod", UseStructuredContent = true, Idempotent = true)]
     [Description("Validate an XML mod, or build a C# mod and deploy the DLL to Assemblies. Failures return structured compiler diagnostics.")]
     public BuildResult BuildMod(
         [Description("Path to the mod directory.")]

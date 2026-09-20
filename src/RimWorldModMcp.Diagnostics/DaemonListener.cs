@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using RimWorldModMcp.Core.Paths;
@@ -317,8 +318,26 @@ public sealed class DaemonListener(
             ? [.. value.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).Take(MaxOpenWindows)]
             : [];
 
-    private static bool TokenEquals(string? provided, string expected) =>
-        string.Equals(provided, expected, StringComparison.Ordinal);
+    /// <summary>
+    /// 固定時間比較，避免以回應時間逐位元組推測 token。
+    ///
+    /// <para>
+    /// 實務上難以利用（只綁 loopback、token 是 192 位元隨機），但這是驗證程式碼，
+    /// 用正確的原語成本為零。長度不同時 <see cref="CryptographicOperations.FixedTimeEquals"/>
+    /// 直接回 false——長度本身不是秘密。
+    /// </para>
+    /// </summary>
+    private static bool TokenEquals(string? provided, string expected)
+    {
+        if (provided is null)
+        {
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(provided),
+            Encoding.UTF8.GetBytes(expected));
+    }
 
     private string? ReadToken()
     {

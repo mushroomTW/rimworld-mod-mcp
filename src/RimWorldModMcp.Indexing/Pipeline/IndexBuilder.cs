@@ -19,9 +19,14 @@ public sealed record IndexBuildResult(
     long ElapsedMilliseconds);
 
 /// <summary>索引目前的狀態。</summary>
+/// <param name="Busy">
+/// 有另一個寫者持有寫鎖，狀態未知。與 <paramref name="Healthy"/> 分開是必要的：
+/// 回同一個 false 會讓呼叫端在重建進行中被叫去「再重建一次」。
+/// </param>
 public sealed record IndexStatus(
     bool Fresh,
     bool Healthy,
+    bool Busy,
     string? Fingerprint,
     long DefCount,
     long SymbolCount,
@@ -52,6 +57,22 @@ public sealed class IndexBuilder(
     CriticalSectionLock locks,
     SourceIndexer sourceIndexer)
 {
+    /// <summary>
+    /// 所有會寫入索引資料庫的工作共用的鎖名。
+    ///
+    /// <para>
+    /// 重建與 Mod 索引都必須取得它。兩者若各用各的鎖，就會同時持有寫交易，
+    /// 落後的一方在 <c>busy_timeout</c>（5 秒）之後以 <c>SQLITE_BUSY</c> 失敗——
+    /// 而文件建議的流程正是「rebuild_index → search_source(package_id)」，
+    /// 會直接踩到這個組合。
+    /// </para>
+    /// <para>
+    /// 呼叫端的持有範圍必須盡量短（見 <see cref="ModInspectionService.Inspect"/>：
+    /// 反編譯在鎖外完成，只有毫秒級的 DB 寫入在鎖內）。
+    /// </para>
+    /// </summary>
+    public const string WriteLockName = "index";
+
     private readonly AssemblySymbolReader _symbolReader = new();
 
     /// <summary>清空第一層索引與反編譯原始碼。</summary>
@@ -97,7 +118,7 @@ public sealed class IndexBuilder(
             throw new DirectoryNotFoundException("RimWorld Managed or Data directory not found.");
         }
 
-        using var _ = locks.Hold("index", new Dictionary<string, string> { ["operation"] = "rebuild_index" });
+        using var _ = locks.Hold(WriteLockName, new Dictionary<string, string> { ["operation"] = "rebuild_index" });
 
         var stopwatch = Stopwatch.StartNew();
         var assemblies = GameAssemblies(paths.ManagedDir);
@@ -165,36 +186,41 @@ public sealed class IndexBuilder(
         var paths = locator.Detect();
         var current = fingerprint.Compute(paths);
 
+        // 健康度一定要先查（獨立連線跑 quick_check）：不健康時資料表計數本身會拋例外。
+        // 忙碌與損毀必須分開——它們的正確反應完全不同（稍後重試 vs. 重建）。
+        var health = database.Check();
+        var busy = health == IndexDatabase.Health.Busy;
+        var healthy = health == IndexDatabase.Health.Ok;
+
         using var connection = database.Open();
 
-        var stored = IndexMetaRepository.Get(connection, "fingerprint");
+        string? stored = null;
 
-        // 損毀時資料表計數本身會拋例外，健康度一定要先查（獨立連線跑 quick_check）；
-        // 不健康就把計數回 0，status 還能用（healthy=false 本身就夠呼叫端決定下一步）。
-        var healthy = database.Healthy();
+        try
+        {
+            stored = IndexMetaRepository.Get(connection, "fingerprint");
+        }
+        catch (SqliteException e) when (SqliteCorruption.IsTransientBusy(e))
+        {
+            // DELETE journal 模式下讀者也會被寫鎖擋住。狀態工具仍應該回答
+            // 「有人在寫」而不是整個失敗，所以這裡吞掉並讓下面的 busy 說明原因。
+        }
 
         // 兩邊都必須是實際算得出來的值才談得上一致；
         // 偵測不到遊戲時 current 為 null，這種情況一律視為不新鮮。
-        // （損毀時計數回 0 的理由見方法開頭：資料表計數本身會拋例外。）
         var fresh = current is not null
             && !string.IsNullOrEmpty(stored)
             && string.Equals(stored, current, StringComparison.Ordinal);
 
         if (!healthy)
         {
-            return new IndexStatus(
-                fresh,
-                healthy,
-                stored,
-                0,
-                0,
-                false,
-                new SourceIndexState(false, 0, null));
+            return new IndexStatus(fresh, healthy, busy, stored, 0, 0, false, new SourceIndexState(false, 0, null));
         }
 
         return new IndexStatus(
             fresh,
             healthy,
+            busy,
             stored,
             DefRepository.Count(connection),
             SymbolRepository.Count(connection),
@@ -228,5 +254,5 @@ public sealed class IndexBuilder(
     /// </para>
     /// </summary>
     private static List<string> GameAssemblies(string managedDirectory)
-        => [.. Directory.GetFiles(managedDirectory, "Assembly-CSharp*.dll").Order()];
+        => [.. Directory.GetFiles(managedDirectory, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal)];
 }

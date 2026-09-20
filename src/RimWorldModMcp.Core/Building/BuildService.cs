@@ -251,7 +251,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
         if (Directory.Exists(releaseRoot))
         {
-            foreach (var directory in Directory.GetDirectories(releaseRoot).Order())
+            foreach (var directory in Directory.GetDirectories(releaseRoot).Order(StringComparer.Ordinal))
             {
                 var name = Path.GetFileName(directory);
 

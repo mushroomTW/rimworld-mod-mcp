@@ -14,6 +14,13 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// 單次輪詢最多讀取的位元組數。遊戲啟動時可能一次寫入數 MB，
+    /// 沒有限制的話會一次配置一大塊；有上限也只是分成幾輪追上
+    ///（<c>offset</c> 會推進，不會漏）。
+    /// </summary>
+    private const int MaxBytesPerPoll = 4 * 1024 * 1024;
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         // 以路徑為鍵記住讀到哪裡。
@@ -42,7 +49,19 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         }
     }
 
-    private void ReadNewLines(TestSession session, Dictionary<string, long> offsets)
+    /// <summary>
+    /// 讀取自上次之後新增的完整行並分類。以**位元組**為單位推進讀取位置。
+    ///
+    /// <para>
+    /// 舊作法是 <c>StreamReader.ReadToEnd()</c> 讀成字串，再以
+    /// <c>Encoding.UTF8.GetByteCount(已讀內容)</c> 回推推進量。那個回推在遇到
+    /// 非法 UTF-8 時會失真：解碼器把非法序列換成 U+FFFD（3 位元組），而它可能
+    /// 只消耗 1~2 個位元組，於是推進量**大於**實際讀取量，下一次 <c>Seek</c>
+    /// 直接跳過真實內容——靜默漏讀日誌行。Player.log 由遊戲與各 Mod 共同寫入，
+    /// 出現非法位元組並不罕見，而漏掉的正好是診斷。
+    /// </para>
+    /// </summary>
+    internal void ReadNewLines(TestSession session, Dictionary<string, long> offsets)
     {
         var path = session.PlayerLog!;
 
@@ -81,39 +100,46 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             stream.Seek(offset, SeekOrigin.Begin);
 
-            using var reader = new StreamReader(
-                stream,
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                detectEncodingFromByteOrderMarks: false);
+            var available = (int)Math.Min(length - offset, MaxBytesPerPoll);
+            var buffer = new byte[available];
 
-            var content = reader.ReadToEnd();
+            var read = stream.ReadAtLeast(buffer, available, throwOnEndOfStream: false);
 
-            // 只消費「完整的行」。遊戲可能正寫到一半——沒有結尾換行的最後
-            // 一段先留著，下一輪它補完後才讀，否則半行會被當成完整行分類，
-            // 剩餘部分之後又變成另一行。
-            var lastNewline = content.LastIndexOf('\n');
-
-            if (lastNewline < 0)
+            if (read == 0)
             {
                 return;
             }
 
-            var complete = content[..(lastNewline + 1)];
+            // 只消費「完整的行」。遊戲可能正寫到一半——沒有結尾換行的最後
+            // 一段先留著，下一輪它補完後才讀，否則半行會被當成完整行分類，
+            // 剩餘部分之後又變成另一行。
+            var lastNewline = Array.LastIndexOf(buffer, (byte)'\n', read - 1, read);
 
-            var batch = new List<(string Type, string FirstLine, string Text)>();
-
-            foreach (var line in complete.Split('\n'))
+            if (lastNewline < 0)
             {
-                if (Classify(line) is { } item)
+                // 整段都沒有換行：通常是檔案尾的半行，不推進位置，
+                // 下一輪連同新內容一起讀。位元組位置本身就是狀態，
+                // 不需要額外保存半行。
+                //
+                // 例外：讀滿 MaxBytesPerPoll 仍無換行，代表單行超過上限。
+                // 若不推進，每輪都會重讀同樣 4MB 且位置永不前進。
+                // Player.log 實務上不會有這種行，這裡直接跳過該段以保證推進。
+                if (available >= MaxBytesPerPoll)
                 {
-                    batch.Add(item);
+                    offsets[path] = offset + available;
                 }
+
+                return;
             }
 
-            // 整批一次寫入：錯誤風暴時逐行各做一次全檔 read+serialize 是 O(n²) IO。
-            diagnostics.AddRange(batch, "player.log", session.RunId);
+            var consumed = lastNewline + 1;
+            var complete = Encoding.UTF8.GetString(buffer, 0, consumed);
 
-            offsets[path] = offset + Encoding.UTF8.GetByteCount(complete);
+            // 整批一次寫入：錯誤風暴時逐行各做一次全檔 read+serialize 是 O(n²) IO。
+            diagnostics.AddRange(ClassifyBatch(complete.Split('\n')), "player.log", session.RunId);
+
+            // 推進量是**實際讀取的位元組數**，與解碼結果無關。
+            offsets[path] = offset + consumed;
         }
         catch (IOException)
         {
@@ -121,10 +147,71 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         }
     }
 
+    /// <summary>
+    /// 把一批日誌行分類成診斷。
+    ///
+    /// <para>
+    /// 堆疊追蹤的續行會**併進前一筆**而不是各自成一筆。一個例外在 Player.log 裡
+    /// 通常有 5~20 行堆疊，逐行各成一筆會把保留容量（200 筆）瞬間塞滿、
+    /// 把真正的錯誤擠掉，同時把 error_count 灌成假的高數字——而 agent 會照著
+    /// 那些數字去追不存在的問題。
+    /// </para>
+    /// <para>
+    /// 續行只在「緊接的前一行本身就是一筆診斷」時才併入；否則（例如一段孤立的
+    /// 堆疊行）直接丟棄，避免誤併到更早的無關紀錄。
+    /// </para>
+    /// </summary>
+    internal static List<(string Type, string FirstLine, string Text)> ClassifyBatch(IEnumerable<string> lines)
+    {
+        var batch = new List<(string Type, string FirstLine, string Text)>();
+        var previousLineWasEntry = false;
+
+        foreach (var line in lines)
+        {
+            var text = Normalise(line);
+
+            if (text.Length == 0)
+            {
+                previousLineWasEntry = false;
+                continue;
+            }
+
+            if (previousLineWasEntry && IsStackContinuation(text))
+            {
+                var previous = batch[^1];
+                batch[^1] = (previous.Type, previous.FirstLine, previous.Text + "\n" + text);
+                continue;
+            }
+
+            if (Classify(text) is { } item)
+            {
+                batch.Add(item);
+                previousLineWasEntry = true;
+                continue;
+            }
+
+            previousLineWasEntry = false;
+        }
+
+        return batch;
+    }
+
+    /// <summary>
+    /// 是否是堆疊追蹤的續行。縮排已經被 <see cref="Normalise"/> 去掉，
+    /// 所以判斷 "at " 開頭即可（.NET 的堆疊行形如 <c>at Verse.Thing.Tick()</c>）。
+    /// </summary>
+    private static bool IsStackContinuation(string trimmedLine)
+        => trimmedLine.StartsWith("at ", StringComparison.Ordinal);
+
+    /// <summary>
+    /// 去掉縮排與 BOM。關掉 BOM 自動偵測後，檔案開頭的 BOM 會以字元形式
+    /// 出現在第一行。
+    /// </summary>
+    private static string Normalise(string line) => line.Trim().TrimStart('﻿').Trim();
+
     private static (string Type, string FirstLine, string Text)? Classify(string line)
     {
-        // 關掉 BOM 自動偵測後，檔案開頭的 BOM 會以字元形式出現在第一行。
-        var text = line.Trim().TrimStart('﻿').Trim();
+        var text = Normalise(line);
 
         if (text.Length == 0)
         {

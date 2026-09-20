@@ -21,7 +21,7 @@ internal static class DefFileWalker
     {
         var packs = new List<DefPack>();
 
-        foreach (var pack in Directory.GetDirectories(dataDirectory).Order())
+        foreach (var pack in Directory.GetDirectories(dataDirectory).Order(StringComparer.Ordinal))
         {
             var defsRoot = Path.Combine(pack, "Defs");
 
@@ -32,7 +32,7 @@ internal static class DefFileWalker
 
             var files = new List<DefFile>();
 
-            foreach (var file in Directory.EnumerateFiles(defsRoot, "*.xml", SearchOption.AllDirectories).Order())
+            foreach (var file in Directory.EnumerateFiles(defsRoot, "*.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
             {
                 var info = new FileInfo(file);
 

@@ -17,7 +17,18 @@ public sealed record SourceExcerpt(string Text, int StartLine, int EndLine, int 
     {
         var lines = text.Split('\n');
         var total = lines.Length;
-        var first = Math.Clamp(startLine, 1, Math.Max(total, 1));
+
+        // 已經超過檔尾：回**空頁**，並把 StartLine 固定成「第一個不存在的行號」。
+        //
+        // 舊行為是把 first 夾到 total，於是回傳最後一行、EndLine 也停在 total——
+        // 呼叫端照著文件用 end_line + 1 翻頁會永遠拿到同一行，而且那頁是**非空的**，
+        // 分不出「還有內容」與「已經到底」。回空頁 + 穩定的檔尾標記就沒有這個歧義。
+        if (startLine > total)
+        {
+            return new SourceExcerpt(string.Empty, total + 1, total, total, Truncated: false);
+        }
+
+        var first = Math.Clamp(startLine, 1, total);
 
         var buffer = new System.Text.StringBuilder();
         var bytes = 0;

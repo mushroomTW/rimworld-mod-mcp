@@ -120,7 +120,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
             IndexMetaRepository.Set(connection, "source_index_error", string.Empty);
 
-            foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order())
+            foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -157,6 +157,13 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
                 indexed += Write(connection, name, batch);
                 IndexMetaRepository.Set(connection, doneKey, stamp);
             }
+
+            // 收尾前再檢查一次取消。Rebuild 只等 Cancel 最多 10 秒
+            //（見 SourceIndexer.Cancel），超時就放行並清空 source_file；
+            // 這裡不檢查的話，被取消的任務會在 rebuild 提交 source_indexed=false
+            // 之後把它改回 true，與剛被清空的表不符——呼叫端於是看到
+            // 「已索引完成」卻搜不到任何東西。
+            cancellationToken.ThrowIfCancellationRequested();
 
             // 用同一條連線寫 meta。開第二條連線時第一條還活著——WAL 下沒事，
             // 但快取目錄落在 OneDrive／網路磁碟時會退回 DELETE journal，

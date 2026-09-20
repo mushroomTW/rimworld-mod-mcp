@@ -47,7 +47,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
             return [];
         }
 
-        foreach (var directory in directories.Order())
+        foreach (var directory in directories.Order(StringComparer.Ordinal))
         {
             var info = AboutXml.Parse(directory, IsCore(directory) ? "core" : "expansion");
 

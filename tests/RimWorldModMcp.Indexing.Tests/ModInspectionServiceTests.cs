@@ -228,6 +228,47 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.Empty(result.Hits);
     }
 
+    /// <summary>
+    /// Assemblies/ 底下混有原生程式庫是常態（Harmony 之類的相依、或其他語言的插件）。
+    /// 一顆載入不了的 DLL 不該讓整個 Mod 的索引失敗，也不該讓其餘組件連帶失去索引——
+    /// 那正是 Lazy 快取毒化 bug 的放大途徑。
+    /// </summary>
+    [Fact]
+    public void UnloadableAssemblyIsSkippedAndReported()
+    {
+        var native = FindNativeLibrary();
+        Assert.NotNull(native);
+        File.Copy(native, Path.Combine(_modPath, "1.6", "Assemblies", "native_plugin.dll"), overwrite: true);
+
+        var assemblies = _service.Inspect("pkg", _modPath);
+
+        // 三個組件都被回報，沒有任何例外逸出。
+        Assert.Equal(3, assemblies.Count);
+
+        var broken = assemblies.Single(a => a.Name == "native_plugin");
+        Assert.NotNull(broken.Error);
+        Assert.Equal(0, broken.SymbolCount);
+        Assert.Equal(0, broken.SourceFileCount);
+
+        // 其餘組件照常索引，搜尋仍找得到它們的內容。
+        Assert.All(assemblies.Where(a => a.Name != "native_plugin"), a => Assert.True(a.SymbolCount > 0));
+        Assert.NotEmpty(_service.TrySearchSource("pkg", _modPath, "TryStartJob", 10).Hits);
+
+        // 再檢視一次不會重新反編譯（stamp 已寫入），也不會因為那顆壞 DLL 而失敗。
+        var again = _service.Inspect("pkg", _modPath);
+        Assert.All(again, a => Assert.True(a.FromCache));
+    }
+
+    /// <summary>找一個隨 SQLite 原生相依一起複製到輸出目錄的原生程式庫（各平台檔名不同）。</summary>
+    private static string? FindNativeLibrary()
+    {
+        var runtimes = Path.Combine(AppContext.BaseDirectory, "runtimes");
+
+        return Directory.Exists(runtimes)
+            ? Directory.EnumerateFiles(runtimes, "e_sqlite3.*", SearchOption.AllDirectories).FirstOrDefault()
+            : null;
+    }
+
     private sealed class AlwaysAliveProcessHost : IProcessHost
     {
         public bool IsAlive(int processId) => true;

@@ -46,6 +46,18 @@ public sealed class StoreDirectories
 
     public string DiagnosticsFile => Path.Combine(DataHome, "diagnostics.json");
 
+    /// <summary>
+    /// 整個場次的錯誤／警告**累計**筆數。
+    ///
+    /// <para>
+    /// 與 <see cref="DiagnosticsFile"/> 分開存是必要的：那裡有容量上限（200 筆），
+    /// crash loop 會在幾秒內塞滿並淘汰。直接數保留中的紀錄，會讓輪詢中的 agent
+    /// 看到 error_count 由 500 掉回 180、甚至掉到 0——而它會據此下
+    /// 「測試無錯誤」的結論。
+    /// </para>
+    /// </summary>
+    public string DiagnosticTotalsFile => Path.Combine(DataHome, "diagnostics-totals.json");
+
     /// <summary>Bridge 最後一次回報的遊戲狀態；每次只保留最新一份。</summary>
     public string GameStateFile => Path.Combine(DataHome, "game-state.json");
 

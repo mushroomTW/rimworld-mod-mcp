@@ -66,13 +66,18 @@ internal static class ToolGuard
         // SQLITE_CORRUPT / SQLITE_NOTADB
         _ when SqliteCorruption.IsCorrupt(e) => $"The index database is corrupt ({e.Message}). Call rebuild_index to reset and rebuild it.",
         // SQLITE_BUSY / SQLITE_LOCKED
-        5 or 6 => $"The index database is busy ({e.Message}); a background indexing job is writing. Retry shortly.",
+        _ when SqliteCorruption.IsTransientBusy(e) => $"The index database is busy ({e.Message}); a background indexing job is writing. Retry shortly.",
         _ => null,
     };
 
     /// <summary>
-    /// 預期內的失敗：參數錯誤、邊界違規、找不到目標、檔案系統問題。
-    /// 非預期的例外（程式錯誤）維持原樣，讓它進 stderr 日誌。
+    /// 預期內的失敗：參數錯誤、邊界違規、找不到目標、檔案系統問題、平台 API 失敗、逾時。
+    /// 這些訊息的作者是為了讓呼叫端自我修正，所以必須送達。
+    ///
+    /// <para>
+    /// 非預期的例外（程式錯誤）維持原樣，讓它進 stderr 日誌——把程式錯誤也包成
+    /// 可讀訊息會掩蓋 bug。
+    /// </para>
     /// </summary>
     private static bool IsExpected(Exception e) => e is
         ArgumentException
@@ -80,5 +85,14 @@ internal static class ToolGuard
         or UnauthorizedAccessException
         or KeyNotFoundException
         or IOException
-        or NotSupportedException;
+        or NotSupportedException
+        // 建立目錄連結／junction 失敗、行程操作被拒（防毒干擾、權限不足、路徑過長）。
+        // Win32 的訊息本身就是可操作的（含錯誤碼），不轉換的話呼叫端只看到
+        // 「An error occurred」，而這正是使用者最需要線索的失敗之一。
+        or System.ComponentModel.Win32Exception
+        // dotnet build 逾時、搜尋超過時間預算。RegexMatchTimeoutException 也在此列
+        //（它繼承 TimeoutException），而且它是「換個更精確的模式就好」這種可修正的失敗。
+        or TimeoutException
+        // 呼叫端取消（例如長輪詢期間 client 斷線）。回報取消比回報「發生錯誤」誠實。
+        or OperationCanceledException;
 }

@@ -98,4 +98,78 @@ public sealed class TestEnvironmentPreparerTests
         Assert.False(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(workshop, ModsDir));
         Assert.False(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(ModsDir, ModsDir));
     }
+
+    /// <summary>
+    /// 清不掉的連結必須被回報。
+    ///
+    /// <para>
+    /// 換場次時舊場次的連結若清不掉（最常見原因是崩潰後殘留的遊戲行程仍持有組件），
+    /// 把結果丟掉就等於那個連結從此沒人追蹤——它會永久留在使用者的 Mods 目錄，
+    /// 而 <c>stop_test</c> 不會再嘗試補清，也不會回報。呼叫端必須把回傳值
+    /// 併進新場次的追蹤清單。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void RemoveLinksReportsWhatItCouldNotRemove()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "rwmm-prep-" + Guid.NewGuid().ToString("n")[..12]);
+
+        try
+        {
+            var store = new RimWorldModMcp.Core.Paths.StoreDirectories(
+                Path.Combine(root, "data"), Path.Combine(root, "cache"));
+
+            var preparer = new TestEnvironmentPreparer(
+                new RimWorldModMcp.Core.Platform.DirectoryLink(),
+                store,
+                new BridgeBuilder(store, new RimWorldModMcp.Core.Paths.RimWorldLocator()));
+
+            // 佔著連結名稱、但不是我們的連結：RemoveLink 會拒絕動它（NotOurs）。
+            var intruder = Path.Combine(root, "RimWorldModMcp-Test-intruder");
+            Directory.CreateDirectory(intruder);
+
+            var remaining = preparer.RemoveLinks([new TestLink(intruder, Path.Combine(root, "target"))]);
+
+            var link = Assert.Single(remaining);
+
+            Assert.Equal(intruder, link.Link);
+            Assert.True(Directory.Exists(intruder), "不是我們的目錄不能被刪掉");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>已經不存在的連結不算「清不掉」——那只是先前就清乾淨了。</summary>
+    [Fact]
+    public void RemoveLinksIgnoresLinksThatAreAlreadyGone()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "rwmm-prep-" + Guid.NewGuid().ToString("n")[..12]);
+
+        try
+        {
+            var store = new RimWorldModMcp.Core.Paths.StoreDirectories(
+                Path.Combine(root, "data"), Path.Combine(root, "cache"));
+
+            var preparer = new TestEnvironmentPreparer(
+                new RimWorldModMcp.Core.Platform.DirectoryLink(),
+                store,
+                new BridgeBuilder(store, new RimWorldModMcp.Core.Paths.RimWorldLocator()));
+
+            var missing = Path.Combine(root, "RimWorldModMcp-Test-missing");
+
+            Assert.Empty(preparer.RemoveLinks([new TestLink(missing, Path.Combine(root, "target"))]));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
 }

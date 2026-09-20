@@ -2,19 +2,37 @@ using System.Collections.Concurrent;
 using RimWorldModMcp.Core.Locking;
 using RimWorldModMcp.Indexing.Decompilation;
 using RimWorldModMcp.Indexing.Metadata;
+using RimWorldModMcp.Indexing.Model;
 using RimWorldModMcp.Indexing.Query;
 using RimWorldModMcp.Indexing.Storage;
 
 namespace RimWorldModMcp.Indexing.Pipeline;
 
-/// <summary>一個已安裝 Mod 的組件資訊。<paramref name="Key"/> 是索引裡的組件鍵，可當作查詢的篩選值。</summary>
-public sealed record ModAssemblyInfo(string Name, string Key, string Path, int SymbolCount, int SourceFileCount, bool FromCache);
+/// <summary>
+/// 一個已安裝 Mod 的組件資訊。<paramref name="Key"/> 是索引裡的組件鍵，可當作查詢的篩選值。
+/// <paramref name="Error"/> 非 null 代表這顆組件無法載入（原生 DLL、損壞的檔案），
+/// 該組件沒有被索引，但其餘組件不受影響。
+/// </summary>
+public sealed record ModAssemblyInfo(
+    string Name,
+    string Key,
+    string Path,
+    int SymbolCount,
+    int SourceFileCount,
+    bool FromCache,
+    string? Error = null);
 
 /// <summary>
 /// Mod 原始碼搜尋結果。<paramref name="Indexing"/> 為 true 代表索引正在背景建立、
-/// 本次沒有搜；<paramref name="Error"/> 是上一次背景索引失敗的原因。
+/// 本次沒有搜；<paramref name="Error"/> 是上一次背景索引失敗的原因；
+/// <paramref name="BudgetExceeded"/> 為 true 代表搜尋用完時間預算，結果不完整。
 /// </summary>
-public sealed record ModSearchResult(IReadOnlyList<SourceHit> Hits, bool SourceIndexed, bool Indexing, string? Error);
+public sealed record ModSearchResult(
+    IReadOnlyList<SourceHit> Hits,
+    bool SourceIndexed,
+    bool Indexing,
+    string? Error,
+    bool BudgetExceeded = false);
 
 /// <summary>
 /// 按需檢視已安裝 Mod 的組件。
@@ -32,6 +50,18 @@ public sealed class ModInspectionService(
     SourceQueryService sourceQueries)
 {
     private readonly AssemblySymbolReader _symbolReader = new();
+
+    /// <summary>
+    /// 等 <c>rebuild_index</c> 放掉寫鎖的上限。
+    ///
+    /// <para>
+    /// 重建的 DB 階段（Def 掃描 + 符號寫入 + FTS 重建）可能數十秒，所以給得比
+    /// SQLite 的 <c>busy_timeout</c>（5 秒）寬。逾時後拋出
+    /// <see cref="RimWorldModMcp.Core.Locking.LockHeldException"/>，呼叫端必須把它
+    /// 當成**可重試**的失敗——不是永久失敗。
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan WriteLockWait = TimeSpan.FromSeconds(60);
 
     /// <summary>進行中的背景索引，鍵是 packageId；同一個 Mod 只會有一個。</summary>
     private readonly ConcurrentDictionary<string, Lazy<Task>> _indexing = new(StringComparer.OrdinalIgnoreCase);
@@ -63,7 +93,12 @@ public sealed class ModInspectionService(
         // Mod 更新後被移除（或改名、搬到別的版本目錄）的 DLL，索引列不會自己消失；
         // 每次檢視都先把不屬於目前組件集合的鍵清掉，查詢結果才不會混進幽靈版本。
         var keys = assemblies.ToDictionary(a => AssemblyKey(packageId, modPath, a), StringComparer.Ordinal);
-        ForgetStale(connection, packageId, keys.Keys);
+
+        // 這一段也是寫入，同樣要跟 rebuild_index 互斥。
+        using (locks.Hold(IndexBuilder.WriteLockName, WriteLockWait, WriteLockDetails(packageId, "forget_stale")))
+        {
+            ForgetStale(connection, packageId, keys.Keys);
+        }
 
         foreach (var (key, assembly) in keys)
         {
@@ -86,13 +121,43 @@ public sealed class ModInspectionService(
             // 反編譯與符號讀取是分鐘級的 CPU/IO 工作，先在交易外算完，
             // 再用短交易只包 DB 寫入。否則分鎖後兩個 Mod 並行索引時，
             // 先進者長時間持有寫交易，後進者超過 busy_timeout（5s）即 SQLITE_BUSY。
-            var symbols = _symbolReader.Read(assembly)
-                .Select(s => s with { Assembly = key, AssemblyPath = assembly })
+            //
+            // 兩者都逐組件容錯：Assemblies/ 底下混有原生程式庫或損壞的 DLL 是常態，
+            // 一顆壞檔不該讓整個 Mod 的索引失敗（那正是 Lazy 毒化 bug 的放大途徑）。
+            string? assemblyError = null;
+
+            List<SymbolRecord> symbols;
+
+            try
+            {
+                symbols = _symbolReader.Read(assembly)
+                    .Select(s => s with { Assembly = key, AssemblyPath = assembly })
+                    .ToList();
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                // 與 MemberDecompiler.TryCreate 同樣廣泛捕捉：輸入是使用者 Mod 目錄裡
+                // 任意 .dll，截斷或畸形的檔案在 System.Reflection.Metadata 路徑上拋出的
+                // 型別無法逐一列舉。逐一列舉會漏，漏掉的代價是例外逃出逐組件包覆，
+                // 使整個 Mod 索引失敗並在背景路徑被記成永久錯誤。
+                symbols = [];
+                assemblyError = $"Could not read .NET metadata: {e.Message}";
+            }
+
+            var sources = decompiler
+                .DecompileAll(assembly, onUnavailable: reason => assemblyError ??= reason)
                 .ToList();
 
-            var sources = decompiler.DecompileAll(assembly).ToList();
             var sourceCount = 0;
 
+            // 只有這一段（毫秒級的 DB 寫入）需要跟 rebuild_index 互斥。反編譯在上面、
+            // 在鎖外完成——把它包進鎖內會讓一次 rebuild 被卡住好幾分鐘。
+            //
+            // 共用 IndexBuilder.WriteLockName 是 H2 的核心修正：兩者若各用各的鎖，
+            // 並行時落後的一方會在 busy_timeout 之後以 SQLITE_BUSY 失敗，
+            // 而那個失敗會被記成永久失敗、不再自動重試。
+            using var writeLock = locks.Hold(
+                IndexBuilder.WriteLockName, WriteLockWait, WriteLockDetails(packageId, "index_assembly"));
             using var transaction = connection.BeginTransaction();
 
             ClearAssembly(connection, key);
@@ -105,6 +170,9 @@ public sealed class ModInspectionService(
                 sourceCount++;
             }
 
+            // 無法載入的組件仍然寫入 stamp：否則 IsIndexed 永遠回 false，
+            // 每次 search_source 都會重新反編譯這個 Mod 的其餘組件（分鐘級）。
+            // 一個非 .NET 組件本來就沒有可搜尋的 C# 內容，跳過它不會少任何命中。
             IndexMetaRepository.Set(connection, $"mod_stamp:{key}", stamp);
 
             transaction.Commit();
@@ -115,7 +183,8 @@ public sealed class ModInspectionService(
                 assembly,
                 symbols.Count,
                 sourceCount,
-                FromCache: false));
+                FromCache: false,
+                assemblyError));
         }
 
         // 走到這裡就是成功，不論是背景還是 force 重試；上一次的失敗原因不該再擋搜尋。
@@ -155,11 +224,16 @@ public sealed class ModInspectionService(
         }
 
         using var connection = database.Open();
-        var hits = sourceQueries.Search(
+        var search = sourceQueries.Search(
             connection, pattern, null, limit,
             assemblyLike: AssemblyLike(packageId, assemblyFilter));
 
-        return new ModSearchResult(hits, SourceIndexed: true, Indexing: false, Error: null);
+        return new ModSearchResult(
+            search.Hits,
+            SourceIndexed: true,
+            Indexing: false,
+            Error: null,
+            search.BudgetExceeded);
     }
 
     /// <summary>所有組件的 stamp 都與快取一致才算已索引。只讀，不取鎖。</summary>
@@ -200,6 +274,19 @@ public sealed class ModInspectionService(
             {
                 // 損毀不是這個 Mod 的問題，force 重試也救不回來；要指向真正的出路。
                 _indexErrors[packageId] = $"{e.Message} The index database is corrupt; call rebuild_index, then search again.";
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsTransientBusy(e))
+            {
+                // 寫鎖衝突是**暫時性**的：rebuild_index 正在寫，或另一個 Mod 正在提交。
+                // 記成永久失敗會讓這個 Mod 從此不再自動重試——TrySearchSource 看到
+                // _indexErrors 有值就直接回報 index_error，使用者只看到「索引失敗」，
+                // 卻不知道再搜一次就好。不記錄，下一次搜尋自然會重試。
+            }
+            catch (LockHeldException)
+            {
+                // 等不到寫鎖（rebuild_index 的寫交易比 WriteLockWait 還久）。
+                // 與 SQLITE_BUSY 同類：暫時性、重試即可，不能記成永久失敗。
+                // 少了這一條，一個特別慢的重建會讓 Mod 索引從此不再自動重試。
             }
             catch (Exception e)
             {
@@ -249,6 +336,13 @@ public sealed class ModInspectionService(
         transaction.Commit();
     }
 
+    /// <summary>寫鎖的持有者資訊，寫進鎖檔供殘骸診斷用。</summary>
+    private static Dictionary<string, string> WriteLockDetails(string packageId, string operation) => new()
+    {
+        ["operation"] = operation,
+        ["package_id"] = packageId,
+    };
+
     /// <summary>
     /// 把 packageId 轉成安全的鎖檔名：不同 Mod 互不阻塞，同 Mod 仍序列化。
     /// 鎖檔名僅用於 CriticalSectionLock 的檔名，需避開路徑分隔字元。
@@ -293,7 +387,7 @@ public sealed class ModInspectionService(
             // Harmony 之類的相依函式庫不是 Mod 自己的程式碼，索引它們只是噪音。
             .Where(p => !IsKnownDependency(Path.GetFileNameWithoutExtension(p.Path)))
             .Select(p => p.Path)
-            .Order()];
+            .Order(StringComparer.Ordinal)];
     }
 
     private static bool IsUnderAssembliesFolder(string relativePath)

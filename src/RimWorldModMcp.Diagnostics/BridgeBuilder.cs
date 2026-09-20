@@ -271,7 +271,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
         foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories)
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                         && !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            .Order())
+            .Order(StringComparer.Ordinal))
         {
             var info = new FileInfo(file);
             builder.Append(info.Name).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append('|');
@@ -295,7 +295,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
     {
         var builder = new StringBuilder();
 
-        foreach (var file in files.Order())
+        foreach (var file in files.Order(StringComparer.Ordinal))
         {
             var info = new FileInfo(file);
             builder.Append(info.Name).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append('|');

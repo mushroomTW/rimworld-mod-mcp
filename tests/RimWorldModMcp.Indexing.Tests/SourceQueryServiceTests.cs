@@ -45,7 +45,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void FilePatternNarrowsResults()
     {
-        var hits = _queries.Search(_connection, "class", "Verse/*", 10);
+        var hits = _queries.Search(_connection, "class", "Verse/*", 10).Hits;
 
         Assert.NotEmpty(hits);
         Assert.All(hits, hit => Assert.StartsWith("Verse/", hit.File, StringComparison.Ordinal));
@@ -62,12 +62,12 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void GameSearchExcludesModAssembliesAndTrimsIndentation()
     {
-        var hits = _queries.Search(_connection, "TryStartJob", null, 10);
+        var hits = _queries.Search(_connection, "TryStartJob", null, 10).Hits;
 
         Assert.Equal(["Assembly-CSharp"], hits.Select(hit => hit.Assembly).Distinct().ToArray());
         Assert.Equal("public void TryStartJob() { }", hits[0].Text);
 
-        var modHits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%");
+        var modHits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
 
         Assert.Equal(["mod:pkg:Extra:abcd"], modHits.Select(hit => hit.Assembly).Distinct().ToArray());
     }
@@ -75,7 +75,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void AlternationFindsFilesContainingEitherBranch()
     {
-        var hits = _queries.Search(_connection, "TryStartJob|EndCurrentJob", null, 10);
+        var hits = _queries.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
 
         var files = hits.Select(hit => hit.File).Distinct().ToList();
 
@@ -103,7 +103,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Late/Beta.cs",
             "public class Beta\n{\n    public void EndCurrentJob() { }\n}\n");
 
-        var hits = _queries.Search(_connection, "TryStartJob|EndCurrentJob", null, 10);
+        var hits = _queries.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
 
         var files = hits.Select(hit => hit.File).Distinct().ToList();
 
@@ -127,7 +127,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Late/Gamma.cs",
             "public class Gamma\n{\n    public void DeregisterZone() { }\n}\n");
 
-        var hits = _queries.Search(_connection, "(DeregisterZone|Delete)", null, 10);
+        var hits = _queries.Search(_connection, "(DeregisterZone|Delete)", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Late/Gamma.cs");
     }
@@ -155,7 +155,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/FooOnly.cs",
             "public class FooOnly\n{\n    public void RenderZone() { }\n}\n");
 
-        var hits = _queries.Search(_connection, pattern, null, 10);
+        var hits = _queries.Search(_connection, pattern, null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Only/FooOnly.cs");
     }
@@ -182,7 +182,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/PlainZone.cs",
             "public class PlainZone\n{\n    public void RenderZone() { }\n}\n");
 
-        var hits = _queries.Search(_connection, @"RenderZone(Quick|Slow)", null, 10);
+        var hits = _queries.Search(_connection, @"RenderZone(Quick|Slow)", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Only/ZoneQuick.cs");
         Assert.DoesNotContain(hits, hit => hit.File == "Only/PlainZone.cs");
@@ -192,7 +192,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void AssemblyFilterRestrictsResults()
     {
-        var hits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%");
+        var hits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
 
         Assert.NotEmpty(hits);
         Assert.All(hits, hit => Assert.StartsWith("mod:pkg:", hit.Assembly, StringComparison.Ordinal));
@@ -205,7 +205,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void WordBoundaryPatternFindsTheIdentifier()
     {
-        var hits = _queries.Search(_connection, @"\bTryStartJob\b", null, 10);
+        var hits = _queries.Search(_connection, @"\bTryStartJob\b", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Verse/Thing.cs");
     }
@@ -217,7 +217,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void SubstringOfAnIdentifierIsFound()
     {
-        var hits = _queries.Search(_connection, "StartJob", null, 10);
+        var hits = _queries.Search(_connection, "StartJob", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Verse/Thing.cs");
     }
@@ -230,8 +230,38 @@ public sealed class SourceQueryServiceTests : IDisposable
     [InlineData(@"^\s*public void EndCurrentJob\(\)")]
     public void OptionalPartsDoNotExcludeCandidates(string pattern)
     {
-        var hits = _queries.Search(_connection, pattern, null, 10);
+        var hits = _queries.Search(_connection, pattern, null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "RimWorld/Pawn.cs");
+    }
+
+    /// <summary>正常搜尋必須明確回報「預算沒有用完」——結果是完整的。</summary>
+    [Fact]
+    public void NormalSearchReportsThatTheBudgetWasNotExhausted()
+    {
+        var result = _queries.Search(_connection, "TryStartJob", null, 10);
+
+        Assert.False(result.BudgetExceeded);
+        Assert.NotEmpty(result.Hits);
+    }
+
+    /// <summary>
+    /// 災難性回溯必須變成**可操作**的訊息，而不是讓 RegexMatchTimeoutException 直接逸出。
+    ///
+    /// <para>
+    /// 呼叫端是 LLM，它會照著訊息調整模式；只回「RegEx engine has timed out」
+    /// 它不知道要做什麼。這個測試刻意用真的會爆炸的模式（40 個 a 之後接 '!'，
+    /// 對 <c>^(a+)+$</c> 是 2^40 等級的回溯），所以會實際等滿 5 秒的逾時。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void CatastrophicBacktrackingBecomesAnActionableTimeout()
+    {
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Slow.cs", new string('a', 40) + "!");
+
+        var error = Assert.Throws<TimeoutException>(() => _queries.Search(_connection, "^(a+)+$", null, 10));
+
+        Assert.Contains("Simplify it", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Verse/Slow.cs", error.Message, StringComparison.Ordinal);
     }
 }

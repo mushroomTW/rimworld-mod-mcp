@@ -78,6 +78,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
                 SymbolCount = a.SymbolCount,
                 SourceFileCount = a.SourceFileCount,
                 FromCache = a.FromCache,
+                Error = a.Error,
             })],
             AssemblyCount = assemblies.Count,
         };
@@ -195,4 +196,13 @@ public sealed record ModAssemblySummary
     /// <summary>True when the existing index was reused without re-decompiling.</summary>
     [JsonPropertyName("from_cache")]
     public required bool FromCache { get; init; }
+
+    /// <summary>
+    /// Set when this assembly could not be loaded as a .NET assembly (a native library, or a
+    /// corrupt/locked file). Such an assembly is skipped and contributes no symbols or source;
+    /// the rest of the mod is still indexed. Retry with force=true after fixing the file.
+    /// </summary>
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; init; }
 }

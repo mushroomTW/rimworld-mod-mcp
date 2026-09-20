@@ -116,13 +116,29 @@ public sealed partial class TestEnvironmentPreparer(
     /// <summary>移除一條連結。語意見 <see cref="DirectoryLink.RemoveLink"/>。</summary>
     public LinkRemoval RemoveLink(TestLink link) => links.RemoveLink(link.Link, link.Target);
 
-    /// <summary>回滾用：逐一移除，結果不回報（呼叫端正在處理更早的失敗）。</summary>
-    public void RemoveLinks(IEnumerable<TestLink> toRemove)
+    /// <summary>
+    /// 逐一移除，回傳**沒能移除**的連結。
+    ///
+    /// <para>
+    /// 回傳值是必要的：換場次時舊場次的連結若清不掉（最常見原因是崩潰後殘留的
+    /// 遊戲行程仍持有組件），把結果丟掉就等於那個連結從此沒人追蹤——它會永久留在
+    /// 使用者的 Mods 目錄，而 <c>stop_test</c> 不會再嘗試補清，也不會回報。
+    /// 呼叫端必須把回傳值併進新場次的追蹤清單。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<TestLink> RemoveLinks(IEnumerable<TestLink> toRemove)
     {
+        var remaining = new List<TestLink>();
+
         foreach (var link in toRemove)
         {
-            links.RemoveLink(link.Link, link.Target);
+            if (links.RemoveLink(link.Link, link.Target) != LinkRemoval.Removed)
+            {
+                remaining.Add(link);
+            }
         }
+
+        return remaining;
     }
 
     /// <summary>寫入一次性 bridge token；在 Unix 上限制為僅擁有者可讀寫。</summary>

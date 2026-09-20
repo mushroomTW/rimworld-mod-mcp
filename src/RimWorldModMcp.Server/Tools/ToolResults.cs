@@ -40,9 +40,20 @@ public sealed record IndexStatusPayload
     [JsonPropertyName("fresh")]
     public required bool Fresh { get; init; }
 
-    /// <summary>Whether the database itself passes a corruption check. False means every query tool will fail; call rebuild_index to reset it.</summary>
+    /// <summary>
+    /// Whether the database itself passes a corruption check. False with busy=false means every
+    /// query tool will fail; call rebuild_index to reset it. False with busy=true only means
+    /// another writer holds the lock — retry shortly instead.
+    /// </summary>
     [JsonPropertyName("healthy")]
     public required bool Healthy { get; init; }
+
+    /// <summary>
+    /// True when another writer holds the index database lock, so health could not be determined.
+    /// Not a corruption: retry shortly rather than rebuilding.
+    /// </summary>
+    [JsonPropertyName("busy")]
+    public required bool Busy { get; init; }
 
     [JsonPropertyName("def_count")]
     public required long DefCount { get; init; }
@@ -343,6 +354,14 @@ public sealed record SearchSourceResult
     [JsonPropertyName("index_error")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IndexError { get; init; }
+
+    /// <summary>
+    /// True when the search hit its time budget with candidate files still unscanned, so the
+    /// result is incomplete — count and limit_reached do not describe the whole corpus.
+    /// Narrow the search (file_pattern, or a more specific pattern) and run it again.
+    /// </summary>
+    [JsonPropertyName("budget_exceeded")]
+    public required bool BudgetExceeded { get; init; }
 }
 
 /// <summary>One matching line in source.</summary>

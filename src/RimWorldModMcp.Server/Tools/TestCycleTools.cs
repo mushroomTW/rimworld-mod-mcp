@@ -59,7 +59,7 @@ public sealed class TestCycleTools(
     private static bool Reached(GameStateRecord? state, string target)
         => state is not null && string.Equals(state.ProgramState, target.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true)]
+    [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true, Idempotent = true)]
     [Description("Stop the test session: remove temporary links, terminate the diagnostics daemon, and clean up the temporary save data.")]
     public TestSessionResult StopTest(
         [Description("Must be explicitly true to proceed.")]
@@ -116,9 +116,11 @@ public sealed class TestCycleTools(
         var effectiveLimit = Math.Clamp(limit, 1, 500);
         var (page, last) = OldestFirstPage(records, effectiveLimit);
 
-        // error_count / warning_count 永遠是整個場次的總數，不受 since_at 影響——
-        // 輪詢中的 agent 看到 error_count=0 會直接下「測試無錯誤」的結論。
-        var all = diagnostics.Read();
+        // error_count / warning_count 是整個場次的**累計**數：不受 since_at 影響，
+        // 也不受保留容量上限影響。數「保留中的紀錄」是錯的——crash loop 會在幾秒內
+        // 塞滿 200 筆並開始淘汰，輪詢中的 agent 會看到數字從 500 掉回 180、甚至掉到 0，
+        // 然後據此下「測試無錯誤」的結論。
+        var totals = diagnostics.Totals;
 
         return new ListDiagnosticsResult
         {
@@ -126,8 +128,8 @@ public sealed class TestCycleTools(
             Count = page.Count,
             TotalCount = records.Count,
             LimitReached = records.Count > page.Count,
-            ErrorCount = all.Count(r => r.Type == "error"),
-            WarningCount = all.Count(r => r.Type == "warning"),
+            ErrorCount = totals.Error,
+            WarningCount = totals.Warning,
             // 游標只能推進到「這一頁實際回傳」的最後一筆。複合鍵 (At, Sequence)
             // 讓同毫秒的整批也能切開：limit 是硬上限，被截掉的下半批在下一輪
             // 用這個 (latest_at, latest_sequence) 照樣拿得到。
@@ -355,11 +357,14 @@ public sealed record ListDiagnosticsResult
     [JsonPropertyName("limit_reached")]
     public required bool LimitReached { get; init; }
 
-    /// <summary>Whole-session error count, regardless of type and since_at.</summary>
+    /// <summary>
+    /// Whole-session error count, regardless of type and since_at. Cumulative: it never
+    /// decreases, even when individual diagnostics are evicted by the retention cap.
+    /// </summary>
     [JsonPropertyName("error_count")]
     public required int ErrorCount { get; init; }
 
-    /// <summary>Whole-session warning count, regardless of type and since_at.</summary>
+    /// <summary>Whole-session warning count, regardless of type and since_at. Cumulative, like error_count.</summary>
     [JsonPropertyName("warning_count")]
     public required int WarningCount { get; init; }
 

@@ -105,4 +105,64 @@ public sealed class DiagnosticStoreTests : IDisposable
 
         Assert.Empty(_diagnostics.Read());
     }
+
+    /// <summary>
+    /// 累計數不能在淘汰之後下降。
+    ///
+    /// <para>
+    /// 保留容量是 200 筆。crash loop 會在幾秒內產生遠多於此的**不同**錯誤並把紀錄擠掉。
+    /// 若 error_count 是「數保留中的紀錄」，輪詢中的 agent 會看到它從 300 掉回 200、
+    /// 甚至掉到 0，然後據此判定「測試無錯誤」——而那是錯的。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TotalsDoNotDecreaseWhenRecordsAreEvicted()
+    {
+        for (var i = 0; i < 300; i++)
+        {
+            _diagnostics.Add("error", $"error {i}", $"error {i}", "bridge", "run-1");
+        }
+
+        Assert.Equal(300, _diagnostics.Totals.Error);
+        Assert.Equal(0, _diagnostics.Totals.Warning);
+
+        // 保留中的紀錄被容量上限壓住了，但累計數不受影響。
+        Assert.Equal(200, _diagnostics.Read().Count);
+    }
+
+    /// <summary>同一個簽章重複出現時累計只算一次——它是一筆診斷，只是次數變多。</summary>
+    [Fact]
+    public void RepeatedIdenticalDiagnosticsDoNotInflateTheTotal()
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            _diagnostics.Add("error", "boom", "boom\n  at Verse.Thing.Tick()", "bridge", "run-1");
+        }
+
+        Assert.Equal(1, _diagnostics.Totals.Error);
+        Assert.Equal(50, _diagnostics.Read()[0].Count);
+    }
+
+    [Fact]
+    public void TotalsCountErrorsAndWarningsSeparately()
+    {
+        _diagnostics.Add("error", "e", "e", "bridge", "run-1");
+        _diagnostics.Add("warning", "w", "w", "bridge", "run-1");
+        _diagnostics.Add("diagnostic", "d", "d", "bridge", "run-1");
+        _diagnostics.Add("performance", "p", "p", "bridge", "run-1");
+
+        Assert.Equal(1, _diagnostics.Totals.Error);
+        Assert.Equal(1, _diagnostics.Totals.Warning);
+    }
+
+    /// <summary>累計數屬於「這一場」，換場次必須歸零。</summary>
+    [Fact]
+    public void ClearResetsTheTotals()
+    {
+        _diagnostics.Add("error", "boom", "boom", "bridge", "run-1");
+        _diagnostics.Clear();
+
+        Assert.Equal(0, _diagnostics.Totals.Error);
+        Assert.Equal(0, _diagnostics.Totals.Warning);
+    }
 }

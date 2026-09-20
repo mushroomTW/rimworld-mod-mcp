@@ -8,6 +8,16 @@ namespace RimWorldModMcp.Indexing.Query;
 public sealed record SourceHit(string Assembly, string File, int Line, string Text);
 
 /// <summary>
+/// 一次搜尋的結果。
+/// </summary>
+/// <param name="Hits">命中的行，最多 <c>limit</c> 筆。</param>
+/// <param name="BudgetExceeded">
+/// true 代表時間預算用完時還有候選檔案沒掃完——結果**不完整**。
+/// 這必須回報給呼叫端：把「掃到一半」誤當成「掃完了」是靜默的 false negative。
+/// </param>
+public sealed record SourceSearchResult(IReadOnlyList<SourceHit> Hits, bool BudgetExceeded);
+
+/// <summary>
 /// 對反編譯後的原始碼做搜尋。
 ///
 /// <para>
@@ -21,9 +31,26 @@ public sealed class SourceQueryService
     /// <summary>單行回傳的字元上限，避免壓縮過的長行灌爆輸出。</summary>
     private const int MaxLineLength = 1000;
 
+    /// <summary>
+    /// 單行比對的逾時。這是災難性回溯的偵測點。
+    /// </summary>
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// 整次搜尋的時間預算。
+    ///
+    /// <para>
+    /// 單檔 5 秒的逾時 × 最多 <c>limit×4</c>（上限 3200）個候選檔，最壞可以累積好幾小時，
+    /// 遠超過 MCP client 常見的 60 秒工具逾時——那時 client 已經報錯，server 還在跑，
+    /// agent 看到的是「工具壞掉」而不是「結果不完整」。
+    /// 用完預算就帶著目前為止的結果回來並標記 <see cref="SourceSearchResult.BudgetExceeded"/>。
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan SearchBudget = TimeSpan.FromSeconds(20);
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
-    public IReadOnlyList<SourceHit> Search(
+    public SourceSearchResult Search(
         SqliteConnection connection,
         string pattern,
         string? filePattern,
@@ -37,7 +64,7 @@ public sealed class SourceQueryService
             // 一律不分大小寫，與 Python 版一致。
             // 注意 .NET 的 regex 方言與 Python 的 re 不完全相容（\b、\w 的 Unicode 語意、
             // 具名群組語法都有差異），這一點需要在文件中說明。
-            regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
+            regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, MatchTimeout);
         }
         catch (ArgumentException e)
         {
@@ -46,16 +73,40 @@ public sealed class SourceQueryService
 
         var cap = Math.Clamp(limit, 1, 800);
         var results = new List<SourceHit>(Math.Min(cap, 128));
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         foreach (var (assembly, path, text) in Candidates(connection, pattern, filePattern, cap, assemblyLike))
         {
+            if (stopwatch.Elapsed > SearchBudget)
+            {
+                return new SourceSearchResult(results, BudgetExceeded: true);
+            }
+
             var line = 0;
 
             foreach (var content in text.Split('\n'))
             {
                 line++;
 
-                if (!regex.IsMatch(content))
+                bool matched;
+
+                try
+                {
+                    matched = regex.IsMatch(content);
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // 單行超過 MatchTimeout 代表模式有災難性回溯。訊息要說「怎麼改」，
+                    // 而不是只說「逾時」——呼叫端是 LLM，它會照著訊息調整模式。
+                    // （RegexMatchTimeoutException 繼承 TimeoutException，
+                    //   所以 ToolGuard 會把這個訊息原樣送達。）
+                    throw new TimeoutException(
+                        $"The pattern took longer than {MatchTimeout.TotalSeconds:0}s on a single line of {path}. "
+                        + "Simplify it — prefer literal words (e.g. CurTimeSpeed) over nested quantifiers, "
+                        + "or narrow the search with file_pattern.");
+                }
+
+                if (!matched)
                 {
                     continue;
                 }
@@ -70,12 +121,12 @@ public sealed class SourceQueryService
 
                 if (results.Count >= cap)
                 {
-                    return results;
+                    return new SourceSearchResult(results, BudgetExceeded: false);
                 }
             }
         }
 
-        return results;
+        return new SourceSearchResult(results, BudgetExceeded: false);
     }
 
     /// <summary>

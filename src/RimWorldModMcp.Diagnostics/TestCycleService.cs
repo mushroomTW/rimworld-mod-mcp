@@ -82,7 +82,10 @@ public sealed class TestCycleService(
 
             // 上一場次的遊戲崩潰時 Stop() 沒被呼叫，它的連結還躺在使用者的
             // Mods 目錄裡——狀態檔即將被覆寫，這是最後的清理機會。
-            environment.RemoveLinks(active.Links);
+            //
+            // 清不掉的必須帶進新場次（見下面的 Links）：丟掉結果的話，那個連結
+            // 從此沒人追蹤，會永久留在使用者的 Mods 目錄，stop_test 也不會再補清。
+            var orphanedLinks = environment.RemoveLinks(active.Links);
 
             // 使用者自己開著遊戲時不能動 Mods 目錄——連結會被鎖住，而且會干擾他的存檔。
             if (launcher.IsGameRunning(paths.Executable))
@@ -113,7 +116,8 @@ public sealed class TestCycleService(
                 SaveData = prepared.SaveData,
                 ActiveMods = prepared.ActiveMods,
                 SkippedLoadAfter = modSet.SkippedLoadAfter,
-                Links = prepared.Links,
+                // 上一場次清不掉的孤兒連結也納入追蹤，stop_test 才有機會補清並回報。
+                Links = [.. prepared.Links, .. orphanedLinks],
                 PlayerLog = paths.PlayerLog,
                 LogOffset = logOffset,
                 BridgePort = locator.BridgePort(),

@@ -30,8 +30,56 @@ public sealed class CriticalSectionLockTests : IDisposable
 
         locks.Acquire("index");
 
-        var error = Assert.Throws<InvalidOperationException>(() => locks.Acquire("index"));
+        var error = Assert.Throws<LockHeldException>(() => locks.Acquire("index"));
         Assert.Contains("already in progress", error.Message, StringComparison.Ordinal);
+        Assert.Equal("index", error.LockName);
+
+        // ToolGuard.IsExpected 只認得 InvalidOperationException，繼承關係是契約的一部分。
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
+    }
+
+    /// <summary>
+    /// 有界等待版本：鎖被持有時等不到就拋出，放掉之後就取得得到。
+    /// 這是「Mod 索引等 rebuild_index 寫完」那條路徑的基礎。
+    /// </summary>
+    [Fact]
+    public void AcquireWithTimeoutWaitsForTheHolderToRelease()
+    {
+        var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
+        var token = locks.Acquire("index");
+
+        // 逾時為零且鎖仍被持有：立刻失敗，不是等到逾時才失敗。
+        var started = DateTime.UtcNow;
+        Assert.Throws<LockHeldException>(() => locks.Acquire("index", TimeSpan.Zero));
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(2), "逾時為零時不該等待");
+
+        // 持有者放掉之後，等待中的呼叫就取得得到。
+        var released = Task.Run(() =>
+        {
+            Thread.Sleep(300);
+            locks.Release("index", token);
+        });
+
+        var waited = locks.Acquire("index", TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(waited);
+        released.Wait();
+    }
+
+    /// <summary>等不到就必須拋出，不能無限期卡住——呼叫端要能把它當成可重試的失敗。</summary>
+    [Fact]
+    public void AcquireWithTimeoutThrowsWhenTheHolderKeepsIt()
+    {
+        var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
+        locks.Acquire("index");
+
+        var started = DateTime.UtcNow;
+
+        Assert.Throws<LockHeldException>(() => locks.Acquire("index", TimeSpan.FromMilliseconds(250)));
+
+        var elapsed = DateTime.UtcNow - started;
+        Assert.True(elapsed >= TimeSpan.FromMilliseconds(200), $"應該等過一段時間，實際 {elapsed.TotalMilliseconds:0}ms");
+        Assert.True(elapsed < TimeSpan.FromSeconds(10), $"不該無限期等待，實際 {elapsed.TotalMilliseconds:0}ms");
     }
 
     [Fact]
@@ -55,7 +103,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         locks.Acquire("index");
         locks.Release("index", "not-the-real-token");
 
-        Assert.Throws<InvalidOperationException>(() => locks.Acquire("index"));
+        Assert.Throws<LockHeldException>(() => locks.Acquire("index"));
     }
 
     [Fact]
@@ -90,7 +138,7 @@ public sealed class CriticalSectionLockTests : IDisposable
 
         using (locks.Hold("index"))
         {
-            Assert.Throws<InvalidOperationException>(() => locks.Acquire("index"));
+            Assert.Throws<LockHeldException>(() => locks.Acquire("index"));
         }
 
         locks.Acquire("index");

@@ -28,7 +28,7 @@ public sealed class IndexTools(
     ModInspectionService inspection)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.fresh=false, call rebuild_index; if index.healthy=false, call rebuild_index (the index database is corrupt).")]
+    [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.busy=true another writer holds the database, so retry shortly; if index.healthy=false and busy=false, call rebuild_index (the index database is corrupt); if index.fresh=false, call rebuild_index.")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
@@ -46,6 +46,7 @@ public sealed class IndexTools(
             {
                 Fresh = status.Fresh,
                 Healthy = status.Healthy,
+                Busy = status.Busy,
                 DefCount = status.DefCount,
                 SymbolCount = status.SymbolCount,
                 SourceIndexed = status.SourceIndexed,
@@ -359,7 +360,7 @@ public sealed class IndexTools(
     }
 
     [McpServerTool(Name = "search_source", UseStructuredContent = true)]
-    [Description("Regex search (.NET syntax, case-insensitive) over decompiled source: the game by default, or one installed mod with package_id (e.g. pattern=HarmonyPatch lists its patches). Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. indexing=true means the index is building in the background; retry in a while. Read a hit with read_source_file.")]
+    [Description("Regex search (.NET syntax, case-insensitive) over decompiled source: the game by default, or one installed mod with package_id (e.g. pattern=HarmonyPatch lists its patches). Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. indexing=true means the index is building in the background; retry in a while. budget_exceeded=true means the search ran out of time with candidate files left unscanned, so the result is incomplete — narrow it with file_pattern and run it again. Read a hit with read_source_file.")]
     public SearchSourceResult SearchSource(
         [Description("Regular expression (.NET syntax), always case-insensitive.")]
         string pattern,
@@ -399,21 +400,23 @@ public sealed class IndexTools(
                 SourceIndexed = result.SourceIndexed,
                 Indexing = result.Indexing,
                 IndexError = result.Error,
+                BudgetExceeded = result.BudgetExceeded,
             };
         }
 
         using var connection = database.Open();
-        var hits = sourceQueries.Search(connection, pattern, file_pattern, limit);
+        var search = sourceQueries.Search(connection, pattern, file_pattern, limit);
         var progress = sourceIndexer.Progress;
 
         return new SearchSourceResult
         {
-            Results = [.. hits.Select(ToMatch)],
-            Count = hits.Count,
-            LimitReached = hits.Count >= effectiveLimit,
+            Results = [.. search.Hits.Select(ToMatch)],
+            Count = search.Hits.Count,
+            LimitReached = search.Hits.Count >= effectiveLimit,
             SourceIndexed = IndexMetaRepository.Get(connection, "source_indexed") == "true",
             Indexing = progress.Running,
             IndexError = progress.Error,
+            BudgetExceeded = search.BudgetExceeded,
         };
     });
 

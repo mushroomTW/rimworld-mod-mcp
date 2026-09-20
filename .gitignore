@@ -1,6 +1,7 @@
 bin/
 obj/
 artifacts/
+.workbuddy-ai/
 *.user
 
 # Bridge 的建置產物：每次測試場次都會依本機的 RimWorld 重新建置。

@@ -31,6 +31,26 @@ public sealed record LockRecord
 }
 
 /// <summary>
+/// 鎖被其他程序（或同一程序的其他工作）持有時拋出。
+///
+/// <para>
+/// 繼承 <see cref="InvalidOperationException"/> 是刻意的：工具層把它當成
+/// 「預期內的領域失敗」轉成可讀訊息，既有的行為不變。有自己的型別是為了讓
+/// 「等一段時間再試」的呼叫端能精確分辨「鎖被佔住」與其他無關的
+/// <see cref="InvalidOperationException"/>。
+/// </para>
+/// </summary>
+public sealed class LockHeldException(string name, int? holderProcessId)
+    : InvalidOperationException($"A {name} job is already in progress (holder PID {holderProcessId?.ToString() ?? "unknown"}).")
+{
+    /// <summary>鎖的名稱。</summary>
+    public string LockName { get; } = name;
+
+    /// <summary>持有者的 PID；讀不到鎖檔內容時為 null。</summary>
+    public int? HolderProcessId { get; } = holderProcessId;
+}
+
+/// <summary>
 /// 跨程序的臨界區鎖。
 ///
 /// <para>
@@ -47,11 +67,15 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    /// <summary>取得鎖，回傳可用於釋放的 token。取不到時拋出。</summary>
+    /// <summary>有界等待版本的輪詢間隔。鎖的持有者是「另一個工作的短臨界區」，100ms 足夠即時。</summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>取得鎖，回傳可用於釋放的 token。取不到時拋出 <see cref="LockHeldException"/>。</summary>
     public string Acquire(string name, IReadOnlyDictionary<string, string>? details = null)
     {
         var path = LockPath(name);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        SweepStaleGraveyards(Path.GetDirectoryName(path)!);
 
         // 只允許接管殘骸鎖一次：第一輪發現持有者已死就刪掉重試，
         // 第二輪若仍失敗就是真的有人持有（或有另一個程序同時接管成功）。
@@ -98,16 +122,47 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 
                 if (mayReclaim && stale)
                 {
-                    TryDelete(path);
-                    continue;
+                    // ReclaimStale 回傳 false 代表「搬走的不是當初判定的殘骸」，
+                    // 已嘗試歸還，本輪視為被持有，不重試建檔。
+                    if (ReclaimStale(path, existing, expectFile: outcome != ReadOutcome.Missing))
+                    {
+                        continue;
+                    }
                 }
 
-                var holder = existing?.ProcessId.ToString() ?? "unknown";
-                throw new InvalidOperationException($"A {name} job is already in progress (holder PID {holder}).");
+                throw new LockHeldException(name, existing?.ProcessId);
             }
         }
 
-        throw new InvalidOperationException($"A {name} job is already in progress.");
+        throw new LockHeldException(name, null);
+    }
+
+    /// <summary>
+    /// 取得鎖，取不到時在 <paramref name="timeout"/> 內輪詢等待；逾時仍拋出
+    /// <see cref="LockHeldException"/>。
+    ///
+    /// <para>
+    /// 用途是「短暫的重疊」：例如 Mod 索引要在 rebuild_index 的寫交易期間提交
+    /// 一個毫秒級的交易，等幾秒就過去了。呼叫端必須把逾時當成可重試的失敗，
+    /// 而不是永久失敗。
+    /// </para>
+    /// </summary>
+    public string Acquire(string name, TimeSpan timeout, IReadOnlyDictionary<string, string>? details = null)
+    {
+        // 逾時量測用單調時鐘：DateTime.UtcNow 受 NTP 跳變影響，會拉長或縮短等待。
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+        while (true)
+        {
+            try
+            {
+                return Acquire(name, details);
+            }
+            catch (LockHeldException) when (elapsed.Elapsed < timeout)
+            {
+                Thread.Sleep(PollInterval);
+            }
+        }
     }
 
     /// <summary>釋放鎖。token 不符時什麼都不做——避免誤刪別人接管後的鎖。</summary>
@@ -126,6 +181,13 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
     public IDisposable Hold(string name, IReadOnlyDictionary<string, string>? details = null)
     {
         var token = Acquire(name, details);
+        return new Holder(this, name, token);
+    }
+
+    /// <summary>以 using 持有鎖，取不到時最多等 <paramref name="timeout"/>。</summary>
+    public IDisposable Hold(string name, TimeSpan timeout, IReadOnlyDictionary<string, string>? details = null)
+    {
+        var token = Acquire(name, timeout, details);
         return new Holder(this, name, token);
     }
 
@@ -204,6 +266,109 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             // 檔案可能已被其他行程刪除或鎖定，盡力清理即可，不阻礙主流程。
+        }
+    }
+
+    /// <summary>
+    /// 嘗試接管殘骸鎖：先把鎖檔**改名**到一個專屬名稱，再刪除。
+    ///
+    /// <para>
+    /// 直接用 <see cref="File.Delete"/> 有 TOCTOU：在「讀到鎖檔並判定為殘骸」
+    /// 與「刪除」之間，另一個程序可能已經完成接管並建立自己的鎖，
+    /// 那一下刪掉的是一個**活著**的鎖——於是兩個程序同時認為自己持有臨界區，
+    /// 正是這個類別極力避免的情境。
+    /// </para>
+    /// <para>
+    /// 改名把視窗縮得很小，但**沒有完全關閉 ABA 競態**：A、B 同時判定 X 為殘骸，
+    /// B 先改名、刪除、重建新鎖，A 再改名仍會成功並搬走 B 的活鎖。
+    /// 因此改名成功後會比對搬走檔案的 token 是否與分類當時讀到的殘骸一致；
+    /// 不一致代表中間檔案被換過，嘗試把檔案歸還原位並放棄接管（回傳 false），
+    /// 呼叫端視為鎖被持有而不重試建檔。無條件刪除只會發生在 token 一致、
+    /// 或當初根本讀不到內容（損毀）的情況。
+    /// </para>
+    /// </summary>
+    /// <returns>true 代表可以重試建檔；false 代表搬走的是別人的新鎖，已嘗試歸還。</returns>
+    private static bool ReclaimStale(string path, LockRecord? expected, bool expectFile)
+    {
+        var graveyard = $"{path}.stale-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
+
+        try
+        {
+            File.Move(path, graveyard);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // 別人搶先接管了（來源檔已不存在），或無權限。兩種都交給下一輪重試。
+            return true;
+        }
+
+        if (expected?.Token is string expectedToken)
+        {
+            var moved = Read(graveyard);
+
+            if (!string.Equals(moved?.Token, expectedToken, StringComparison.Ordinal))
+            {
+                TryRestore(graveyard, path);
+                return false;
+            }
+        }
+        else if (!expectFile)
+        {
+            // 分類時檔案不存在，改名卻成功：中間有新鎖建立，歸還並放棄。
+            TryRestore(graveyard, path);
+            return false;
+        }
+
+        TryDelete(graveyard);
+        return true;
+    }
+
+    /// <summary>把誤搬的檔案搬回原位。原位已有新檔案時不覆寫，避免毀掉第三者的鎖。</summary>
+    private static void TryRestore(string graveyard, string path)
+    {
+        try
+        {
+            File.Move(graveyard, path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // 原位已有新檔案（第三者已建鎖）或無權限：留著 graveyard，
+            // 由週期性的殘留清理處理，不在此刪除別人的活鎖副本。
+        }
+    }
+
+    /// <summary>
+    /// 清理殘留的 <c>*.stale-*</c> 接管暫存（程序在改名後、刪除前崩潰會留下它們）。
+    /// 只清超過 10 分鐘的，避免刪掉正與我們並行接管的另一個程序的暫存。
+    /// </summary>
+    private static void SweepStaleGraveyards(string locksDirectory)
+    {
+        IEnumerable<string> files;
+
+        try
+        {
+            files = Directory.EnumerateFiles(locksDirectory, "*.stale-*", SearchOption.TopDirectoryOnly);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(10);
+
+        foreach (var file in files)
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < cutoff)
+                {
+                    TryDelete(file);
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // 盡力清理即可。
+            }
         }
     }
 

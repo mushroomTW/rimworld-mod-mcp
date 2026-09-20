@@ -63,6 +63,23 @@ public sealed record DiagnosticCursor(long At, long Sequence)
 }
 
 /// <summary>
+/// 整個測試場次的累計筆數。
+///
+/// <para>
+/// 這與「保留中的紀錄數」是兩件事：<see cref="DiagnosticStore"/> 有容量上限，
+/// crash loop 會把紀錄擠掉。累計數只能增加，呼叫端才能據此判斷「這一場有沒有錯」。
+/// </para>
+/// </summary>
+public sealed record DiagnosticTotals
+{
+    [JsonPropertyName("error")]
+    public int Error { get; init; }
+
+    [JsonPropertyName("warning")]
+    public int Warning { get; init; }
+}
+
+/// <summary>
 /// 測試診斷的儲存與去重。
 ///
 /// <para>
@@ -87,11 +104,11 @@ public sealed class DiagnosticStore(StoreDirectories store)
     private readonly Lock _gate = new();
 
     /// <summary>
-    /// 下一筆的寫入序號。行程內遞增（static），重啟後從磁碟已有的最大序號接續
+    /// 下一筆的寫入序號。實例層級遞增，重啟後從磁碟已有的最大序號接續
     ///（見 <see cref="EnsureSequenceInitialized"/>），避免新筆與舊筆的序號碰撞。
     /// 跨行程的併發寫入仍靠檔案鎖序列化，同一毫秒內由序號保證全序。
     /// </summary>
-    private static long _nextSequence;
+    private long _nextSequence;
 
     /// <summary>加入一筆診斷。相同簽章的既有紀錄會被合併並累加次數。</summary>
     public DiagnosticRecord Add(string type, string firstLine, string text, string source, string? runId)
@@ -102,10 +119,16 @@ public sealed class DiagnosticStore(StoreDirectories store)
 
             var records = Read().ToList();
             EnsureSequenceInitialized(records);
-            var record = MergeInto(records, type, firstLine, text, source, runId);
+            var (record, isNew) = MergeInto(records, type, firstLine, text, source, runId);
 
             Evict(records);
             AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
+
+            var errors = 0;
+            var warnings = 0;
+            CountByType(isNew ? type : string.Empty, ref errors, ref warnings);
+            BumpTotals(errors, warnings);
+
             return record;
         }
     }
@@ -131,13 +154,72 @@ public sealed class DiagnosticStore(StoreDirectories store)
             var records = Read().ToList();
             EnsureSequenceInitialized(records);
 
+            var newErrors = 0;
+            var newWarnings = 0;
+
             foreach (var (type, firstLine, text) in items)
             {
-                MergeInto(records, type, firstLine, text, source, runId);
+                var (_, isNew) = MergeInto(records, type, firstLine, text, source, runId);
+
+                if (isNew)
+                {
+                    CountByType(type, ref newErrors, ref newWarnings);
+                }
             }
 
             Evict(records);
             AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
+            BumpTotals(newErrors, newWarnings);
+        }
+    }
+
+    /// <summary>
+    /// 整個場次的累計筆數，**不受容量上限與 since_at 影響**。
+    ///
+    /// <para>
+    /// 呼叫端必須用它而不是「數保留中的紀錄」：後者會隨著淘汰而下降，
+    /// 讓輪詢中的 agent 把「已經被擠掉的錯誤」誤讀成「沒有錯誤」。
+    /// </para>
+    /// </summary>
+    public DiagnosticTotals Totals => ReadTotals();
+
+    /// <summary>累計新紀錄。已在 <see cref="_gate"/> 與檔案鎖內呼叫。</summary>
+    private void BumpTotals(int errors, int warnings)
+    {
+        if (errors == 0 && warnings == 0)
+        {
+            return;
+        }
+
+        var totals = ReadTotals();
+        AtomicJson.Write(
+            store.DiagnosticTotalsFile,
+            totals with { Error = totals.Error + errors, Warning = totals.Warning + warnings },
+            JsonOptions);
+    }
+
+    private static void CountByType(string type, ref int errors, ref int warnings)
+    {
+        if (string.Equals(type, "error", StringComparison.OrdinalIgnoreCase))
+        {
+            errors++;
+        }
+        else if (string.Equals(type, "warning", StringComparison.OrdinalIgnoreCase))
+        {
+            warnings++;
+        }
+    }
+
+    private DiagnosticTotals ReadTotals()
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<DiagnosticTotals>(File.ReadAllText(store.DiagnosticTotalsFile))
+                ?? new DiagnosticTotals();
+        }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return new DiagnosticTotals();
         }
     }
 
@@ -146,7 +228,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
     /// 直接遞增會與舊序號碰撞、複合鍵全序倒退。每次寫入前先對齊到磁碟最大值。
     /// 已在 _gate 與檔案鎖內呼叫。
     /// </summary>
-    private static void EnsureSequenceInitialized(List<DiagnosticRecord> records)
+    private void EnsureSequenceInitialized(List<DiagnosticRecord> records)
     {
         if (records.Count == 0)
         {
@@ -161,7 +243,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
         }
     }
 
-    private static DiagnosticRecord MergeInto(
+    private (DiagnosticRecord Record, bool IsNew) MergeInto(
         List<DiagnosticRecord> records,
         string type,
         string firstLine,
@@ -186,26 +268,25 @@ public sealed class DiagnosticStore(StoreDirectories store)
         {
             record = records[existingIndex] with { Count = records[existingIndex].Count + 1, At = now, Sequence = sequence };
             records[existingIndex] = record;
+
+            return (record, false);
         }
-        else
+
+        record = new DiagnosticRecord
         {
-            record = new DiagnosticRecord
-            {
-                Hash = hash,
-                Type = type,
-                FirstLine = firstLine,
-                Text = text,
-                Source = source,
-                RunId = runId,
-                Count = 1,
-                At = now,
-                Sequence = sequence,
-            };
+            Hash = hash,
+            Type = type,
+            FirstLine = firstLine,
+            Text = text,
+            Source = source,
+            RunId = runId,
+            Count = 1,
+            At = now,
+            Sequence = sequence,
+        };
 
-            records.Add(record);
-        }
-
-        return record;
+        records.Add(record);
+        return (record, true);
     }
 
     /// <summary>
@@ -235,8 +316,14 @@ public sealed class DiagnosticStore(StoreDirectories store)
     /// 跨行程互斥。daemon 行程與 MCP server 行程都會對 diagnostics.json 做
     /// read-modify-write，行程內的 <see cref="_gate"/> 保護不到對方——
     /// 沒有這一層，server 的 Clear() 會被 daemon 的舊讀取寫回蓋掉，
-    /// 上一場次的診斷污染新場次。搶不到鎖時 best-effort 繼續
-    /// （AtomicJson 仍保證單次寫入的原子性）。
+    /// 上一場次的診斷污染新場次。
+    ///
+    /// <para>
+    /// 鎖只被持有「讀檔 + 序列化 + 寫檔」這幾毫秒，所以等待上限放得很寬。
+    /// 真的搶不到時仍然繼續執行（<see cref="AtomicJson"/> 保證單次寫入不會留下半份檔）——
+    /// 這個取捨是刻意的：丟掉一筆診斷比偶發的 lost update 嚴重，因為診斷是
+    /// 「Bridge 連不上時唯一的線索」。
+    /// </para>
     /// </summary>
     private FileStream? AcquireFileLock()
     {
@@ -251,7 +338,8 @@ public sealed class DiagnosticStore(StoreDirectories store)
             return null;
         }
 
-        for (var attempt = 0; attempt < 100; attempt++)
+        // 500 × 20ms = 10 秒。遠大於鎖的實際持有時間，把「搶不到」壓到幾乎不可能。
+        for (var attempt = 0; attempt < 500; attempt++)
         {
             try
             {
@@ -301,6 +389,9 @@ public sealed class DiagnosticStore(StoreDirectories store)
         {
             using var fileLock = AcquireFileLock();
             AtomicJson.Write(store.DiagnosticsFile, (DiagnosticRecord[])[], JsonOptions);
+
+            // 累計數屬於「這一場」，換場次就必須歸零，否則新場次會繼承上一場的數字。
+            AtomicJson.Write(store.DiagnosticTotalsFile, new DiagnosticTotals(), JsonOptions);
         }
     }
 

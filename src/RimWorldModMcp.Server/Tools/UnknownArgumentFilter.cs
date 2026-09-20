@@ -32,7 +32,7 @@ internal static class UnknownArgumentFilter
                 {
                     throw new McpException(
                         $"Unknown parameter(s) for {tool.ProtocolTool.Name}: {string.Join(", ", unknown)}. "
-                        + $"Valid parameters: {string.Join(", ", known.Order())}.");
+                        + $"Valid parameters: {string.Join(", ", known.Order(StringComparer.Ordinal))}.");
                 }
             }
 

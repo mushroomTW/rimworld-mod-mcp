@@ -22,7 +22,35 @@ namespace RimWorldModMcp.Indexing.Decompilation;
 public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
 {
     // CSharpDecompiler 不是 thread-safe，每個組件各自持有一個實例並在使用時上鎖。
-    private readonly ConcurrentDictionary<string, Lazy<DecompilerHandle>> _handles = new(StringComparer.OrdinalIgnoreCase);
+    //
+    // 值不是例外而是 Attempt：Lazy<T> 的預設模式（ExecutionAndPublication）會把
+    // 工廠拋出的例外永久快取起來，之後每次 .Value 都重拋同一個例外。Mod 目錄下的
+    // Assemblies/ 常混有原生程式庫或非 .NET 的 DLL，讓例外進去就等於把那個路徑
+    // 永久毒化——使用者連 inspect_installed_mod(force=true) 都救不回，只能重啟 server。
+    // 把失敗表示成值就沒有這個問題：條目會被移除，下次呼叫重新嘗試。
+    private readonly ConcurrentDictionary<string, Lazy<Attempt>> _handles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>一次載入嘗試的結果：成功時 <see cref="Handle"/> 非 null，失敗時 <see cref="Error"/> 說明原因。</summary>
+    private sealed record Attempt(DecompilerHandle? Handle, string? Error);
+
+    /// <summary>
+    /// 同時保留的反編譯映像數上限。
+    ///
+    /// <para>
+    /// 每個條目持有以 <c>PrefetchEntireImage</c> 讀進記憶體的**完整組件映像**
+    ///（Assembly-CSharp 約 30MB），而這個類別是 singleton、生命週期等於整個
+    /// server 會期。沒有上限的話，記憶體會隨著「這個會期檢視過的 Mod 數」
+    /// 單調成長且永不回收。
+    /// </para>
+    /// <para>
+    /// 8 個足夠涵蓋典型工作集（遊戲本體 + 正在看的一兩個 Mod），
+    /// 淘汰最久沒被取用的那一個。
+    /// </para>
+    /// </summary>
+    private const int MaxCachedAssemblies = 8;
+
+    /// <summary>目前快取的組件數（含載入失敗、即將被移除的條目）。測試用。</summary>
+    internal int CachedAssemblyCount => _handles.Count;
 
     public string? DecompileMember(string assemblyPath, int metadataToken)
     {
@@ -33,7 +61,10 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
             return null;
         }
 
-        var entry = Handle(assemblyPath);
+        if (TryHandle(assemblyPath).Handle is not { } entry)
+        {
+            return null;
+        }
 
         lock (entry.Gate)
         {
@@ -57,62 +88,117 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
         }
     }
 
-    public IEnumerable<(string Path, string Text)> DecompileAll(string assemblyPath, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 反編譯整個組件。結果會物化成清單後一次回傳（呼叫端本來就會 <c>ToList()</c>）。
+    ///
+    /// <para>
+    /// 組件無法載入時（原生 DLL、損壞的檔案）不拋例外，而是回空序列並透過
+    /// <paramref name="onUnavailable"/> 回報原因——呼叫端據此把「這一顆 DLL 反編譯不了」
+    /// 記成單一組件的問題，而不是讓整個 Mod 的索引失敗。
+    /// </para>
+    /// <para>
+    /// 列舉期間會釘選控制代碼（<c>PinCount</c>），<see cref="TrimCache"/> 不會淘汰它：
+    /// 否則另一執行緒載入第 9 個組件時，正在被列舉（大型組件可達分鐘級）的條目會因
+    /// <c>LastUsedTicks</c> 最舊而被處置，列舉中途拋 <c>ObjectDisposedException</c>
+    /// 並使整個 Mod 索引被記成永久失敗。物化前就釘選也關掉了「回傳迭代器後、
+    /// 第一次 MoveNext 前被淘汰」的空隙。
+    /// </para>
+    /// </summary>
+    /// <param name="onUnavailable">組件無法載入時呼叫一次，參數是給人看的原因。</param>
+    public IEnumerable<(string Path, string Text)> DecompileAll(
+        string assemblyPath,
+        CancellationToken cancellationToken = default,
+        Action<string>? onUnavailable = null)
     {
-        var entry = Handle(assemblyPath);
-        var reader = entry.File.Metadata;
+        var attempt = TryHandle(assemblyPath);
 
-        foreach (var typeHandle in reader.TypeDefinitions)
+        if (attempt.Handle is not { } entry)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            onUnavailable?.Invoke(attempt.Error ?? $"Could not load the assembly: {assemblyPath}");
+            return [];
+        }
 
-            var type = reader.GetTypeDefinition(typeHandle);
-            var name = reader.GetString(type.Name);
+        Interlocked.Increment(ref entry.PinCount);
 
-            // 巢狀型別會跟著外層一起輸出；編譯器產生的型別沒有閱讀價值。
-            if (type.IsNested || name.StartsWith('<') || name == "<Module>")
+        try
+        {
+            var results = new List<(string Path, string Text)>();
+            var reader = entry.File.Metadata;
+
+            try
             {
-                continue;
+                foreach (var typeHandle in reader.TypeDefinitions)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var type = reader.GetTypeDefinition(typeHandle);
+                    var name = reader.GetString(type.Name);
+
+                    // 巢狀型別會跟著外層一起輸出；編譯器產生的型別沒有閱讀價值。
+                    if (type.IsNested || name.StartsWith('<') || name == "<Module>")
+                    {
+                        continue;
+                    }
+
+                    string text;
+
+                    lock (entry.Gate)
+                    {
+                        try
+                        {
+                            text = entry.Decompiler.DecompileTypeAsString(
+                                new FullTypeName(Metadata.MetadataNames.FullName(reader, type)));
+                        }
+                        catch (Exception e) when (e is not OutOfMemoryException)
+                        {
+                            // ILSpy 對個別型別失敗是常態，跳過就好——這對應 Python 版
+                            // 「returncode 非 0 但有產出 .cs 就算成功」的寬容規則。
+                            // 並行淘汰造成的 ObjectDisposedException 也在這裡被吃掉，
+                            // 變成該型別的靜默跳過，而不是整個組件失敗。
+                            continue;
+                        }
+                    }
+
+                    var ns = reader.GetString(type.Namespace);
+                    var path = string.IsNullOrEmpty(ns) ? $"{name}.cs" : $"{ns.Replace('.', '/')}/{name}.cs";
+
+                    results.Add((path, text));
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // 鎖之外的 reader 存取（列舉 TypeDefinitions、讀取定義）在控制代碼
+                // 被並行處置時拋出——實務上只剩「檔案在列舉期間被更新」的舊映像路徑，
+                // TrimCache 已因釘選而略過。回傳已收集的部分而不是讓例外逃出，
+                // 否則整個 Mod 索引失敗並被記成永久錯誤。
             }
 
-            string text;
-
-            lock (entry.Gate)
-            {
-                try
-                {
-                    text = entry.Decompiler.DecompileTypeAsString(
-                        new FullTypeName(Metadata.MetadataNames.FullName(reader, type)));
-                }
-                catch (Exception e) when (e is not OutOfMemoryException)
-                {
-                    // ILSpy 對個別型別失敗是常態，跳過就好——這對應 Python 版
-                    // 「returncode 非 0 但有產出 .cs 就算成功」的寬容規則。
-                    continue;
-                }
-            }
-
-            var ns = reader.GetString(type.Namespace);
-            var path = string.IsNullOrEmpty(ns) ? $"{name}.cs" : $"{ns.Replace('.', '/')}/{name}.cs";
-
-            yield return (path, text);
+            return results;
+        }
+        finally
+        {
+            Interlocked.Decrement(ref entry.PinCount);
         }
     }
 
     public void Dispose()
     {
-        foreach (var entry in _handles.Values)
+        foreach (var attempt in _handles.Values)
         {
-            if (entry.IsValueCreated)
+            if (attempt.IsValueCreated && attempt.Value.Handle is { } handle)
             {
-                entry.Value.Dispose();
+                handle.Dispose();
             }
         }
 
         _handles.Clear();
     }
 
-    private DecompilerHandle Handle(string assemblyPath)
+    /// <summary>
+    /// 取得組件的反編譯控制代碼。**不拋例外，且失敗不會被快取**——呼叫端拿到的
+    /// <see cref="Attempt"/> 帶著失敗原因，下次呼叫會重新嘗試。
+    /// </summary>
+    private Attempt TryHandle(string assemblyPath)
     {
         // 快取鍵必須包含檔案的大小與時間戳。這個物件是 singleton、而且
         // PrefetchEntireImage 已把整個映像讀進記憶體——只用路徑當鍵的話，
@@ -120,27 +206,105 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
         // 連 force 重建都救不回來。
         var stamp = Stamp(assemblyPath);
 
-        while (true)
+        // 迴圈只會在「檔案在讀取期間被換掉」時多跑一輪；上限是防禦性的。
+        for (var attempt = 0; attempt < 4; attempt++)
         {
             var lazy = _handles.GetOrAdd(
                 assemblyPath,
-                path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path, stamp, locator.Detect().ManagedDir)));
+                path => new Lazy<Attempt>(() => TryCreate(path, locator.Detect().ManagedDir)));
 
-            var handle = lazy.Value;
+            var result = lazy.Value;
 
-            if (handle.FileStamp == stamp)
+            // 載入失敗：移除條目，讓下一次呼叫重新嘗試，然後把原因往上傳。
+            // 這一步就是「失敗不被永久記住」的關鍵。
+            if (result.Handle is null)
             {
-                return handle;
+                _handles.TryRemove(new KeyValuePair<string, Lazy<Attempt>>(assemblyPath, lazy));
+                return result;
+            }
+
+            if (result.Handle.FileStamp == stamp)
+            {
+                Volatile.Write(ref result.Handle.LastUsedTicks, Environment.TickCount64);
+                TrimCache();
+                return result;
             }
 
             // 檔案已被更新：丟掉舊映像重載，順便回收記憶體。
-            if (_handles.TryRemove(new KeyValuePair<string, Lazy<DecompilerHandle>>(assemblyPath, lazy)))
+            // 釘選中（DecompileAll 物化中）不處置舊映像：列舉仍拿著它的 reader，
+            // 處置會讓列舉拋 ObjectDisposedException。只從字典移除，舊映像由
+            // 列舉的參考維持，GC 會回收；漏一個舊映像比整個索引失敗便宜。
+            if (_handles.TryRemove(new KeyValuePair<string, Lazy<Attempt>>(assemblyPath, lazy)))
             {
-                lock (handle.Gate)
+                if (Volatile.Read(ref result.Handle.PinCount) == 0)
                 {
-                    handle.Dispose();
+                    lock (result.Handle.Gate)
+                    {
+                        result.Handle.Dispose();
+                    }
                 }
             }
+        }
+
+        return new Attempt(null, $"Could not load the assembly after repeated attempts (the file keeps changing): {assemblyPath}");
+    }
+
+    /// <summary>
+    /// 把快取修剪到 <see cref="MaxCachedAssemblies"/> 以內，淘汰最久沒被取用的組件。
+    ///
+    /// <para>
+    /// 淘汰是必要的而不是最佳化：每個條目都常駐一份完整映像，而這個類別的生命週期
+    /// 等於整個 server 會期。上限很小（8），所以線性掃描找最舊的成本可忽略。
+    /// </para>
+    /// </summary>
+    private void TrimCache()
+    {
+        while (_handles.Count > MaxCachedAssemblies)
+        {
+            var victim = _handles
+                .Where(entry => entry.Value.IsValueCreated
+                    && entry.Value.Value.Handle is not null
+                    && Volatile.Read(ref entry.Value.Value.Handle!.PinCount) == 0)
+                .OrderBy(entry => Volatile.Read(ref entry.Value.Value.Handle!.LastUsedTicks))
+                .FirstOrDefault();
+
+            // 沒有可淘汰的條目，或競態下被別人先移除：停手，避免無限迴圈。
+            if (victim.Value is null || !_handles.TryRemove(victim))
+            {
+                return;
+            }
+
+            var handle = victim.Value.Value.Handle!;
+
+            lock (handle.Gate)
+            {
+                handle.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 建立控制代碼，失敗時把原因包成 <see cref="Attempt"/> 回傳而不是拋出去。
+    ///
+    /// <para>
+    /// 這裡刻意**廣泛捕捉**：輸入是使用者 Mod 目錄裡任意一個 .dll，失敗型別取決於
+    /// 反編譯器內部的實作細節（實測原生 DLL 拋的是 ILSpy 自訂的
+    /// <c>MetadataFileNotSupportedException</c>，既不是 <c>BadImageFormatException</c>
+    /// 也不是 <c>NotSupportedException</c>）。逐一列舉型別會漏，而漏掉的代價是
+    /// 例外進入 <c>Lazy</c> 而被永久快取——正是這個類別要修的問題。
+    /// 失敗不會被吞掉：原因透過 <c>onUnavailable</c> 回報給呼叫端，
+    /// 最終出現在 <c>inspect_installed_mod</c> 的組件清單裡。
+    /// </para>
+    /// </summary>
+    private static Attempt TryCreate(string assemblyPath, string? managedDirectory)
+    {
+        try
+        {
+            return new Attempt(DecompilerHandle.Create(assemblyPath, Stamp(assemblyPath), managedDirectory), null);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            return new Attempt(null, $"Not a loadable .NET assembly ({e.GetType().Name}): {e.Message}");
         }
     }
 
@@ -165,6 +329,12 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
 
         /// <summary>載入當下的檔案大小與時間戳，用於失效判定。</summary>
         internal string FileStamp { get; }
+
+        /// <summary>最後一次被取用的單調毫秒（<see cref="Environment.TickCount64"/>）。淘汰時挑最舊的。</summary>
+        internal long LastUsedTicks;
+
+        /// <summary>進行中的 <c>DecompileAll</c> 物化數。非 0 時 <see cref="TrimCache"/> 不得淘汰。</summary>
+        internal int PinCount;
 
         internal Lock Gate { get; } = new();
 
