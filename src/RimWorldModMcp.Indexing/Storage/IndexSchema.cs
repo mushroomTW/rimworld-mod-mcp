@@ -9,7 +9,7 @@ public static class IndexSchema
     /// 結構版本。與資料庫裡的 <c>user_version</c> 不符時整個丟掉重建——
     /// 索引全部是衍生資料，重建不會損失任何使用者內容，所以不需要 migration 機制。
     /// </summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     private const string Ddl = """
         CREATE TABLE IF NOT EXISTS def (
@@ -73,8 +73,12 @@ public static class IndexSchema
           UNIQUE(assembly, path)
         );
 
+        -- trigram tokenizer：search_source 是 regex 搜尋，候選階段必須能用「識別字的
+        -- 子字串」找檔案（Pistol 要找得到 Autopistol）。預設的 unicode61 以整個識別字為
+        -- token，子字串一律零候選，regex 根本沒機會跑——那是靜默的 false negative。
+        -- 代價是索引比 unicode61 大數倍（約為原文的 2~3 倍）。
         CREATE VIRTUAL TABLE IF NOT EXISTS source_fts
-          USING fts5(path, text, content='source_file', content_rowid='id');
+          USING fts5(path, text, content='source_file', content_rowid='id', tokenize='trigram');
 
         CREATE TABLE IF NOT EXISTS def_reference (
           def_name    TEXT NOT NULL,

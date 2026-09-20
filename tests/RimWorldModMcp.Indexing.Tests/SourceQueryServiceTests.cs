@@ -141,4 +141,41 @@ public sealed class SourceQueryServiceTests : IDisposable
         Assert.NotEmpty(hits);
         Assert.All(hits, hit => Assert.StartsWith("mod:pkg:", hit.Assembly, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// 關鍵字抽取曾把 <c>\bFoo\b</c> 抽成 <c>bFoo</c>：反斜線被拿掉、b 黏上去，
+    /// FTS 零候選、regex 沒機會跑，最常見的 regex 寫法直接靜默回零筆。
+    /// </summary>
+    [Fact]
+    public void WordBoundaryPatternFindsTheIdentifier()
+    {
+        var hits = _queries.Search(_connection, @"\bTryStartJob\b", null, 10);
+
+        Assert.Contains(hits, hit => hit.File == "Verse/Thing.cs");
+    }
+
+    /// <summary>
+    /// regex 本來就會命中識別字的子字串，候選階段也必須找得到（trigram tokenizer）；
+    /// unicode61 以整個識別字為 token，Pistol 永遠找不到 Autopistol。
+    /// </summary>
+    [Fact]
+    public void SubstringOfAnIdentifierIsFound()
+    {
+        var hits = _queries.Search(_connection, "StartJob", null, 10);
+
+        Assert.Contains(hits, hit => hit.File == "Verse/Thing.cs");
+    }
+
+    /// <summary>可選片段與字元類裡的字面不是必定出現，抽成必要關鍵字會把正確的檔案濾掉。</summary>
+    [Theory]
+    [InlineData(@"(Missing)?EndCurrentJob")]
+    [InlineData(@"EndCurrentJo[bB]")]
+    [InlineData(@"EndCurrentJobs?")]
+    [InlineData(@"^\s*public void EndCurrentJob\(\)")]
+    public void OptionalPartsDoNotExcludeCandidates(string pattern)
+    {
+        var hits = _queries.Search(_connection, pattern, null, 10);
+
+        Assert.Contains(hits, hit => hit.File == "RimWorld/Pawn.cs");
+    }
 }

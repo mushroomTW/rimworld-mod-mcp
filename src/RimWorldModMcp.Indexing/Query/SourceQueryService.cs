@@ -250,16 +250,24 @@ public sealed class SourceQueryService
     }
 
     /// <summary>
-    /// 抽出單一分支可當全文關鍵字的字面詞。候選階段只求召回不求精準：
-    /// 先把 regex 元字元換成空白再抽詞，所以 <c>(TryStartJob|EndCurrentJob)</c>、
-    /// <c>void Delete\(\)</c>、<c>\bFoo\b</c> 這類寫法都抽得到關鍵字；
-    /// 最終是否命中仍由 regex 逐行判定，不會產生 false positive。
+    /// 抽出單一分支裡<b>必定出現</b>的字面詞當全文關鍵字。候選階段只求召回不求精準，
+    /// 所以寧可少抽也不能抽錯：抽到一個其實不必出現的詞，含有目標的檔案會在候選階段
+    /// 就被濾掉，regex 根本沒機會跑，結果是靜默的零筆。因此：
+    /// 跳脫序列（<c>\b</c>、<c>\s</c>、<c>\.</c>）整個當作分隔——直接拿掉反斜線會把
+    /// <c>\bFoo\b</c> 抽成 <c>bFoo</c>；字元類 <c>[...]</c> 與可選片段
+    /// （<c>?</c>、<c>*</c>、<c>{0,</c> 之前的字元或群組）不是必定出現，一律不抽。
+    /// source_fts 用 trigram tokenizer，關鍵字是子字串也找得到。
     /// </summary>
     private static string[] KeywordsForBranch(string branch)
     {
-        var cleaned = Regex.Replace(branch, @"[^\w\s]", " ", RegexOptions.None, TimeSpan.FromSeconds(1));
+        var cleaned = branch;
 
-        // 連續三個以上的英數字元（ASCII 即可，呼應 FTS tokenizer 的切分）。
+        foreach (var (pattern, replacement) in KeywordCleanups)
+        {
+            cleaned = Regex.Replace(cleaned, pattern, replacement, RegexOptions.None, TimeSpan.FromSeconds(1));
+        }
+
+        // 連續三個以上的英數字元（trigram 的最短可查長度）。
         var matches = Regex.Matches(
             cleaned,
             @"[A-Za-z_][A-Za-z0-9_]{2,}",
@@ -271,6 +279,21 @@ public sealed class SourceQueryService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(4)];
     }
+
+    /// <summary>依序套用；跳脫序列必須最先處理，<c>\[</c> 才不會被當成字元類的開頭。</summary>
+    private static readonly (string Pattern, string Replacement)[] KeywordCleanups =
+    [
+        // \b \s \. \x41 A 等跳脫序列：整個換成分隔，不能只拿掉反斜線。
+        (@"\\(?:x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|.)", " "),
+        // 字元類 [abc]：只需其中一個字元，裡面的字面不是必定出現。
+        (@"\[[^\]]*\]", " "),
+        // 可選的群組 (Foo)? (Foo)* (Foo){0,2}：整個群組可以不出現。
+        (@"\([^()]*\)(?:\?|\*|\{0,?\d*\})", " "),
+        // 可選的單一字元 o? o* o{0,3}：那個字元可以不出現，前面的字面仍然必定出現。
+        (@"\w(?:\?|\*|\{0,?\d*\})", " "),
+        // 其餘 regex 元字元都當分隔。
+        (@"[^\w\s]", " "),
+    ];
 
     /// <summary>
     /// glob → LIKE。必須自己逐字元轉換：LIKE 的跳脫（<c>%</c>、<c>_</c>）與
