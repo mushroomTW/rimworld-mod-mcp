@@ -163,13 +163,21 @@ public sealed class SymbolBrowsingTests : IDisposable
     [Fact]
     public void ParentExistsForNamespacesTypesAndNotForUnknown()
     {
-        Assert.True(SymbolRepository.ParentExists(_connection, "Verse", null));
-        Assert.True(SymbolRepository.ParentExists(_connection, "Verse.AI", null));
-        Assert.True(SymbolRepository.ParentExists(_connection, "Verse.Thing", null));
-        Assert.True(SymbolRepository.ParentExists(_connection, "", null));
-        Assert.False(SymbolRepository.ParentExists(_connection, "Verse.Nope", null));
-        Assert.False(SymbolRepository.ParentExists(_connection, "Verse", "%mod:pkg%"));
+        Assert.True(ResolveParent(_connection, "Verse", null) is not null);
+        Assert.True(ResolveParent(_connection, "Verse.AI", null) is not null);
+        Assert.True(ResolveParent(_connection, "Verse.Thing", null) is not null);
+        Assert.True(ResolveParent(_connection, "", null) is not null);
+        Assert.False(ResolveParent(_connection, "Verse.Nope", null) is not null);
+        Assert.False(ResolveParent(_connection, "Verse", "%mod:pkg%") is not null);
     }
+
+    /// <summary>
+    /// 測試專案內的 helper：原本是 <c>SymbolRepository.ParentExists</c>（Middle Man——
+    /// 只轉呼叫 <c>ResolveParent</c>，生產程式碼已無呼叫端），移到測試裡避免
+    /// 生產 API 為單一測試保留一層沒用的包裝。
+    /// </summary>
+    private static string? ResolveParent(SqliteConnection connection, string parent, string? assemblyLike)
+        => SymbolRepository.ResolveParent(connection, parent, assemblyLike);
 
     private static SymbolRecord Type(string assembly, int token, string fqn, string shortName, string parent) => new()
     {

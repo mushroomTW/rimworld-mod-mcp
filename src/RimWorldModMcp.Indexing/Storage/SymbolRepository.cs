@@ -364,13 +364,6 @@ public static class SymbolRepository
     }
 
     /// <summary>
-    /// <paramref name="parent"/> 是否是索引裡存在的 namespace 或型別。
-    /// 空字串是根，一律存在。用來把「型別不存在」和「型別沒有成員」分開回報。
-    /// </summary>
-    public static bool ParentExists(SqliteConnection connection, string parent, string? assemblyLike)
-        => ResolveParent(connection, parent, assemblyLike) is not null;
-
-    /// <summary>
     /// 把呼叫端給的 namespace 或型別名稱解析成索引裡的正式寫法；不存在回 <c>null</c>。
     ///
     /// <para>
