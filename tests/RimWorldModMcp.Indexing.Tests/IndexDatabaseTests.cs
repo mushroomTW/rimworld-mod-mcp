@@ -5,8 +5,9 @@ using RimWorldModMcp.Indexing.Storage;
 namespace RimWorldModMcp.Indexing.Tests;
 
 /// <summary>
-/// 索引資料庫檔案的生命週期：損毀偵測、殘留 WAL、刪檔順序。
-/// 這些在實機上表現為「所有查詢工具都回 An error occurred」，值得直接鎖住。
+/// 索引資料庫檔案的生命週期：損毀偵測與 Reset。
+/// 損毀時所有查詢工具都會回「An error occurred」，這裡鎖住「重開就自動重建」
+/// 的行為；Reset 則驗證刪檔與下次開啟從乾淨狀態開始。
 /// </summary>
 public sealed class IndexDatabaseTests : IDisposable
 {

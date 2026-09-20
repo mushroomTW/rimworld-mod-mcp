@@ -168,7 +168,7 @@ Once tier 1 completes, Def search, symbol lookup, inheritance chains, and `read_
 
 The bridge is a small Harmony mod, active only when a session token is present. It pushes two kinds of data over loopback:
 
-- **Diagnostics**: every `Log.Error` / `Log.Warning`, deduplicated with occurrence counts, merged with `Player.log`.
+- **Diagnostics**: every `Log.Error` / `Log.Warning`, deduplicated with occurrence counts; when the diagnostics daemon is unavailable, they fall back to `Player.log`.
 - **Game state** (about once a second, or every 5 s as a heartbeat): `program_state`, whether a map is loaded, tick, paused, time speed, whether a long load is running, the open window types (a `Dialog_*` here usually means something is blocking), colonist count, and game version. `test_status` returns the latest report with its age.
 
 No screenshots: coding agents typically have their own screen-capture tooling, and this server stays focused on what they cannot do alone.
