@@ -185,7 +185,7 @@ public sealed partial class TestEnvironmentPreparer(
 
     private static void WriteModsConfig(string configDirectory, string? existingConfig, IReadOnlyList<string> activeMods, string? installedVersion)
     {
-        var (version, knownExpansions) = ReadConfigValues(existingConfig, installedVersion ?? "1.6");
+        var (version, knownExpansions) = ReadConfigValues(existingConfig, installedVersion ?? GameVersion.Fallback);
 
         var document = new XElement("ModsConfigData",
             new XElement("version", version),

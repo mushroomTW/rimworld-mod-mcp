@@ -10,7 +10,7 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
     private static readonly string[] Folders = ["About", "Defs", "Patches", "Textures", "Sounds", "Source"];
 
     /// <summary>偵測不到遊戲版本時 supportedVersions 的退路。</summary>
-    private const string FallbackGameVersion = "1.6";
+    private const string FallbackGameVersion = GameVersion.Fallback;
 
     /// <summary>
     /// 在 <paramref name="parentPath"/> 底下建立一個新 Mod。
