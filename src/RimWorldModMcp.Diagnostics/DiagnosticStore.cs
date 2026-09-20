@@ -36,6 +36,14 @@ public sealed record DiagnosticRecord
     [JsonPropertyName("at")]
     public required long At { get; init; }
 
+    /// <summary>
+    /// 寫入序號，與 <see cref="At"/> 組成分頁游標的複合鍵。
+    /// <see cref="At"/> 只到毫秒，同一毫秒可能有多筆（AddRange 一次寫入整批），
+    /// 純時間游標會在切頁時把同毫秒整批帶上、或讓下半批永遠漏掉。
+    /// </summary>
+    [JsonPropertyName("sequence")]
+    public required long Sequence { get; init; }
+
     // 注意：這個型別刻意沒有 token 屬性。
     // Bridge 送來的每一行都夾帶驗證用的 token，Python 版把整個訊息原封不動存進
     // diagnostics.json 並經 MCP 回傳給客戶端——token 因此外洩到磁碟與回應中。
@@ -65,6 +73,9 @@ public sealed class DiagnosticStore(StoreDirectories store)
     private const int MaxTextChars = 64 * 1024;
 
     private readonly Lock _gate = new();
+
+    /// <summary>下一筆的序號。純遞增、跨實例唯一（static），供複合鍵游標穩定排序。</summary>
+    private static long _nextSequence;
 
     /// <summary>加入一筆診斷。相同簽章的既有紀錄會被合併並累加次數。</summary>
     public DiagnosticRecord Add(string type, string firstLine, string text, string source, string? runId)
@@ -127,6 +138,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
 
         var hash = Signature(type, text);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var sequence = ++_nextSequence;
 
         var existingIndex = records.FindIndex(r => r.Hash == hash);
 
@@ -134,7 +146,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
 
         if (existingIndex >= 0)
         {
-            record = records[existingIndex] with { Count = records[existingIndex].Count + 1, At = now };
+            record = records[existingIndex] with { Count = records[existingIndex].Count + 1, At = now, Sequence = sequence };
             records[existingIndex] = record;
         }
         else
@@ -149,6 +161,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
                 RunId = runId,
                 Count = 1,
                 At = now,
+                Sequence = sequence,
             };
 
             records.Add(record);
@@ -227,12 +240,15 @@ public sealed class DiagnosticStore(StoreDirectories store)
     }
 
     /// <summary>
-    /// 只回 <paramref name="sinceAt"/>（Unix 毫秒）之後有變動的紀錄：新出現的，
-    /// 以及重複出現而 count 增加的——合併時 At 會更新，所以兩者都涵蓋。
+    /// 只回游標之後有變動的紀錄：新出現的，以及重複出現而 count 增加的——
+    /// 合併時 At 會更新，所以兩者都涵蓋。
+    /// 游標是複合鍵 <c>(At, Sequence)</c>：<c>sinceAt</c> 之後的，或與 <c>sinceAt</c>
+    /// 同毫秒但序號更大的（同毫秒整批寫入時，純時間游標會漏掉下半批）。
     /// 這是 agent 輪詢迴圈的游標：沒有它，每次都把整份清單重新塞進 context。
     /// </summary>
-    public IReadOnlyList<DiagnosticRecord> ReadSince(long sinceAt)
-        => [.. Read().Where(r => r.At > sinceAt)];
+    public IReadOnlyList<DiagnosticRecord> ReadSince(long sinceAt, long lastSequence = 0)
+        => [.. Read()
+            .Where(r => r.At > sinceAt || (r.At == sinceAt && r.Sequence > lastSequence))];
 
     public DiagnosticRecord? Find(string hash)
         => Read().FirstOrDefault(r => string.Equals(r.Hash, hash, StringComparison.OrdinalIgnoreCase));

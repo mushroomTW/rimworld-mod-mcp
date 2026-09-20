@@ -132,7 +132,11 @@ public sealed class TestCycleToolTests : IAsyncLifetime
         Assert.EndsWith("Frame39.Tick()", full.GetProperty("text").GetString());
     }
 
-    /// <summary>since_at 是輪詢游標：拿上一次的 latest_at 回傳，只會看到之後的新東西。</summary>
+    /// <summary>
+    /// since_at 是輪詢游標的第一半：拿上一次的 latest_at 回傳，只會看到之後的新東西。
+    /// 游標是複合鍵 (latest_at, latest_sequence)——同毫秒可能有多筆，只傳時間會漏掉
+    /// 同一毫秒的下半批或把同毫秒的舊筆重複撈回。
+    /// </summary>
     [Fact]
     public async Task SinceAtCursorOnlyReturnsNewerEntries()
     {
@@ -140,16 +144,18 @@ public sealed class TestCycleToolTests : IAsyncLifetime
 
         var initial = await _server.CallAsync("list_test_diagnostics");
         var cursor = initial.GetProperty("latest_at").GetInt64();
+        var sequence = initial.GetProperty("latest_sequence").GetInt64();
         Assert.Equal(1, initial.GetProperty("count").GetInt32());
 
-        var nothing = await _server.CallAsync("list_test_diagnostics", Args(("since_at", cursor)));
+        var nothing = await _server.CallAsync("list_test_diagnostics", Args(("since_at", cursor), ("since_sequence", sequence)));
         Assert.Equal(0, nothing.GetProperty("count").GetInt32());
         Assert.Equal(cursor, nothing.GetProperty("latest_at").GetInt64());
+        Assert.Equal(sequence, nothing.GetProperty("latest_sequence").GetInt64());
 
         await Task.Delay(5); // 讓新紀錄的時間戳大於游標。
         _diagnostics.Add("error", "second", "second", "bridge", "run-1");
 
-        var newer = await _server.CallAsync("list_test_diagnostics", Args(("since_at", cursor)));
+        var newer = await _server.CallAsync("list_test_diagnostics", Args(("since_at", cursor), ("since_sequence", sequence)));
         Assert.Equal(1, newer.GetProperty("count").GetInt32());
         Assert.Equal("second", newer.GetProperty("results")[0].GetProperty("first_line").GetString());
     }
@@ -157,6 +163,8 @@ public sealed class TestCycleToolTests : IAsyncLifetime
     /// <summary>
     /// 一次冒出超過 limit 筆時，游標只能推進到本頁最後一筆；之前取的是全部的最大值，
     /// 被截掉的下一輪就永遠拿不到。crash loop 幾秒內就會超過預設的 50 筆。
+    /// 游標是複合鍵 (latest_at, latest_sequence)：只追時間的話，同毫秒的多筆
+    /// 會在下一頁被重複帶上或漏掉。
     /// </summary>
     [Fact]
     public async Task CursorNeverSkipsEntriesCutOffByTheLimit()
@@ -169,12 +177,14 @@ public sealed class TestCycleToolTests : IAsyncLifetime
 
         var seen = new List<string>();
         long cursor = 0;
+        long sequence = 0;
 
         for (var page = 0; page < 5; page++)
         {
-            var result = await _server.CallAsync("list_test_diagnostics", Args(("limit", 2), ("since_at", cursor)));
+            var result = await _server.CallAsync("list_test_diagnostics", Args(("limit", 2), ("since_at", cursor), ("since_sequence", sequence)));
             seen.AddRange(result.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("first_line").GetString()!));
             cursor = result.GetProperty("latest_at").GetInt64();
+            sequence = result.GetProperty("latest_sequence").GetInt64();
 
             if (result.GetProperty("count").GetInt32() == 0)
             {

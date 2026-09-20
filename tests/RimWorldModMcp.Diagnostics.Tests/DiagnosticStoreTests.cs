@@ -43,13 +43,16 @@ public sealed class DiagnosticStoreTests : IDisposable
     {
         _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
         _diagnostics.Add("warning", "untouched", "before cursor", "bridge", "run-1");
-        var cursor = _diagnostics.Read().Max(r => r.At);
+
+        var last = _diagnostics.Read().MaxBy(r => (r.At, r.Sequence))!;
+        var cursor = last.At;
+        var sequence = last.Sequence;
 
         Thread.Sleep(5);
         _diagnostics.Add("error", "new", "new failure", "bridge", "run-1");
         _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
 
-        var since = _diagnostics.ReadSince(cursor);
+        var since = _diagnostics.ReadSince(cursor, sequence);
 
         // 「old」重複出現而 count 變 2，也要回；純粹在游標前的不回。
         Assert.Equal(["old failure", "new failure"], since.Select(r => r.Text).ToArray());

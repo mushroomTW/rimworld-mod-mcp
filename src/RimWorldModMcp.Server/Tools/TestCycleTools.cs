@@ -77,7 +77,7 @@ public sealed class TestCycleTools(
     });
 
     [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true)]
-    [Description("List errors and warnings collected in this test session. Identical entries are merged with an occurrence count. To poll: pass the previous result's latest_at as since_at and a wait_seconds so the call blocks until something new arrives instead of re-reading the whole list.")]
+    [Description("List errors and warnings collected in this test session. Identical entries are merged with an occurrence count. To poll: pass the previous result's latest_at (and latest_sequence) as since_at (and since_sequence) and a wait_seconds so the call blocks until something new arrives instead of re-reading the whole list.")]
     public Task<ListDiagnosticsResult> ListTestDiagnostics(
         [Description("Return only this type: error, warning, diagnostic, loaded_mods, or performance.")]
         string? type = null,
@@ -87,6 +87,8 @@ public sealed class TestCycleTools(
         int limit = 50,
         [Description("Only entries new or re-occurring after this Unix-millisecond timestamp (use latest_at from the previous call). 0 returns everything.")]
         long since_at = 0,
+        [Description("Second half of the polling cursor: the previous page's last entry sequence (use latest_sequence from the previous call). Combined with since_at it pins the exact position, so entries sharing since_at's millisecond are still returned exactly once. Use 0 when since_at is 0.")]
+        long since_sequence = 0,
         [Description("Long-poll: when nothing matches, keep waiting up to this many seconds (0-50) for new entries before returning. Keep it below your client's tool-call timeout.")]
         int wait_seconds = 0,
         CancellationToken cancellationToken = default) => ToolGuard.RunAsync(async () =>
@@ -94,14 +96,14 @@ public sealed class TestCycleTools(
         // 上限 50 秒：常見 MCP client 的單次工具呼叫逾時約 60 秒，超過的話 client 先報錯、
         // server 還在等，agent 看到的是工具壞掉而不是空結果。
         var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(wait_seconds, 0, 50));
-        var records = Filter(diagnostics.ReadSince(since_at), type);
+        var records = Filter(diagnostics.ReadSince(since_at, since_sequence), type);
 
         // 沒有新東西就等：daemon 是另一個行程寫檔，這裡只能輪詢，但把輪詢
         // 留在 server 端，agent 的一次呼叫就抵過原本十次「問了又沒有」。
         while (records.Count == 0 && DateTimeOffset.UtcNow < deadline)
         {
             await Task.Delay(500, cancellationToken).ConfigureAwait(false);
-            records = Filter(diagnostics.ReadSince(since_at), type);
+            records = Filter(diagnostics.ReadSince(since_at, since_sequence), type);
         }
 
         var textLimit = Math.Clamp(max_text_length, 100, 20000);
@@ -109,7 +111,7 @@ public sealed class TestCycleTools(
         // crash loop 可以在幾秒內產生數千筆診斷，一定要有筆數上限——
         // 這是所有查詢型工具裡最容易爆量的一個。
         var effectiveLimit = Math.Clamp(limit, 1, 500);
-        var page = OldestFirstPage(records, effectiveLimit);
+        var (page, cursor) = OldestFirstPage(records, effectiveLimit);
 
         // error_count / warning_count 永遠是整個場次的總數，不受 since_at 影響——
         // 輪詢中的 agent 看到 error_count=0 會直接下「測試無錯誤」的結論。
@@ -123,33 +125,31 @@ public sealed class TestCycleTools(
             LimitReached = records.Count > page.Count,
             ErrorCount = all.Count(r => r.Type == "error"),
             WarningCount = all.Count(r => r.Type == "warning"),
-            // 游標只能推進到「這一頁實際回傳」的最後一筆。之前取的是全部符合項的最大值：
-            // 一次冒出超過 limit 筆時，被截掉的那些下一輪 since_at 就再也拿不到。
-            LatestAt = page.Count == 0 ? since_at : page[^1].At,
+            // 游標只能推進到「這一頁實際回傳」的最後一筆。複合鍵 (At, Sequence)
+            // 讓同毫秒的整批也能切開：limit 是硬上限，被截掉的下半批在下一輪
+            // 用這個 (latest_at, latest_sequence) 照樣拿得到。
+            LatestAt = cursor?.At ?? since_at,
+            LatestSequence = cursor?.Sequence ?? since_sequence,
         };
     });
 
     /// <summary>
-    /// 依時間由舊到新取一頁。頁尾若正好切在同一毫秒的幾筆中間，整批一起帶上——
-    /// since_at 是嚴格大於的比較，切開的話另一半會永遠漏掉。limit 因此是軟上限。
+    /// 依 <c>(At, Sequence)</c> 由舊到新取一頁。複合鍵保證同毫秒的整批有穩定全序，
+    /// 切頁不會把同毫秒的筆整批帶上或漏掉，<paramref name="limit"/> 因此是硬上限。
+    /// 回傳頁尾那筆當作下一頁的游標。
     /// </summary>
-    private static List<DiagnosticRecord> OldestFirstPage(IReadOnlyList<DiagnosticRecord> records, int limit)
+    private static (List<DiagnosticRecord> Page, DiagnosticRecord? Cursor) OldestFirstPage(
+        IReadOnlyList<DiagnosticRecord> records, int limit)
     {
-        var ordered = records.OrderBy(r => r.At).ToList();
-
-        if (ordered.Count <= limit)
+        if (records.Count == 0)
         {
-            return ordered;
+            return ([], null);
         }
 
-        var end = limit;
+        var ordered = records.OrderBy(r => r.At).ThenBy(r => r.Sequence).ToList();
+        var page = ordered.Count <= limit ? ordered : ordered[..limit];
 
-        while (end < ordered.Count && ordered[end].At == ordered[end - 1].At)
-        {
-            end++;
-        }
-
-        return ordered[..end];
+        return (page, page[^1]);
     }
 
     private static IReadOnlyList<DiagnosticRecord> Filter(IReadOnlyList<DiagnosticRecord> records, string? type)
@@ -219,6 +219,7 @@ public sealed class TestCycleTools(
         RunId = record.RunId,
         Count = record.Count,
         At = record.At,
+        Sequence = record.Sequence,
     };
 }
 
@@ -359,9 +360,19 @@ public sealed record ListDiagnosticsResult
     [JsonPropertyName("warning_count")]
     public required int WarningCount { get; init; }
 
-    /// <summary>Cursor for the next poll: pass it back as since_at. Equals since_at when nothing was returned.</summary>
+    /// <summary>
+    /// Cursor for the next poll: pass it back as since_at.
+    /// Equals since_at when nothing was returned.
+    /// </summary>
     [JsonPropertyName("latest_at")]
     public required long LatestAt { get; init; }
+
+    /// <summary>
+    /// Second half of the polling cursor: pass back as since_sequence alongside latest_at.
+    /// Pins the exact position when several entries share latest_at's millisecond.
+    /// </summary>
+    [JsonPropertyName("latest_sequence")]
+    public required long LatestSequence { get; init; }
 }
 
 /// <summary>One diagnostic.</summary>
@@ -397,4 +408,8 @@ public sealed record DiagnosticSummary
 
     [JsonPropertyName("at")]
     public required long At { get; init; }
+
+    /// <summary>Write sequence; together with at, forms the pagination cursor (latest_sequence).</summary>
+    [JsonPropertyName("sequence")]
+    public required long Sequence { get; init; }
 }
