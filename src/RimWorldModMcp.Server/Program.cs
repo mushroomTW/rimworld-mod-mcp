@@ -102,6 +102,7 @@ static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellati
     builder.Services.AddRimWorldCore();
     builder.Services.AddRimWorldIndexing();
     builder.Services.AddRimWorldDiagnostics();
+    builder.Services.AddHostedService<RimWorldModMcp.Server.SourceIndexResumer>();
 
     builder.Services
         .AddMcpServer(options =>

@@ -66,6 +66,9 @@ public sealed class IndexTools(
     {
         var result = builder.Rebuild();
 
+        // 重建（可能連同重設）之後，Mod 背景索引先前記下的失敗原因已經過時。
+        inspection.ForgetErrors();
+
         if (index_source)
         {
             sourceIndexer.StartInBackground();
@@ -200,22 +203,21 @@ public sealed class IndexTools(
         [Description("Substring of the assembly key to restrict results, e.g. mod:cj.rimtalk or 1.6/.")]
         string? assembly = null,
         [Description("Maximum results, 1-500.")]
-        int limit = 100)
-    {
-        string? kindName = null;
-
-        if (!string.IsNullOrEmpty(kind))
+        int limit = 100) => ToolGuard.Run(() =>
         {
-            if (!Enum.TryParse<RimWorldModMcp.Indexing.Model.SymbolKind>(kind, ignoreCase: true, out var parsed))
+            string? kindName = null;
+
+            // 要在 ToolGuard 之內：拋在外面的 ArgumentException 到呼叫端只剩「An error occurred」。
+            if (!string.IsNullOrEmpty(kind))
             {
-                throw new ArgumentException($"Unknown symbol kind: {kind}", nameof(kind));
+                if (!Enum.TryParse<RimWorldModMcp.Indexing.Model.SymbolKind>(kind, ignoreCase: true, out var parsed))
+                {
+                    throw new ArgumentException($"Unknown symbol kind: {kind}", nameof(kind));
+                }
+
+                kindName = parsed.ToString();
             }
 
-            kindName = parsed.ToString();
-        }
-
-        return ToolGuard.Run(() =>
-        {
             using var connection = database.Open();
             var assemblyLike = AssemblyLike(assembly);
 
@@ -240,7 +242,6 @@ public sealed class IndexTools(
                 ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
             };
         });
-    }
 
     [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true)]
     [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source or list_symbols. Page with start_line = previous end_line + 1.")]

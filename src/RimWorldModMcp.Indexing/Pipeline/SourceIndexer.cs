@@ -109,7 +109,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
                 throw new DirectoryNotFoundException("RimWorld Managed directory not found.");
             }
 
-            using var decompiler = new MemberDecompiler();
+            using var decompiler = new MemberDecompiler(locator);
             using var connection = database.Open();
 
             IndexMetaRepository.Set(connection, "source_index_error", string.Empty);
@@ -119,23 +119,37 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var name = Path.GetFileNameWithoutExtension(assembly);
+                var stamp = MemberDecompiler.Stamp(assembly);
+                var doneKey = DoneKeyPrefix + name;
 
-                // 每個組件各自一個交易：中途失敗時已完成的組件仍然保留，
-                // 不會因為最後一個組件出問題而整批白做。
-                using var transaction = connection.BeginTransaction();
-
-                foreach (var (path, text) in decompiler.DecompileAll(assembly, cancellationToken))
+                // 上一輪被中斷（行程重啟）時已經做完的組件直接沿用：反編譯 Assembly-CSharp
+                // 是分鐘級的工作，沒有理由因為 firstpass 之後死掉就整個重來。
+                if (IndexMetaRepository.Get(connection, doneKey) == stamp)
                 {
-                    SourceFileRepository.Insert(connection, name, path, text);
-                    indexed++;
+                    indexed += (int)SourceFileRepository.CountAssembly(connection, name);
+                    Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
+                    continue;
+                }
 
-                    if (indexed % 500 == 0)
+                // 反編譯在交易之外做、寫入用短交易分批：一個組件一個交易的話，
+                // 寫鎖會被握住好幾分鐘，這段期間 Mod 的索引寫入會在 busy_timeout（5 秒）
+                // 之後以 SQLITE_BUSY 失敗——而文件建議的流程正是 rebuild_index 之後
+                // 馬上 search_source(package_id)。分批也讓中途失敗時已寫入的檔案得以保留。
+                var batch = new List<(string Path, string Text)>(BatchSize);
+
+                foreach (var file in decompiler.DecompileAll(assembly, cancellationToken))
+                {
+                    batch.Add(file);
+
+                    if (batch.Count >= BatchSize)
                     {
+                        indexed += Write(connection, name, batch);
                         Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
                     }
                 }
 
-                transaction.Commit();
+                indexed += Write(connection, name, batch);
+                IndexMetaRepository.Set(connection, doneKey, stamp);
             }
 
             // 用同一條連線寫 meta。開第二條連線時第一條還活著——WAL 下沒事，
@@ -158,6 +172,48 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             PersistError(e.Message);
             return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, e.Message));
         }
+    }
+
+    /// <summary>每批寫入的檔案數。200 個反編譯檔約數 MB，交易只持續毫秒級。</summary>
+    private const int BatchSize = 200;
+
+    /// <summary>index_meta 鍵前綴：某個組件已完整索引，值是該 DLL 的 stamp。</summary>
+    public const string DoneKeyPrefix = "source_done:";
+
+    private static int Write(Microsoft.Data.Sqlite.SqliteConnection connection, string assembly, List<(string Path, string Text)> batch)
+    {
+        if (batch.Count == 0)
+        {
+            return 0;
+        }
+
+        using (var transaction = connection.BeginTransaction())
+        {
+            foreach (var (path, text) in batch)
+            {
+                SourceFileRepository.Insert(connection, assembly, path, text);
+            }
+
+            transaction.Commit();
+        }
+
+        var written = batch.Count;
+        batch.Clear();
+        return written;
+    }
+
+    /// <summary>
+    /// 尚未完成、也沒有失敗紀錄的原始碼索引是「被中斷」的（多半是行程重啟）。
+    /// 呼叫端據此決定要不要在啟動時續跑。
+    /// </summary>
+    public bool IsInterrupted()
+    {
+        using var connection = database.Open();
+
+        return IndexMetaRepository.Get(connection, "fingerprint") is { Length: > 0 }
+            && IndexMetaRepository.Get(connection, "source_indexed") != "true"
+            && string.IsNullOrEmpty(IndexMetaRepository.Get(connection, "source_index_error"))
+            && SourceFileRepository.CountGame(connection) > 0;
     }
 
     /// <summary>

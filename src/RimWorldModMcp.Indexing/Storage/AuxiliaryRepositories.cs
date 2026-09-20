@@ -39,8 +39,19 @@ public static class SourceFileRepository
         command.CommandText = """
             DELETE FROM source_file;
             INSERT INTO source_fts(source_fts) VALUES('rebuild');
+            -- 各組件「已完整索引」的標記跟著內容一起清，否則續跑會跳過已經空掉的組件。
+            DELETE FROM index_meta WHERE key LIKE 'source\_done:%' ESCAPE '\';
             """;
         command.ExecuteNonQuery();
+    }
+
+    /// <summary>單一組件鍵底下的檔案數。</summary>
+    public static long CountAssembly(SqliteConnection connection, string assembly)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM source_file WHERE assembly = $assembly;";
+        command.Parameters.AddWithValue("$assembly", assembly);
+        return (long)command.ExecuteScalar()!;
     }
 
     public static void Insert(SqliteConnection connection, string assembly, string path, string text)

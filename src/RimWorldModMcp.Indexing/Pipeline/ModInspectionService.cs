@@ -205,6 +205,11 @@ public sealed class ModInspectionService(
             {
                 Inspect(packageId, modPath);
             }
+            catch (Microsoft.Data.Sqlite.SqliteException e) when (e.SqliteErrorCode is 11 or 26)
+            {
+                // 損毀不是這個 Mod 的問題，force 重試也救不回來；要指向真正的出路。
+                _indexErrors[packageId] = $"{e.Message} The index database is corrupt; call rebuild_index, then search again.";
+            }
             catch (Exception e)
             {
                 _indexErrors[packageId] = e.Message;
@@ -218,6 +223,12 @@ public sealed class ModInspectionService(
         _ = work.Value;
         return true;
     }
+
+    /// <summary>
+    /// 忘掉所有背景索引的失敗原因。rebuild_index 重設資料庫之後呼叫：
+    /// 留著的話，因損毀而失敗的 Mod 在資料庫已經修好後仍會被 TrySearchSource 擋下。
+    /// </summary>
+    public void ForgetErrors() => _indexErrors.Clear();
 
     /// <summary>清除一個 Mod 的所有索引資料。</summary>
     public void Forget(string packageId)

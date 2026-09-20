@@ -8,6 +8,8 @@ using RimWorldModMcp.Indexing.Storage;
 namespace RimWorldModMcp.Indexing.Tests;
 
 /// <summary>驗證衍生索引檔損毀時，重建作業能自行建立乾淨資料庫。</summary>
+// 兩個類別都改寫行程共用的 RIMWORLD_MOD_MCP_GAME_PATH，不能平行跑。
+[Collection("GamePathEnvironment")]
 public sealed class IndexBuilderRecoveryTests : IDisposable
 {
     private readonly string _root;
@@ -34,7 +36,12 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
     public void RebuildResetsAMalformedDerivedDatabaseAndRetriesOnce()
     {
         var install = Path.Combine(_root, "RimWorld");
-        Directory.CreateDirectory(Path.Combine(install, "RimWorldWin64_Data", "Managed"));
+        // Managed 目錄的位置依平台不同；CI 的這個測試專案跑在 Ubuntu 上。
+        Directory.CreateDirectory(Path.Combine(install, OperatingSystem.IsWindows()
+            ? Path.Combine("RimWorldWin64_Data", "Managed")
+            : OperatingSystem.IsMacOS()
+                ? Path.Combine("RimWorldMac.app", "Contents", "Resources", "Data", "Managed")
+                : Path.Combine("RimWorldLinux_Data", "Managed")));
         Directory.CreateDirectory(Path.Combine(install, "Data", "Core", "Defs"));
         Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", install);
 

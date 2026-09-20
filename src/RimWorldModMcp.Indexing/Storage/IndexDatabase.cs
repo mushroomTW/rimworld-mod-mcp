@@ -60,10 +60,11 @@ public sealed class IndexDatabase(StoreDirectories store)
                 connection.Open();
                 ApplyPragmas(connection);
 
-                var version = ReadUserVersion(connection);
-                if (version != 0 && version != IndexSchema.Version)
+                if (!IsUsable(connection))
                 {
-                    // 結構過期。索引是衍生資料，直接丟掉重建比寫 migration 划算。
+                    // 結構過期或檔案損毀都一樣處理：索引是衍生資料，直接丟掉重建
+                    // 比寫 migration 或修復划算。損毀不在這裡攔的話，之後每一個
+                    // 查詢工具都會各自失敗，而只有 rebuild_index 會重設。
                     connection.Close();
                     SqliteConnection.ClearAllPools();
                     DeleteDatabaseFiles();
@@ -83,6 +84,31 @@ public sealed class IndexDatabase(StoreDirectories store)
             }
 
             _initialised = true;
+        }
+    }
+
+    /// <summary>
+    /// 結構版本相符且 <c>quick_check</c> 通過才算可用。任何一步拋出 SQLite 例外
+    /// （例如檔頭已經不是資料庫）也視為不可用。
+    /// </summary>
+    private static bool IsUsable(SqliteConnection connection)
+    {
+        try
+        {
+            var version = ReadUserVersion(connection);
+
+            if (version != 0 && version != IndexSchema.Version)
+            {
+                return false;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA quick_check(1);";
+            return command.ExecuteScalar() as string == "ok";
+        }
+        catch (SqliteException)
+        {
+            return false;
         }
     }
 

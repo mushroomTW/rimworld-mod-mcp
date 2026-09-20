@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using ModelContextProtocol;
 
 namespace RimWorldModMcp.Server.Tools;
@@ -24,6 +25,10 @@ internal static class ToolGuard
         {
             throw;
         }
+        catch (SqliteException e) when (DatabaseHint(e) is { } hint)
+        {
+            throw new McpException(hint);
+        }
         catch (Exception e) when (IsExpected(e))
         {
             throw new McpException(e.Message);
@@ -40,11 +45,29 @@ internal static class ToolGuard
         {
             throw;
         }
+        catch (SqliteException e) when (DatabaseHint(e) is { } hint)
+        {
+            throw new McpException(hint);
+        }
         catch (Exception e) when (IsExpected(e))
         {
             throw new McpException(e.Message);
         }
     }
+
+    /// <summary>
+    /// 索引資料庫的狀態問題要告訴呼叫端該怎麼辦。損毀時每一個查詢工具都會失敗，
+    /// 只回「An error occurred」的話，呼叫端不知道 rebuild_index 就能重設；
+    /// 被鎖住則是背景索引正在寫，稍後重試即可。其餘 SQLite 錯誤維持原樣進 stderr。
+    /// </summary>
+    internal static string? DatabaseHint(SqliteException e) => e.SqliteErrorCode switch
+    {
+        // SQLITE_CORRUPT / SQLITE_NOTADB
+        11 or 26 => $"The index database is corrupt ({e.Message}). Call rebuild_index to reset and rebuild it.",
+        // SQLITE_BUSY / SQLITE_LOCKED
+        5 or 6 => $"The index database is busy ({e.Message}); a background indexing job is writing. Retry shortly.",
+        _ => null,
+    };
 
     /// <summary>
     /// 預期內的失敗：參數錯誤、邊界違規、找不到目標、檔案系統問題。
