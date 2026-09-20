@@ -132,6 +132,62 @@ public sealed class SourceQueryServiceTests : IDisposable
         Assert.Contains(hits, hit => hit.File == "Late/Gamma.cs");
     }
 
+    /// <summary>
+    /// 群組或 lookaround 內部的 alternation 是「條件」不是「分支」：
+    /// <c>Foo(Bar|Baz)?</c>、<c>Foo(?!Bar)</c> 的 Bar 不是必定出現，抽成必要關鍵字
+    /// 會把只含 Foo 的檔案在候選階段就濾掉（靜默漏召回）。
+    /// 50 個 filler 在目標之前插入（rowid 在前）：全掃 fallback 只看前 limit*4=40 個檔，
+    /// 目標排在後面必然看不到；只有「抽到 Foo、走 FTS」能召回。
+    /// </summary>
+    [Theory]
+    [InlineData(@"RenderZone(Quick|Slow)?")]
+    [InlineData(@"RenderZone(?!Async)")]
+    public void AlternationInsideGroupDoesNotExcludeThePrefix(string pattern)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            SourceFileRepository.Insert(_connection, "Assembly-CSharp", $"Filler/Dum{i:00}.cs",
+                $"public class Dum{i:00}\n{{\n    public void Dum{i:00}() {{ }}\n}}\n");
+        }
+
+        // 只含 RenderZone、不含 Quick／Slow／Async 的檔案：群組與 lookahead 都是條件，
+        // 切分支（Foo(Bar / Baz)?）或抽成必現詞（Bar）都會把它濾掉。
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/FooOnly.cs",
+            "public class FooOnly\n{\n    public void RenderZone() { }\n}\n");
+
+        var hits = _queries.Search(_connection, pattern, null, 10);
+
+        Assert.Contains(hits, hit => hit.File == "Only/FooOnly.cs");
+    }
+
+    /// <summary>
+    /// 必要群組內的分支 <c>Foo(Bar|Baz)</c>：候選階段放大到「含 Foo」的所有檔，
+    /// regex 自己負責精確比對；把分支切成 <c>Foo(Bar</c> / <c>Baz)</c> 雖然對
+    /// <c>FooBar</c> 仍可召回，但關鍵字變成 <c>Foo AND Bar</c>，含 Foo 的其他檔
+    /// 會在候選階段消失，等於把 regex 的決定權提前搶走。
+    /// </summary>
+    [Fact]
+    public void AlternationInsideRequiredGroupStillFindsTheTarget()
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            SourceFileRepository.Insert(_connection, "Assembly-CSharp", $"Filler/Dum{i:00}.cs",
+                $"public class Dum{i:00}\n{{\n    public void Dum{i:00}() {{ }}\n}}\n");
+        }
+
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/ZoneQuick.cs",
+            "public class ZoneQuick\n{\n    public void RenderZoneQuick() { }\n}\n");
+
+        // 對照組：regex 只認 FooBar/FooBaz，純 Foo 不該命中，但候選必須包含它（由 FTS 抽出 Foo 提供）。
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/PlainZone.cs",
+            "public class PlainZone\n{\n    public void RenderZone() { }\n}\n");
+
+        var hits = _queries.Search(_connection, @"RenderZone(Quick|Slow)", null, 10);
+
+        Assert.Contains(hits, hit => hit.File == "Only/ZoneQuick.cs");
+        Assert.DoesNotContain(hits, hit => hit.File == "Only/PlainZone.cs");
+    }
+
     /// <summary>組件過濾必須在 SQL 層生效，Mod 的搜尋才不會被遊戲本體的命中擠掉。</summary>
     [Fact]
     public void AssemblyFilterRestrictsResults()

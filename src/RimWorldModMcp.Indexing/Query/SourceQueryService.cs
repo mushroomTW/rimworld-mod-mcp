@@ -202,15 +202,38 @@ public sealed class SourceQueryService
     }
 
     /// <summary>
-    /// 按未跳脫且不在 [...] 內的 | 切分支。分組 (a|b) 內的 | 也一併切開：
-    /// 候選階段取聯集只會放大召回，不會造成漏召回。
+    /// 按「不在任何群組內」的未跳脫 <c>|</c> 切分支。
+    ///
+    /// <para>
+    /// 群組深度以 <c>(</c>/<c>)</c> 計算，跳過 <c>\(</c>、<c>\)</c> 與字元類 <c>[...]</c>。
+    /// lookaround（<c>(?!</c>、<c>(?=</c>、<c>(?&lt;!</c>、<c>(?&lt;=</c>）內的 <c>|</c> 是條件
+    /// 不是分支，不能切——切開的話 <c>Foo(Bar|Baz)?</c> 會變成 <c>Foo(Bar</c> / <c>Baz)?</c>，
+    /// 第一支抽到 <c>"Foo" AND "Bar"</c>，只含 Foo 的檔案在候選階段就被濾掉（靜默漏召回）。
+    /// </para>
+    /// <para>
+    /// 整個 pattern 就是一個群組（<c>(a|b)</c>、<c>(DeregisterZone|Delete)</c>）時，先把
+    /// 外層括號剝掉再切——內層的 <c>|</c> 語意上就是頂層分支，兩邊都是完整候選，維持
+    /// 「分組 alternation 以 OR 取聯集」的行為。<c>(?…</c> 開頭（lookaround、non-capturing）
+    /// 不剝，那些群組的內容不是完整候選。
+    /// </para>
     /// </summary>
     private static List<string> SplitAlternation(string pattern)
     {
+        if (pattern.Length >= 3 && pattern[0] == '(' && pattern[1] != '?')
+        {
+            var close = MatchingParen(pattern);
+
+            if (close == pattern.Length - 1)
+            {
+                return SplitAlternation(pattern[1..^1]);
+            }
+        }
+
         var branches = new List<string>();
         var current = new System.Text.StringBuilder(pattern.Length);
         var escaped = false;
         var inClass = false;
+        var depth = 0;
 
         foreach (var c in pattern)
         {
@@ -235,7 +258,20 @@ public sealed class SourceQueryService
                     current.Append(c);
                     inClass = false;
                     break;
-                case '|' when !inClass:
+                case '(' when !inClass:
+                    current.Append(c);
+                    depth++;
+                    break;
+                case ')' when !inClass:
+                    current.Append(c);
+
+                    if (depth > 0)
+                    {
+                        depth--;
+                    }
+
+                    break;
+                case '|' when !inClass && depth == 0:
                     branches.Add(current.ToString());
                     current.Clear();
                     break;
@@ -247,6 +283,52 @@ public sealed class SourceQueryService
 
         branches.Add(current.ToString());
         return branches;
+    }
+
+    /// <summary><paramref name="pattern"/>[0] 的 <c>(</c> 對應的閉括號位置；找不到回 -1。</summary>
+    private static int MatchingParen(string pattern)
+    {
+        var depth = 0;
+        var escaped = false;
+        var inClass = false;
+
+        for (var i = 0; i < pattern.Length; i++)
+        {
+            var c = pattern[i];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            switch (c)
+            {
+                case '\\':
+                    escaped = true;
+                    break;
+                case '[':
+                    inClass = true;
+                    break;
+                case ']':
+                    inClass = false;
+                    break;
+                case '(' when !inClass:
+                    depth++;
+                    break;
+                case ')' when !inClass:
+                    depth--;
+
+                    if (depth == 0)
+                    {
+                        return i;
+                    }
+
+                    break;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -287,6 +369,12 @@ public sealed class SourceQueryService
         (@"\\(?:x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|.)", " "),
         // 字元類 [abc]：只需其中一個字元，裡面的字面不是必定出現。
         (@"\[[^\]]*\]", " "),
+        // lookaround (?!Bar) (?=Bar) (?<!Bar) (?<=Bar)：內容是條件不是必定出現，
+        // 抽成必要關鍵字會把符合目標的檔案濾掉（Foo(?!Bar) 把 Bar 當必現詞）。
+        (@"\(\?[=!]<?(?:[^()]|\([^()]*\))*\)", " "),
+        // 含 alternation 的群組 (Foo|Bar)：其中一支可以不出現，整個群組都不是必定出現。
+        // 要在前面那些只處理單一「原子」的規則之後，否則 Foo(Bar|Baz) 會先被吃成半截。
+        (@"\([^()]*\|[^()]*\)(?:\?|\*|\{0,?\d*\})?", " "),
         // 可選的群組 (Foo)? (Foo)* (Foo){0,2}：整個群組可以不出現。
         (@"\([^()]*\)(?:\?|\*|\{0,?\d*\})", " "),
         // 可選的單一字元 o? o* o{0,3}：那個字元可以不出現，前面的字面仍然必定出現。
