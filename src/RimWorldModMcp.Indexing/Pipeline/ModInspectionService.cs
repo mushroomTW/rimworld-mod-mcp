@@ -196,7 +196,7 @@ public sealed class ModInspectionService(
             {
                 Inspect(packageId, modPath);
             }
-            catch (Microsoft.Data.Sqlite.SqliteException e) when (e.SqliteErrorCode is 11 or 26)
+            catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsCorrupt(e))
             {
                 // 損毀不是這個 Mod 的問題，force 重試也救不回來；要指向真正的出路。
                 _indexErrors[packageId] = $"{e.Message} The index database is corrupt; call rebuild_index, then search again.";
@@ -286,24 +286,30 @@ public sealed class ModInspectionService(
             // 資料夾底下）。其他地方的 DLL——LastVersion/ 之類的備份、Source/ 底下的專案與
             // bin／obj 建置產物——遊戲根本不會載入，索引只是噪音、還會讓同一行在搜尋結果
             // 裡重複出現，並擋到使用者的 dotnet build。
-            .Where(path => IsUnderAssembliesFolder(Path.GetRelativePath(modPath, path)))
-            .Where(path => !IsBuildTree(Path.GetRelativePath(modPath, path)))
+            // Path.GetRelativePath 每檔只算一次，兩個判斷共用。
+            .Select(path => (Path: path, Relative: Path.GetRelativePath(modPath, path)))
+            .Where(p => IsUnderAssembliesFolder(p.Relative))
+            .Where(p => !IsBuildTree(p.Relative))
             // Harmony 之類的相依函式庫不是 Mod 自己的程式碼，索引它們只是噪音。
-            .Where(path => !IsKnownDependency(Path.GetFileNameWithoutExtension(path)))
+            .Where(p => !IsKnownDependency(Path.GetFileNameWithoutExtension(p.Path)))
+            .Select(p => p.Path)
             .Order()];
     }
 
     private static bool IsUnderAssembliesFolder(string relativePath)
-        => relativePath
-            .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
-            .SkipLast(1)
-            .Any(segment => segment.Equals("Assemblies", StringComparison.OrdinalIgnoreCase));
+        => HasDirectorySegment(relativePath, "Assemblies");
 
     private static bool IsBuildTree(string relativePath)
+        => HasDirectorySegment(relativePath, "Source")
+            || HasDirectorySegment(relativePath, "bin")
+            || HasDirectorySegment(relativePath, "obj");
+
+    /// <summary>相對路徑的目錄段（最後一段是檔名，不算）是否含指定名稱，大小寫不分。</summary>
+    private static bool HasDirectorySegment(string relativePath, string segmentName)
         => relativePath
             .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
             .SkipLast(1)
-            .Any(segment => segment is "Source" or "bin" or "obj");
+            .Any(segment => segment.Equals(segmentName, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsKnownDependency(string name)
         => name is "0Harmony" or "HarmonyLib" or "Newtonsoft.Json"

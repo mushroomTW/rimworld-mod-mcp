@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using ModelContextProtocol;
+using RimWorldModMcp.Indexing.Storage;
 
 namespace RimWorldModMcp.Server.Tools;
 
@@ -63,7 +64,7 @@ internal static class ToolGuard
     internal static string? DatabaseHint(SqliteException e) => e.SqliteErrorCode switch
     {
         // SQLITE_CORRUPT / SQLITE_NOTADB
-        11 or 26 => $"The index database is corrupt ({e.Message}). Call rebuild_index to reset and rebuild it.",
+        _ when SqliteCorruption.IsCorrupt(e) => $"The index database is corrupt ({e.Message}). Call rebuild_index to reset and rebuild it.",
         // SQLITE_BUSY / SQLITE_LOCKED
         5 or 6 => $"The index database is busy ({e.Message}); a background indexing job is writing. Retry shortly.",
         _ => null,
