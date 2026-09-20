@@ -28,7 +28,7 @@ public sealed class IndexTools(
     ModInspectionService inspection)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
-    [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.fresh=false, call rebuild_index.")]
+    [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.fresh=false, call rebuild_index; if index.healthy=false, call rebuild_index (the index database is corrupt).")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
@@ -45,6 +45,7 @@ public sealed class IndexTools(
             Index = new IndexStatusPayload
             {
                 Fresh = status.Fresh,
+                Healthy = status.Healthy,
                 DefCount = status.DefCount,
                 SymbolCount = status.SymbolCount,
                 SourceIndexed = status.SourceIndexed,
@@ -59,11 +60,31 @@ public sealed class IndexTools(
     });
 
     [McpServerTool(Name = "rebuild_index", UseStructuredContent = true)]
-    [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background.")]
+    [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background. Pass only_source=true to skip the Def/symbol layer and only (re)start the background source index — use it when the source index is missing or failed but the first layer is fine.")]
     public RebuildIndexResult RebuildIndex(
         [Description("Also build the source full-text index in the background (required by search_source).")]
-        bool index_source = true) => ToolGuard.Run(() =>
+        bool index_source = true,
+        [Description("Only (re)start the background source index; do not clear or rebuild the Def/symbol layer.")]
+        bool only_source = false) => ToolGuard.Run(() =>
     {
+        if (only_source)
+        {
+            // 只續跑第三層：第一層（Def/符號）完好時，source_index_error 非空或
+            // source_indexed=false 都只需要重新啟動背景反編譯，不必把秒級的 Def/符號
+            // 索引也一起清掉重來。
+            sourceIndexer.StartInBackground();
+
+            return new RebuildIndexResult
+            {
+                DefCount = 0,
+                SymbolCount = 0,
+                ReferenceCount = 0,
+                Assemblies = [],
+                ElapsedMilliseconds = 0,
+                SourceIndexingStarted = true,
+            };
+        }
+
         var result = builder.Rebuild();
 
         // 重建（可能連同重設）之後，Mod 背景索引先前記下的失敗原因已經過時。

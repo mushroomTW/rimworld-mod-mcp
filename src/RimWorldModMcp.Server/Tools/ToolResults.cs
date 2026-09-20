@@ -40,6 +40,10 @@ public sealed record IndexStatusPayload
     [JsonPropertyName("fresh")]
     public required bool Fresh { get; init; }
 
+    /// <summary>Whether the database itself passes a corruption check. False means every query tool will fail; call rebuild_index to reset it.</summary>
+    [JsonPropertyName("healthy")]
+    public required bool Healthy { get; init; }
+
     [JsonPropertyName("def_count")]
     public required long DefCount { get; init; }
 

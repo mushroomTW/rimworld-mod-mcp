@@ -21,6 +21,7 @@ public sealed record IndexBuildResult(
 /// <summary>索引目前的狀態。</summary>
 public sealed record IndexStatus(
     bool Fresh,
+    bool Healthy,
     string? Fingerprint,
     long DefCount,
     long SymbolCount,
@@ -77,7 +78,7 @@ public sealed class IndexBuilder(
         {
             return RebuildCore();
         }
-        catch (SqliteException e) when (e.SqliteErrorCode == 11)
+        catch (SqliteException e) when (SqliteCorruption.IsCorrupt(e))
         {
             // 索引完全是衍生快取；資料庫損毀時，清表式重建連交易都開不起來。
             // Reset 會關閉連線池並一併移除 WAL/SHM，之後僅重試這一次，避免把
@@ -168,14 +169,33 @@ public sealed class IndexBuilder(
 
         var stored = IndexMetaRepository.Get(connection, "fingerprint");
 
+        // 損毀時資料表計數本身會拋例外，健康度一定要先查（獨立連線跑 quick_check）；
+        // 不健康就把計數回 0，status 還能用（healthy=false 本身就夠呼叫端決定下一步）。
+        var healthy = database.Healthy();
+
         // 兩邊都必須是實際算得出來的值才談得上一致；
         // 偵測不到遊戲時 current 為 null，這種情況一律視為不新鮮。
         var fresh = current is not null
             && !string.IsNullOrEmpty(stored)
             && string.Equals(stored, current, StringComparison.Ordinal);
 
+        // 損毀時資料表計數本身會拋例外，health 一定要先查；
+        // 不健康就把計數回 0，status 還能用（healthy=false 本身就夠呼叫端決定下一步）。
+        if (!healthy)
+        {
+            return new IndexStatus(
+                fresh,
+                healthy,
+                stored,
+                0,
+                0,
+                false,
+                new SourceIndexState(false, 0, null));
+        }
+
         return new IndexStatus(
             fresh,
+            healthy,
             stored,
             DefRepository.Count(connection),
             SymbolRepository.Count(connection),

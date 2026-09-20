@@ -28,6 +28,12 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
     private CancellationTokenSource? _cancellation;
     private SourceIndexProgress _progress = new(false, false, 0, 0, null);
 
+    /// <summary>每批寫入的檔案數。200 個反編譯檔約數 MB，交易只持續毫秒級。</summary>
+    private const int BatchSize = 200;
+
+    /// <summary>index_meta 鍵前綴：某個組件已完整索引，值是該 DLL 的 stamp。</summary>
+    public const string DoneKeyPrefix = "source_done:";
+
     public SourceIndexProgress Progress
     {
         get
@@ -174,12 +180,6 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         }
     }
 
-    /// <summary>每批寫入的檔案數。200 個反編譯檔約數 MB，交易只持續毫秒級。</summary>
-    private const int BatchSize = 200;
-
-    /// <summary>index_meta 鍵前綴：某個組件已完整索引，值是該 DLL 的 stamp。</summary>
-    public const string DoneKeyPrefix = "source_done:";
-
     private static int Write(Microsoft.Data.Sqlite.SqliteConnection connection, string assembly, List<(string Path, string Text)> batch)
     {
         if (batch.Count == 0)
@@ -205,6 +205,12 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
     /// <summary>
     /// 尚未完成、也沒有失敗紀錄的原始碼索引是「被中斷」的（多半是行程重啟）。
     /// 呼叫端據此決定要不要在啟動時續跑。
+    /// <c>CountGame &gt; 0</c> 的取捨：第一批 200 檔寫入前就中斷的話，資料表是空的，
+    /// 這裡回 false，啟動時不續跑——那些檔案在 <c>rebuild_index</c> 之後本來就會重跑，
+    /// 沒有「只差一點就完成」的便宜續跑可省；要讓它把「從零開始」也當續跑的話，
+    /// 每次啟動都會多跑一次背景索引，而正常完成後 <c>source_indexed=true</c> 根本不會
+    /// 走到這裡。回 false 的後果只是 <c>rimworld_status</c> 顯示「未建」而非「中斷」，
+    /// 呼叫端 rebuild_index 即可。
     /// </summary>
     public bool IsInterrupted()
     {
