@@ -5,6 +5,7 @@ using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
 using ICSharpCode.Decompiler.Metadata;
 using ICSharpCode.Decompiler.TypeSystem;
+using RimWorldModMcp.Core.Paths;
 
 namespace RimWorldModMcp.Indexing.Decompilation;
 
@@ -18,7 +19,7 @@ namespace RimWorldModMcp.Indexing.Decompilation;
 /// 錯誤是真的例外，而且可以精確到「只反編譯這一個方法」。
 /// </para>
 /// </summary>
-public sealed class MemberDecompiler : IDisposable
+public sealed class MemberDecompiler(RimWorldLocator? locator = null) : IDisposable
 {
     // CSharpDecompiler 不是 thread-safe，每個組件各自持有一個實例並在使用時上鎖。
     private readonly ConcurrentDictionary<string, Lazy<DecompilerHandle>> _handles = new(StringComparer.OrdinalIgnoreCase);
@@ -123,7 +124,7 @@ public sealed class MemberDecompiler : IDisposable
         {
             var lazy = _handles.GetOrAdd(
                 assemblyPath,
-                path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path, stamp)));
+                path => new Lazy<DecompilerHandle>(() => DecompilerHandle.Create(path, stamp, locator?.Detect().ManagedDir)));
 
             var handle = lazy.Value;
 
@@ -167,7 +168,7 @@ public sealed class MemberDecompiler : IDisposable
 
         internal Lock Gate { get; } = new();
 
-        internal static DecompilerHandle Create(string assemblyPath, string stamp)
+        internal static DecompilerHandle Create(string assemblyPath, string stamp, string? managedDirectory)
         {
             // PrefetchEntireImage 讀完就放掉檔案控制代碼。預設的 memory-map 會鎖住 DLL，
             // 使用者中途更新遊戲時會留下卡住的 handle。
@@ -184,6 +185,15 @@ public sealed class MemberDecompiler : IDisposable
                 throwOnError: false,
                 file.DetectTargetFrameworkId(),
                 streamOptions: streamOptions);
+
+            // Mod 組件放在自己的 Assemblies/ 底下，resolver 預設只搜那裡與目標框架的
+            // 參考目錄，Assembly-CSharp 與 UnityEngine 全都解析不到——反編譯結果會塞滿
+            // 「Unknown result type (might be due to invalid IL or missing references)」。
+            // 把遊戲的 Managed 目錄加進搜尋路徑；沒有 Mono 的平台上連 mscorlib 也靠它。
+            if (managedDirectory is not null && Directory.Exists(managedDirectory))
+            {
+                resolver.AddSearchDirectory(managedDirectory);
+            }
 
             var settings = new DecompilerSettings
             {
