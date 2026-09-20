@@ -33,6 +33,8 @@ public static class IndexSchema
           USING fts5(def_name, label, description, content='def', content_rowid='id');
 
         CREATE INDEX IF NOT EXISTS idx_def_name ON def(def_name);
+        -- 抽象 Def 的引用（ParentName）要靠 inherit_name 收斂，見 DefReferenceRepository.ResolveCandidates。
+        CREATE INDEX IF NOT EXISTS idx_def_inherit ON def(inherit_name);
         CREATE INDEX IF NOT EXISTS idx_def_type ON def(def_type);
 
         CREATE TABLE IF NOT EXISTS symbol (
@@ -60,9 +62,8 @@ public static class IndexSchema
 
         CREATE INDEX IF NOT EXISTS idx_symbol_short ON symbol(short_name);
         CREATE INDEX IF NOT EXISTS idx_symbol_parent ON symbol(parent_fqn);
-
-        CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts
-          USING fts5(fqn, short_name, signature, content='symbol', content_rowid='id');
+        -- 符號查詢走精確比對與 LIKE，不用全文索引：舊版的 symbol_fts 從未被查詢過，
+        -- 卻在每次 rebuild_index 與每次 inspect_installed_mod 對全庫十萬列重建一次。
 
         -- 反編譯後的原始碼存在資料庫裡，不落地成上萬個檔案。
         CREATE TABLE IF NOT EXISTS source_file (

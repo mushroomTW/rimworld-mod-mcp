@@ -72,16 +72,17 @@ public sealed class AssemblySymbolReader
         var typeParameters = GenericParameterNames(reader, type.GetGenericParameters());
         var context = new GenericContext(typeParameters, []);
 
-        var rawFqn = MetadataNames.FullName(reader, type);
-        var fqn = MetadataNames.WithGenericParameters(rawFqn, typeParameters);
-        var shortName = MetadataNames.WithGenericParameters(reader.GetString(type.Name), typeParameters);
+        var fqn = DisplayName(reader, type);
+        var shortName = MetadataNames.WithGenericParameters(reader.GetString(type.Name), OwnGenericParameters(reader, type, typeParameters));
 
         var kind = TypeKind(reader, type);
         var baseChain = BaseChain(reader, type, context);
         var interfaces = Interfaces(reader, type, context);
 
+        // 巢狀型別的 parent 要跟外層型別自己的 fqn 一模一樣（含泛型參數），
+        // list_symbols(parent=外層) 才列得出它。
         var parentFqn = type.IsNested
-            ? MetadataNames.FullName(reader, reader.GetTypeDefinition(type.GetDeclaringType()))
+            ? DisplayName(reader, reader.GetTypeDefinition(type.GetDeclaringType()))
             : Namespace(reader, type);
 
         symbols.Add(new SymbolRecord
@@ -108,6 +109,7 @@ public sealed class AssemblySymbolReader
         ReadMethods(reader, assemblyName, type, fqn, typeParameters, symbols);
         ReadProperties(reader, assemblyName, type, fqn, context, symbols);
         ReadFields(reader, assemblyName, type, fqn, context, symbols);
+        ReadEvents(reader, assemblyName, type, fqn, context, symbols);
     }
 
     private static void ReadMethods(
@@ -241,6 +243,52 @@ public sealed class AssemblySymbolReader
 
         var isStatic = representative?.Attributes.HasFlag(MethodAttributes.Static) ?? false;
         return (parts, accessibility, isStatic);
+    }
+
+    /// <summary>
+    /// 事件。存取子（add_／remove_）在 ReadMethods 被略過，事件本身若不另外列，
+    /// 索引裡就完全沒有它——list_symbols 卻宣稱支援 kind=Event。
+    /// </summary>
+    private static void ReadEvents(
+        MetadataReader reader,
+        string assemblyName,
+        TypeDefinition type,
+        string typeFqn,
+        GenericContext context,
+        List<SymbolRecord> symbols)
+    {
+        foreach (var handle in type.GetEvents())
+        {
+            var eventDefinition = reader.GetEventDefinition(handle);
+            var name = reader.GetString(eventDefinition.Name);
+
+            if (name.StartsWith('<'))
+            {
+                continue;
+            }
+
+            var eventType = MetadataNames.Resolve(reader, eventDefinition.Type, context) ?? "?";
+            var accessors = eventDefinition.GetAccessors();
+            MethodDefinition? adder = accessors.Adder.IsNil ? null : reader.GetMethodDefinition(accessors.Adder);
+            MethodDefinition? remover = accessors.Remover.IsNil ? null : reader.GetMethodDefinition(accessors.Remover);
+
+            var accessibility = MostVisible(
+                adder is null ? null : MethodAccessibility(adder.Value.Attributes),
+                remover is null ? null : MethodAccessibility(remover.Value.Attributes)) ?? AccessPrivate;
+
+            symbols.Add(new SymbolRecord
+            {
+                Assembly = assemblyName,
+                Fqn = $"{typeFqn}.{name}",
+                ShortName = name,
+                Kind = SymbolKind.Event,
+                ParentFqn = typeFqn,
+                MetadataToken = MetadataTokens.GetToken(handle),
+                Signature = $"event {eventType} {name}",
+                Accessibility = accessibility,
+                IsStatic = (adder ?? remover)?.Attributes.HasFlag(MethodAttributes.Static) ?? false,
+            });
+        }
     }
 
     private static void ReadFields(
@@ -580,6 +628,42 @@ public sealed class AssemblySymbolReader
         return builder.MoveToImmutable();
     }
 
+    /// <summary>
+    /// 型別的顯示用完整名稱：<c>Ns.Outer&lt;T&gt;+Inner&lt;U&gt;</c>。
+    ///
+    /// <para>
+    /// IL 裡巢狀型別會把外層的泛型參數重新宣告一次，直接拿全部參數去換掉最後一個
+    /// arity 標記，<c>Ns.Outer`1+Inner</c> 會變成 <c>Ns.Outer&lt;T&gt;</c>——巢狀名稱整個消失，
+    /// 還跟外層型別撞同一個 fqn。這裡逐層組：每一層只放自己新增的參數。
+    /// </para>
+    /// </summary>
+    private static string DisplayName(MetadataReader reader, TypeDefinition type)
+    {
+        var parameters = GenericParameterNames(reader, type.GetGenericParameters());
+
+        if (!type.IsNested)
+        {
+            return MetadataNames.WithGenericParameters(MetadataNames.FullName(reader, type), parameters);
+        }
+
+        var declaring = reader.GetTypeDefinition(type.GetDeclaringType());
+
+        return DisplayName(reader, declaring) + "+"
+            + MetadataNames.WithGenericParameters(reader.GetString(type.Name), OwnGenericParameters(reader, type, parameters));
+    }
+
+    /// <summary>去掉從外層繼承來的泛型參數，只留這一層自己宣告的。</summary>
+    private static ImmutableArray<string> OwnGenericParameters(MetadataReader reader, TypeDefinition type, ImmutableArray<string> all)
+    {
+        if (!type.IsNested)
+        {
+            return all;
+        }
+
+        var inherited = reader.GetTypeDefinition(type.GetDeclaringType()).GetGenericParameters().Count;
+        return inherited < all.Length ? all[inherited..] : [];
+    }
+
     private static string Namespace(MetadataReader reader, TypeDefinition type)
     {
         var ns = reader.GetString(type.Namespace);
@@ -588,8 +672,9 @@ public sealed class AssemblySymbolReader
 
     private static string SimpleName(string fqn)
     {
-        var lastDot = fqn.LastIndexOf('.');
-        var name = lastDot >= 0 ? fqn[(lastDot + 1)..] : fqn;
+        // 巢狀型別是 Ns.Outer<T>+Inner<U>：建構子叫 Inner，不是 Outer。
+        var lastSeparator = Math.Max(fqn.LastIndexOf('.'), fqn.LastIndexOf('+'));
+        var name = lastSeparator >= 0 ? fqn[(lastSeparator + 1)..] : fqn;
 
         var angle = name.IndexOf('<');
         return angle >= 0 ? name[..angle] : name;

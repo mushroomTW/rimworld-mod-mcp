@@ -154,7 +154,8 @@ public sealed class IndexTools(
         }
 
         // 精確命中時才有「被略過的模糊命中」可言；模糊命中本身就是全部了。
-        var isExact = hits[0].Fqn == name || hits[0].ShortName == name;
+        var isExact = string.Equals(hits[0].Fqn, name, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(hits[0].ShortName, name, StringComparison.OrdinalIgnoreCase);
         int? partialCount = isExact ? SymbolRepository.CountPartial(connection, name, assemblyLike) : null;
 
         if (!include_body)
@@ -221,7 +222,10 @@ public sealed class IndexTools(
             using var connection = database.Open();
             var assemblyLike = AssemblyLike(assembly);
 
-            if (!SymbolRepository.ParentExists(connection, parent, assemblyLike))
+            // 大小寫不分地解析成索引裡的正式名稱（verse.ai → Verse.AI），之後一律用正式名稱。
+            var resolved = SymbolRepository.ResolveParent(connection, parent, assemblyLike);
+
+            if (resolved is null)
             {
                 // 「型別不存在」和「型別沒有成員」都回空清單的話，呼叫端只能瞎猜。
                 var suggestions = SymbolRepository.Suggest(connection, parent, 5);
@@ -229,17 +233,17 @@ public sealed class IndexTools(
                 throw new KeyNotFoundException($"Parent not found: {parent}.{hint}");
             }
 
-            var hits = SymbolRepository.Children(connection, parent, kindName, assemblyLike, limit);
-            var (sharedAssembly, rows) = ToBriefs(hits, h => RelativeName(h, parent));
+            var hits = SymbolRepository.Children(connection, resolved, kindName, assemblyLike, limit);
+            var (sharedAssembly, rows) = ToBriefs(hits, h => RelativeName(h, resolved));
 
             return new ListSymbolsResult
             {
-                Parent = parent,
+                Parent = resolved,
                 Assembly = sharedAssembly,
                 Results = rows,
                 Count = hits.Count,
                 LimitReached = hits.Count >= Math.Clamp(limit, 1, 500),
-                ChildNamespaces = SymbolRepository.ChildNamespaces(connection, parent, assemblyLike),
+                ChildNamespaces = SymbolRepository.ChildNamespaces(connection, resolved, assemblyLike),
             };
         });
 

@@ -7,6 +7,28 @@ namespace RimWorldModMcp.Indexing.Tests;
 
 public sealed class DefRepositoryTests : IDisposable
 {
+    /// <summary>
+    /// ParentName 指向抽象 Def 的 Name（inherit_name），那種 Def 沒有 defName。
+    /// 候選只 join def_name 的話，CollectCandidates 特地收集的 ParentName 引用會全數被丟掉，
+    /// find_def_usages("BaseGun") 永遠零筆。
+    /// </summary>
+    [Fact]
+    public void ParentNameReferencesToAbstractDefsAreResolved()
+    {
+        using (var candidates = new DefReferenceCandidateWriter(_connection))
+        {
+            candidates.Write(new Semantics.DefReferenceCandidate("BaseGun", "Core/Defs/Guns.xml", 12, "ParentName"));
+            candidates.Write(new Semantics.DefReferenceCandidate("Steel", "Core/Defs/Guns.xml", 20, "ThingDef/costList/Steel"));
+            candidates.Write(new Semantics.DefReferenceCandidate("NotADef", "Core/Defs/Guns.xml", 21, "ThingDef/foo"));
+        }
+
+        DefReferenceRepository.ResolveCandidates(_connection);
+
+        Assert.Single(DefReferenceRepository.Find(_connection, "BaseGun", null, 10));
+        Assert.Single(DefReferenceRepository.Find(_connection, "Steel", null, 10));
+        Assert.Empty(DefReferenceRepository.Find(_connection, "NotADef", null, 10));
+    }
+
     private readonly string _root;
     private readonly IndexDatabase _database;
     private readonly SqliteConnection _connection;

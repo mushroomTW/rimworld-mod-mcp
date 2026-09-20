@@ -88,6 +88,23 @@ public sealed class ModInspectionServiceTests : IDisposable
             assemblies.Select(a => a.Key).Order().ToArray());
     }
 
+    /// <summary>
+    /// 遊戲只從 Assemblies/ 載入。實機上 Mod 內的 LastVersion/1.5/X.dll 這類備份被索引後，
+    /// 同一行在搜尋結果裡重複出現三次，符號數也跟著灌水。
+    /// </summary>
+    [Fact]
+    public void DllsOutsideAnAssembliesFolderAreIgnored()
+    {
+        SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "LastVersion", "1.5"));
+        SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "Libs"));
+
+        var assemblies = _service.Inspect("pkg", _modPath);
+
+        Assert.Equal(
+            ["mod:pkg:1.5/Assemblies/Widget.dll", "mod:pkg:1.6/Assemblies/Widget.dll"],
+            assemblies.Select(a => a.Key).Order().ToArray());
+    }
+
     [Fact]
     public void LockNameIsPerPackageAndFilesystemSafe()
     {

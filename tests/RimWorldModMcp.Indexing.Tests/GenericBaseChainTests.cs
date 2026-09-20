@@ -80,7 +80,6 @@ public sealed class GenericBaseChainTests : IDisposable
             using var connection = database.Open();
 
             SymbolRepository.Insert(connection, _symbols);
-            SymbolRepository.RebuildFts(connection);
 
             // 泛型引數不論寫不寫都要查得到。
             Assert.Contains(SymbolRepository.Descendants(connection, "TestNs.Comp", 10), hit => hit.Fqn == "TestNs.Foo");

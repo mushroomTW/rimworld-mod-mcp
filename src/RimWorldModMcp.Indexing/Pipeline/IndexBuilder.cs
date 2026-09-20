@@ -127,7 +127,6 @@ public sealed class IndexBuilder(
 
         // 內容全部就位之後才建全文索引，比逐筆維護快一個數量級。
         DefRepository.RebuildFts(connection);
-        SymbolRepository.RebuildFts(connection);
 
         // 引用分析要等 Def 與符號都寫好才能比對。
         var knownDefNames = DefRepository.DefNames(connection);

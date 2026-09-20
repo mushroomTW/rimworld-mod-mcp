@@ -4,7 +4,7 @@ using RimWorldModMcp.Indexing.Model;
 
 namespace RimWorldModMcp.Indexing.Storage;
 
-/// <summary><c>symbol</c> 與 <c>symbol_fts</c> 的唯一存取點。</summary>
+/// <summary><c>symbol</c> 表的唯一存取點。</summary>
 public static class SymbolRepository
 {
     private const string AssemblyParam = "$assembly";
@@ -12,17 +12,11 @@ public static class SymbolRepository
     public static void Clear(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            DELETE FROM symbol;
-            INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild');
-            """;
+        command.CommandText = "DELETE FROM symbol;";
         command.ExecuteNonQuery();
     }
 
-    /// <summary>
-    /// 批次寫入符號。呼叫端負責開啟交易，並在全部寫完後呼叫 <see cref="RebuildFts"/>。
-    /// 與 <see cref="DefRepository.Insert"/> 同樣的理由：FTS 一次重建比逐筆維護快得多。
-    /// </summary>
+    /// <summary>批次寫入符號。呼叫端負責開啟交易。</summary>
     public static int Insert(SqliteConnection connection, IEnumerable<SymbolRecord> symbols)
     {
         using var insert = connection.CreateCommand();
@@ -69,14 +63,6 @@ public static class SymbolRepository
         return count;
     }
 
-    /// <summary>從內容表重建整個全文索引。批次寫入完成後呼叫一次。</summary>
-    public static void RebuildFts(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO symbol_fts(symbol_fts) VALUES('rebuild');";
-        command.ExecuteNonQuery();
-    }
-
     /// <summary>
     /// 查出符號：先以 FQN 或短名精確比對，有命中就只回這些（型別排在成員前、遊戲本體排在 Mod 前）；
     /// 一筆都沒有才退回 FQN 子字串比對。
@@ -87,25 +73,32 @@ public static class SymbolRepository
     /// </summary>
     public static List<SymbolHit> Read(SqliteConnection connection, string name, int limit, string? assemblyLike = null)
     {
-        using var exact = connection.CreateCommand();
-        exact.CommandText = """
-            SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
-            FROM symbol
-            WHERE (fqn = $name OR short_name = $name)
-              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
-            ORDER BY (fqn = $name) DESC, (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, (assembly LIKE 'mod:%'), fqn
-            LIMIT $limit;
-            """;
-
-        exact.Parameters.AddWithValue("$name", name);
-        exact.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
-        exact.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
-
-        var hits = ReadHits(exact);
-
-        if (hits.Count > 0)
+        // 先照大小寫精確比對（走索引），沒有才做不分大小寫的精確比對（全表掃描，
+        // 十萬列約十毫秒）。少了第二步，thingdef 會直接落到 LIKE 子字串比對，
+        // 拿到的是 thingDefsToCheck 之類的隨機欄位而不是 Verse.ThingDef——
+        // 而 LIKE 本來就不分大小寫，等於大小寫只在「精確」這一層被懲罰。
+        foreach (var collation in (ReadOnlySpan<string>)["BINARY", "NOCASE"])
         {
-            return hits;
+            using var exact = connection.CreateCommand();
+            exact.CommandText = $"""
+                SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
+                FROM symbol
+                WHERE (fqn = $name COLLATE {collation} OR short_name = $name COLLATE {collation})
+                  AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+                ORDER BY (fqn = $name COLLATE {collation}) DESC, (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, (assembly LIKE 'mod:%'), fqn
+                LIMIT $limit;
+                """;
+
+            exact.Parameters.AddWithValue("$name", name);
+            exact.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+            exact.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
+
+            var hits = ReadHits(exact);
+
+            if (hits.Count > 0)
+            {
+                return hits;
+            }
         }
 
         using var partial = connection.CreateCommand();
@@ -136,7 +129,7 @@ public static class SymbolRepository
             SELECT COUNT(*)
             FROM symbol
             WHERE fqn LIKE $like ESCAPE '\'
-              AND fqn <> $name AND short_name <> $name
+              AND fqn <> $name COLLATE NOCASE AND short_name <> $name COLLATE NOCASE
               AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\');
             """;
 
@@ -375,26 +368,53 @@ public static class SymbolRepository
     /// 空字串是根，一律存在。用來把「型別不存在」和「型別沒有成員」分開回報。
     /// </summary>
     public static bool ParentExists(SqliteConnection connection, string parent, string? assemblyLike)
+        => ResolveParent(connection, parent, assemblyLike) is not null;
+
+    /// <summary>
+    /// 把呼叫端給的 namespace 或型別名稱解析成索引裡的正式寫法；不存在回 <c>null</c>。
+    ///
+    /// <para>
+    /// 大小寫不分：<c>verse.ai</c> 解析成 <c>Verse.AI</c>。之前存在性用 LIKE（不分大小寫）判、
+    /// 列子項用 <c>=</c>（分大小寫）查，<c>verse</c> 會通過檢查卻列出空清單——正是這個
+    /// 檢查想避免的「不存在」與「沒有成員」混在一起。有完全同大小寫的候選時優先。
+    /// </para>
+    /// </summary>
+    public static string? ResolveParent(SqliteConnection connection, string parent, string? assemblyLike)
     {
         if (parent.Length == 0)
         {
-            return true;
+            return string.Empty;
         }
 
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT 1
-            FROM symbol
-            WHERE (fqn = $parent OR parent_fqn = $parent OR parent_fqn LIKE $prefix ESCAPE '\')
-              AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+            SELECT candidate FROM (
+                -- 型別本身
+                SELECT fqn AS candidate, (fqn = $parent) AS exact
+                FROM symbol
+                WHERE fqn = $parent COLLATE NOCASE
+                  AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+                UNION ALL
+                -- 直接有子項的 namespace 或型別
+                SELECT parent_fqn, (parent_fqn = $parent)
+                FROM symbol
+                WHERE parent_fqn = $parent COLLATE NOCASE
+                  AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+                UNION ALL
+                -- 只有子 namespace、本身沒有型別的中介 namespace
+                SELECT substr(parent_fqn, 1, length($parent)), (substr(parent_fqn, 1, length($parent)) = $parent)
+                FROM symbol
+                WHERE substr(parent_fqn, 1, length($parent) + 1) = ($parent || '.') COLLATE NOCASE
+                  AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+            )
+            ORDER BY exact DESC
             LIMIT 1;
             """;
 
         command.Parameters.AddWithValue("$parent", parent);
-        command.Parameters.AddWithValue("$prefix", FtsQuery.LikeLiteral(parent) + ".%");
         command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
-        return command.ExecuteScalar() is not null;
+        return command.ExecuteScalar() as string;
     }
 
     public static long Count(SqliteConnection connection)

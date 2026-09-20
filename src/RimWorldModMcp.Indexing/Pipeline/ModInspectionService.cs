@@ -63,7 +63,7 @@ public sealed class ModInspectionService(
         // Mod 更新後被移除（或改名、搬到別的版本目錄）的 DLL，索引列不會自己消失；
         // 每次檢視都先把不屬於目前組件集合的鍵清掉，查詢結果才不會混進幽靈版本。
         var keys = assemblies.ToDictionary(a => AssemblyKey(packageId, modPath, a), StringComparer.Ordinal);
-        var reindexed = ForgetStale(connection, packageId, keys.Keys);
+        ForgetStale(connection, packageId, keys.Keys);
 
         foreach (var (key, assembly) in keys)
         {
@@ -108,7 +108,6 @@ public sealed class ModInspectionService(
             IndexMetaRepository.Set(connection, $"mod_stamp:{key}", stamp);
 
             transaction.Commit();
-            reindexed = true;
 
             results.Add(new ModAssemblyInfo(
                 Path.GetFileNameWithoutExtension(assembly),
@@ -117,14 +116,6 @@ public sealed class ModInspectionService(
                 symbols.Count,
                 sourceCount,
                 FromCache: false));
-        }
-
-        // 'rebuild' 是對整個 symbol 內容表（含遊戲本體數十萬列）重建索引，
-        // 一次 Inspect 只能做一次——放進 per-assembly 迴圈的話，
-        // 一個有五個 DLL 的 Mod 會觸發五次全庫重建。
-        if (reindexed)
-        {
-            SymbolRepository.RebuildFts(connection);
         }
 
         // 走到這裡就是成功，不論是背景還是 force 重試；上一次的失敗原因不該再擋搜尋。
@@ -255,8 +246,6 @@ public sealed class ModInspectionService(
             command.ExecuteNonQuery();
         }
 
-        SymbolRepository.RebuildFts(connection);
-
         transaction.Commit();
     }
 
@@ -293,13 +282,22 @@ public sealed class ModInspectionService(
 
         return [.. Directory
             .EnumerateFiles(modPath, "*.dll", SearchOption.AllDirectories)
-            // Source/ 是使用者的 C# 專案，bin／obj 是建置產物（常含測試組件）；
-            // 遊戲只載入 Assemblies/，索引這些只是噪音，還會擋到使用者的 dotnet build。
+            // 遊戲只從 Assemblies/ 目錄載入（根目錄、版本目錄、Common 或 loadFolders 指定的
+            // 資料夾底下）。其他地方的 DLL——LastVersion/ 之類的備份、Source/ 底下的專案與
+            // bin／obj 建置產物——遊戲根本不會載入，索引只是噪音、還會讓同一行在搜尋結果
+            // 裡重複出現，並擋到使用者的 dotnet build。
+            .Where(path => IsUnderAssembliesFolder(Path.GetRelativePath(modPath, path)))
             .Where(path => !IsBuildTree(Path.GetRelativePath(modPath, path)))
             // Harmony 之類的相依函式庫不是 Mod 自己的程式碼，索引它們只是噪音。
             .Where(path => !IsKnownDependency(Path.GetFileNameWithoutExtension(path)))
             .Order()];
     }
+
+    private static bool IsUnderAssembliesFolder(string relativePath)
+        => relativePath
+            .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+            .SkipLast(1)
+            .Any(segment => segment.Equals("Assemblies", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsBuildTree(string relativePath)
         => relativePath
@@ -342,8 +340,8 @@ public sealed class ModInspectionService(
         command.ExecuteNonQuery();
     }
 
-    /// <summary>清掉這個 Mod 底下不在 <paramref name="liveKeys"/> 裡的組件索引。回傳是否有清掉任何東西。</summary>
-    private static bool ForgetStale(Microsoft.Data.Sqlite.SqliteConnection connection, string packageId, IEnumerable<string> liveKeys)
+    /// <summary>清掉這個 Mod 底下不在 <paramref name="liveKeys"/> 裡的組件索引。</summary>
+    private static void ForgetStale(Microsoft.Data.Sqlite.SqliteConnection connection, string packageId, IEnumerable<string> liveKeys)
     {
         var live = liveKeys.ToHashSet(StringComparer.Ordinal);
         var stale = new HashSet<string>(StringComparer.Ordinal);
@@ -372,7 +370,7 @@ public sealed class ModInspectionService(
 
         if (stale.Count == 0)
         {
-            return false;
+            return;
         }
 
         using var transaction = connection.BeginTransaction();
@@ -388,7 +386,6 @@ public sealed class ModInspectionService(
         }
 
         transaction.Commit();
-        return true;
     }
 
     private static void ClearAssembly(Microsoft.Data.Sqlite.SqliteConnection connection, string key)

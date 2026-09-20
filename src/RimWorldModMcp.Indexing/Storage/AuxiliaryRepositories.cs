@@ -272,7 +272,10 @@ public static class DefReferenceRepository
             INSERT INTO def_reference (def_name, file_path, line, source_kind, context, confidence)
             SELECT c.def_name, c.file_path, c.line, 'def_xml', c.context, 'exact'
             FROM def_ref_candidate c
+            -- ParentName 指向的是抽象 Def 的 Name（inherit_name），那種 Def 沒有 def_name；
+            -- 只 join def_name 的話，CollectCandidates 特地收的 ParentName 候選會全數被丟掉。
             WHERE EXISTS (SELECT 1 FROM def d WHERE d.def_name = c.def_name)
+               OR EXISTS (SELECT 1 FROM def d WHERE d.inherit_name = c.def_name)
             ON CONFLICT DO NOTHING;
             DROP TABLE def_ref_candidate;
             """;
