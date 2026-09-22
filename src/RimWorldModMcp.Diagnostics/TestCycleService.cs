@@ -26,7 +26,6 @@ public sealed class TestCycleService(
     RimWorldLocator locator,
     IProcessHost processes,
     ModCatalog catalog,
-    LoadOrderResolver loadOrders,
     TestEnvironmentPreparer environment,
     GameLauncher launcher,
     CriticalSectionLock locks,
@@ -345,7 +344,7 @@ public sealed class TestCycleService(
             selected.Add(match);
         }
 
-        var order = loadOrders.Resolve(selected, [.. available.Values]);
+        var order = LoadOrderResolver.Resolve(selected, [.. available.Values]);
 
         if (order.Missing.Count > 0)
         {

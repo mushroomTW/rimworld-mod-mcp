@@ -63,7 +63,7 @@ public sealed class RebuildAndModIndexConcurrencyTests : IDisposable
         _database = new IndexDatabase(_store);
         _locks = new CriticalSectionLock(_store, new ProcessHost());
         _decompiler = new MemberDecompiler(_locator);
-        _service = new ModInspectionService(_database, _decompiler, _locks, new SourceQueryService());
+        _service = new ModInspectionService(_database, _decompiler, _locks);
         _builder = new IndexBuilder(
             _database, _locator, new IndexFingerprint(), _locks, new SourceIndexer(_database, _locator));
     }

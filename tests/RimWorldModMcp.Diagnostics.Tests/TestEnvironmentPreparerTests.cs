@@ -120,7 +120,6 @@ public sealed class TestEnvironmentPreparerTests
                 Path.Combine(root, "data"), Path.Combine(root, "cache"));
 
             var preparer = new TestEnvironmentPreparer(
-                new RimWorldModMcp.Core.Platform.DirectoryLink(),
                 store,
                 new BridgeBuilder(store, new RimWorldModMcp.Core.Paths.RimWorldLocator()));
 
@@ -156,7 +155,6 @@ public sealed class TestEnvironmentPreparerTests
                 Path.Combine(root, "data"), Path.Combine(root, "cache"));
 
             var preparer = new TestEnvironmentPreparer(
-                new RimWorldModMcp.Core.Platform.DirectoryLink(),
                 store,
                 new BridgeBuilder(store, new RimWorldModMcp.Core.Paths.RimWorldLocator()));
 

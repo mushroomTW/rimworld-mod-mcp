@@ -137,17 +137,7 @@ public sealed class TestSessionStore(StoreDirectories store)
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public TestSession Read()
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<TestSession>(File.ReadAllText(store.TestStatusFile)) ?? TestSession.Idle;
-        }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return TestSession.Idle;
-        }
-    }
+    public TestSession Read() => AtomicJson.Read<TestSession>(store.TestStatusFile, JsonOptions) ?? TestSession.Idle;
 
     public void Write(TestSession session) => AtomicJson.Write(store.TestStatusFile, session, JsonOptions);
 }
@@ -187,17 +177,7 @@ public sealed class DaemonRecordStore(StoreDirectories store)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public DaemonRecord? Read()
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<DaemonRecord>(File.ReadAllText(store.DaemonFile));
-        }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
+    public DaemonRecord? Read() => AtomicJson.Read<DaemonRecord>(store.DaemonFile);
 
     public void Write(DaemonRecord record) => AtomicJson.Write(store.DaemonFile, record, JsonOptions);
 

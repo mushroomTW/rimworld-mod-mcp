@@ -30,7 +30,7 @@ public enum LinkRemoval
 /// macOS 與 Linux 走 symbolic link。
 /// </para>
 /// </summary>
-public sealed class DirectoryLink
+public static class DirectoryLink
 {
     /// <summary>本工具建立的連結一律帶這個前綴，是三重防線的第一重。</summary>
     public const string LinkPrefix = "RimWorldModMcp-";
@@ -42,7 +42,7 @@ public sealed class DirectoryLink
         return name.StartsWith(LinkPrefix, StringComparison.Ordinal);
     }
 
-    public void EnsureLink(string linkPath, string targetPath)
+    public static void EnsureLink(string linkPath, string targetPath)
     {
         var target = Path.GetFullPath(targetPath);
 
@@ -74,9 +74,7 @@ public sealed class DirectoryLink
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
-    public bool IsOwnedLink(string linkPath, string targetPath)
+    public static bool IsOwnedLink(string linkPath, string targetPath)
     {
         // 第一重：名稱前綴。沒有前綴的一律不認，避免誤動使用者自己的 Mod。
         if (!HasOwnedPrefix(linkPath))
@@ -158,7 +156,7 @@ public sealed class DirectoryLink
     private static bool PathsEqual(string left, string right)
         => string.Equals(left, right, PathText.Comparison);
 
-    public LinkRemoval RemoveLink(string linkPath, string targetPath)
+    public static LinkRemoval RemoveLink(string linkPath, string targetPath)
     {
         if (!IsOwnedLink(linkPath, targetPath))
         {

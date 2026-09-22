@@ -22,7 +22,6 @@ public sealed class IndexTools(
     IndexDatabase database,
     IndexBuilder builder,
     SourceIndexer sourceIndexer,
-    SourceQueryService sourceQueries,
     MemberDecompiler decompiler,
     ModCatalog catalog,
     ModInspectionService inspection)
@@ -406,7 +405,7 @@ public sealed class IndexTools(
         }
 
         using var connection = database.Open();
-        var search = sourceQueries.Search(connection, pattern, file_pattern, limit);
+        var search = SourceQueryService.Search(connection, pattern, file_pattern, limit);
         var progress = sourceIndexer.Progress;
 
         return new SearchSourceResult

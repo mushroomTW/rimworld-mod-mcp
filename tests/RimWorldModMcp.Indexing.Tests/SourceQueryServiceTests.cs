@@ -10,7 +10,6 @@ public sealed class SourceQueryServiceTests : IDisposable
     private readonly string _root;
     private readonly IndexDatabase _database;
     private readonly SqliteConnection _connection;
-    private readonly SourceQueryService _queries = new();
 
     public SourceQueryServiceTests()
     {
@@ -45,7 +44,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void FilePatternNarrowsResults()
     {
-        var hits = _queries.Search(_connection, "class", "Verse/*", 10).Hits;
+        var hits = SourceQueryService.Search(_connection, "class", "Verse/*", 10).Hits;
 
         Assert.NotEmpty(hits);
         Assert.All(hits, hit => Assert.StartsWith("Verse/", hit.File, StringComparison.Ordinal));
@@ -62,12 +61,12 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void GameSearchExcludesModAssembliesAndTrimsIndentation()
     {
-        var hits = _queries.Search(_connection, "TryStartJob", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, "TryStartJob", null, 10).Hits;
 
         Assert.Equal(["Assembly-CSharp"], hits.Select(hit => hit.Assembly).Distinct().ToArray());
         Assert.Equal("public void TryStartJob() { }", hits[0].Text);
 
-        var modHits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
+        var modHits = SourceQueryService.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
 
         Assert.Equal(["mod:pkg:Extra:abcd"], modHits.Select(hit => hit.Assembly).Distinct().ToArray());
     }
@@ -75,7 +74,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void AlternationFindsFilesContainingEitherBranch()
     {
-        var hits = _queries.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
 
         var files = hits.Select(hit => hit.File).Distinct().ToList();
 
@@ -103,7 +102,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Late/Beta.cs",
             "public class Beta\n{\n    public void EndCurrentJob() { }\n}\n");
 
-        var hits = _queries.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
 
         var files = hits.Select(hit => hit.File).Distinct().ToList();
 
@@ -127,7 +126,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Late/Gamma.cs",
             "public class Gamma\n{\n    public void DeregisterZone() { }\n}\n");
 
-        var hits = _queries.Search(_connection, "(DeregisterZone|Delete)", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, "(DeregisterZone|Delete)", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Late/Gamma.cs");
     }
@@ -155,7 +154,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/FooOnly.cs",
             "public class FooOnly\n{\n    public void RenderZone() { }\n}\n");
 
-        var hits = _queries.Search(_connection, pattern, null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, pattern, null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Only/FooOnly.cs");
     }
@@ -182,7 +181,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Only/PlainZone.cs",
             "public class PlainZone\n{\n    public void RenderZone() { }\n}\n");
 
-        var hits = _queries.Search(_connection, @"RenderZone(Quick|Slow)", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, @"RenderZone(Quick|Slow)", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Only/ZoneQuick.cs");
         Assert.DoesNotContain(hits, hit => hit.File == "Only/PlainZone.cs");
@@ -192,7 +191,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void AssemblyFilterRestrictsResults()
     {
-        var hits = _queries.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
+        var hits = SourceQueryService.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
 
         Assert.NotEmpty(hits);
         Assert.All(hits, hit => Assert.StartsWith("mod:pkg:", hit.Assembly, StringComparison.Ordinal));
@@ -205,7 +204,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void WordBoundaryPatternFindsTheIdentifier()
     {
-        var hits = _queries.Search(_connection, @"\bTryStartJob\b", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, @"\bTryStartJob\b", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Verse/Thing.cs");
     }
@@ -217,7 +216,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void SubstringOfAnIdentifierIsFound()
     {
-        var hits = _queries.Search(_connection, "StartJob", null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, "StartJob", null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "Verse/Thing.cs");
     }
@@ -230,7 +229,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [InlineData(@"^\s*public void EndCurrentJob\(\)")]
     public void OptionalPartsDoNotExcludeCandidates(string pattern)
     {
-        var hits = _queries.Search(_connection, pattern, null, 10).Hits;
+        var hits = SourceQueryService.Search(_connection, pattern, null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "RimWorld/Pawn.cs");
     }
@@ -239,7 +238,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     [Fact]
     public void NormalSearchReportsThatTheBudgetWasNotExhausted()
     {
-        var result = _queries.Search(_connection, "TryStartJob", null, 10);
+        var result = SourceQueryService.Search(_connection, "TryStartJob", null, 10);
 
         Assert.False(result.BudgetExceeded);
         Assert.NotEmpty(result.Hits);
@@ -259,7 +258,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Slow.cs", new string('a', 40) + "!");
 
-        var error = Assert.Throws<TimeoutException>(() => _queries.Search(_connection, "^(a+)+$", null, 10));
+        var error = Assert.Throws<TimeoutException>(() => SourceQueryService.Search(_connection, "^(a+)+$", null, 10));
 
         Assert.Contains("Simplify it", error.Message, StringComparison.Ordinal);
         Assert.Contains("Verse/Slow.cs", error.Message, StringComparison.Ordinal);
@@ -281,7 +280,7 @@ public sealed class SourceQueryServiceTests : IDisposable
 
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Paging/Target.cs", "42\n");
 
-        var result = _queries.Search(_connection, @"^\d+$", null, 1);
+        var result = SourceQueryService.Search(_connection, @"^\d+$", null, 1);
 
         Assert.False(result.BudgetExceeded);
         Assert.Null(result.IncompleteReason);
@@ -302,7 +301,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Zone.cs",
             "public class Zone\n{\n    public void RenderZone() { }\n}\n");
 
-        var result = _queries.Search(_connection, pattern, "Verse/Zone.cs", 10);
+        var result = SourceQueryService.Search(_connection, pattern, "Verse/Zone.cs", 10);
 
         Assert.Contains(result.Hits, hit => hit.File == "Verse/Zone.cs");
     }

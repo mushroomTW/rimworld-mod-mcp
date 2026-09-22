@@ -69,17 +69,7 @@ public sealed class GameStateStore(StoreDirectories store)
     public void Write(GameStateRecord record) => AtomicJson.Write(store.GameStateFile, record, JsonOptions);
 
     /// <summary>沒有回報過、或檔案正在被覆寫時回 null。</summary>
-    public GameStateRecord? Read()
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<GameStateRecord>(File.ReadAllText(store.GameStateFile));
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return null;
-        }
-    }
+    public GameStateRecord? Read() => AtomicJson.Read<GameStateRecord>(store.GameStateFile, JsonOptions);
 
     /// <summary>場次開始與結束時清掉，舊場次的狀態不能被誤認成這一場的。</summary>
     public void Clear()

@@ -48,4 +48,24 @@ public static class AtomicJson
             throw;
         }
     }
+
+    /// <summary>
+    /// 安全讀取狀態檔；若檔案不存在、正在被寫入鎖定、或內容破損時回傳預設值（null）。
+    /// </summary>
+    public static T? Read<T>(string path, JsonSerializerOptions? options = null)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return default;
+            }
+
+            return JsonSerializer.Deserialize<T>(File.ReadAllText(path), options);
+        }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return default;
+        }
+    }
 }

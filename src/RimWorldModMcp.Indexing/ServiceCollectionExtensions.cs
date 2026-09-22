@@ -15,7 +15,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IndexFingerprint>();
         services.AddSingleton<IndexBuilder>();
         services.AddSingleton<SourceIndexer>();
-        services.AddSingleton<SourceQueryService>();
         services.AddSingleton<ModInspectionService>();
 
         // 反編譯器持有組件的解析狀態，重複建立成本高（30MB 組件約 2.7 秒），

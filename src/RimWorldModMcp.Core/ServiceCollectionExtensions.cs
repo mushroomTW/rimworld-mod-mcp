@@ -16,11 +16,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StoreDirectories>();
         services.AddSingleton<RimWorldLocator>();
         services.AddSingleton<IProcessHost, ProcessHost>();
-        services.AddSingleton<DirectoryLink>();
         services.AddSingleton<CriticalSectionLock>();
         services.AddSingleton<ModScaffolder>();
         services.AddSingleton<ModCatalog>();
-        services.AddSingleton<LoadOrderResolver>();
         services.AddSingleton<BuildService>();
 
         return services;

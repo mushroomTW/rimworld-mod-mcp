@@ -42,7 +42,7 @@ public sealed class ModInspectionServiceTests : IDisposable
         var store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));
         _database = new IndexDatabase(store);
         _service = new ModInspectionService(
-            _database, _decompiler, new CriticalSectionLock(store, new AlwaysAliveProcessHost()), new SourceQueryService());
+            _database, _decompiler, new CriticalSectionLock(store, new AlwaysAliveProcessHost()));
 
         SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "1.5", "Assemblies"));
         SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "1.6", "Assemblies"));

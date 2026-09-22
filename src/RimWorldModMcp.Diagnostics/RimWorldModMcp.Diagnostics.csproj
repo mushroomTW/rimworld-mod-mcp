@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\RimWorldModMcp.Core\RimWorldModMcp.Core.csproj" />
+    <InternalsVisibleTo Include="RimWorldModMcp.Diagnostics.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -33,6 +33,7 @@
     <ProjectReference Include="..\RimWorldModMcp.Core\RimWorldModMcp.Core.csproj" />
     <ProjectReference Include="..\RimWorldModMcp.Diagnostics\RimWorldModMcp.Diagnostics.csproj" />
     <ProjectReference Include="..\RimWorldModMcp.Indexing\RimWorldModMcp.Indexing.csproj" />
+    <InternalsVisibleTo Include="RimWorldModMcp.Server.Tests" />
   </ItemGroup>
 
   <!--

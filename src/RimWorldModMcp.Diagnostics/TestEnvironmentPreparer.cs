@@ -24,7 +24,6 @@ public sealed record PreparedEnvironment(
 /// </para>
 /// </summary>
 public sealed partial class TestEnvironmentPreparer(
-    DirectoryLink links,
     StoreDirectories store,
     BridgeBuilder bridgeBuilder)
 {
@@ -66,7 +65,7 @@ public sealed partial class TestEnvironmentPreparer(
             {
                 testFolderName = DirectoryLink.LinkPrefix + "Test-" + packageId;
                 var testLink = Path.Combine(paths.ModsDir!, testFolderName);
-                links.EnsureLink(testLink, modPath);
+                DirectoryLink.EnsureLink(testLink, modPath);
                 createdLinks.Add(new TestLink(testLink, modPath));
             }
 
@@ -83,7 +82,7 @@ public sealed partial class TestEnvironmentPreparer(
                 if (build is { Success: true, ModDirectory: not null })
                 {
                     var bridgeLink = Path.Combine(paths.ModsDir!, DirectoryLink.LinkPrefix + "Bridge");
-                    links.EnsureLink(bridgeLink, build.ModDirectory);
+                    DirectoryLink.EnsureLink(bridgeLink, build.ModDirectory);
                     createdLinks.Add(new TestLink(bridgeLink, build.ModDirectory));
 
                     activeMods.Add(BridgePackageId);
@@ -114,7 +113,7 @@ public sealed partial class TestEnvironmentPreparer(
     }
 
     /// <summary>移除一條連結。語意見 <see cref="DirectoryLink.RemoveLink"/>。</summary>
-    public LinkRemoval RemoveLink(TestLink link) => links.RemoveLink(link.Link, link.Target);
+    public LinkRemoval RemoveLink(TestLink link) => DirectoryLink.RemoveLink(link.Link, link.Target);
 
     /// <summary>
     /// 逐一移除，回傳**沒能移除**的連結。
@@ -132,7 +131,7 @@ public sealed partial class TestEnvironmentPreparer(
 
         foreach (var link in toRemove)
         {
-            if (links.RemoveLink(link.Link, link.Target) != LinkRemoval.Removed)
+            if (RemoveLink(link) != LinkRemoval.Removed)
             {
                 remaining.Add(link);
             }

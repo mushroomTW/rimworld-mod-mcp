@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RimWorldModMcp.Core\RimWorldModMcp.Core.csproj" />
+    <InternalsVisibleTo Include="RimWorldModMcp.Indexing.Tests" />
   </ItemGroup>
 
   <ItemGroup>

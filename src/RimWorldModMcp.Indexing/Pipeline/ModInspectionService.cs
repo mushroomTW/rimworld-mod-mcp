@@ -47,8 +47,7 @@ public sealed record ModSearchResult(
 public sealed class ModInspectionService(
     IndexDatabase database,
     MemberDecompiler decompiler,
-    CriticalSectionLock locks,
-    SourceQueryService sourceQueries)
+    CriticalSectionLock locks)
 {
     private readonly AssemblySymbolReader _symbolReader = new();
 
@@ -225,7 +224,7 @@ public sealed class ModInspectionService(
         }
 
         using var connection = database.Open();
-        var search = sourceQueries.Search(
+        var search = SourceQueryService.Search(
             connection, pattern, null, limit,
             assemblyLike: AssemblyLike(packageId, assemblyFilter));
 

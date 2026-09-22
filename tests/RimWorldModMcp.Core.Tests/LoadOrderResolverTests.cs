@@ -30,7 +30,7 @@ public sealed class LoadOrderResolverTests
         var early = Mod("z.mustcomefirst", loadBefore: ["a.target"]);
         var target = Mod("a.target");
 
-        var order = new LoadOrderResolver().Resolve([target, early], [target, early]);
+        var order = LoadOrderResolver.Resolve([target, early], [target, early]);
 
         var indexOfEarly = order.Active.ToList().IndexOf("z.mustcomefirst");
         var indexOfTarget = order.Active.ToList().IndexOf("a.target");
@@ -45,7 +45,7 @@ public sealed class LoadOrderResolverTests
         var late = Mod("a.late", loadAfter: ["b.early"]);
         var earlyMod = Mod("b.early");
 
-        var order = new LoadOrderResolver().Resolve([late, earlyMod], [late, earlyMod]);
+        var order = LoadOrderResolver.Resolve([late, earlyMod], [late, earlyMod]);
 
         var active = order.Active.ToList();
         Assert.True(active.IndexOf("b.early") < active.IndexOf("a.late"));
@@ -55,7 +55,7 @@ public sealed class LoadOrderResolverTests
     public void CoreIsAlwaysFirst()
     {
         var mod = Mod("a.solo");
-        var order = new LoadOrderResolver().Resolve([mod], [mod]);
+        var order = LoadOrderResolver.Resolve([mod], [mod]);
 
         Assert.Equal("ludeon.rimworld", order.Active[0]);
     }
@@ -65,7 +65,7 @@ public sealed class LoadOrderResolverTests
     public void LoadAfterCoreIsNotReportedAsSkipped()
     {
         var mod = Mod("a.solo", loadAfter: ["ludeon.rimworld", "ludeon.rimworld.royalty"]);
-        var order = new LoadOrderResolver().Resolve([mod], [mod]);
+        var order = LoadOrderResolver.Resolve([mod], [mod]);
 
         Assert.Equal(["ludeon.rimworld.royalty"], order.SkippedLoadAfter);
     }
@@ -74,7 +74,7 @@ public sealed class LoadOrderResolverTests
     public void MissingHardDependencyIsReported()
     {
         var mod = Mod("a.needy", dependencies: ["b.absent"]);
-        var order = new LoadOrderResolver().Resolve([mod], [mod]);
+        var order = LoadOrderResolver.Resolve([mod], [mod]);
 
         Assert.Contains("b.absent", order.Missing);
     }

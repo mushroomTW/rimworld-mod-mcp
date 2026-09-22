@@ -274,18 +274,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
         }
     }
 
-    private DiagnosticTotals ReadTotals()
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<DiagnosticTotals>(File.ReadAllText(store.DiagnosticTotalsFile))
-                ?? new DiagnosticTotals();
-        }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return new DiagnosticTotals();
-        }
-    }
+    private DiagnosticTotals ReadTotals() => AtomicJson.Read<DiagnosticTotals>(store.DiagnosticTotalsFile) ?? new();
 
     /// <summary>
     /// 行程重啟後 _nextSequence 歸零，磁碟上舊紀錄的序號還在；
@@ -418,17 +407,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
         return null;
     }
 
-    public IReadOnlyList<DiagnosticRecord> Read()
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<List<DiagnosticRecord>>(File.ReadAllText(store.DiagnosticsFile)) ?? [];
-        }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return [];
-        }
-    }
+    public IReadOnlyList<DiagnosticRecord> Read() => AtomicJson.Read<List<DiagnosticRecord>>(store.DiagnosticsFile) ?? [];
 
     /// <summary>
     /// 只回游標之後有變動的紀錄：新出現的，以及重複出現而 count 增加的——

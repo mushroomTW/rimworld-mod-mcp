@@ -33,7 +33,7 @@ public sealed record SourceSearchResult(IReadOnlyList<SourceHit> Hits, bool Budg
 /// Core 加 DLC 是數萬個檔案，每次查詢都要全部讀進記憶體。
 /// </para>
 /// </summary>
-public sealed class SourceQueryService
+public static class SourceQueryService
 {
     /// <summary>單行回傳的字元上限，避免壓縮過的長行灌爆輸出。</summary>
     private const int MaxLineLength = 1000;
@@ -61,9 +61,7 @@ public sealed class SourceQueryService
     /// </summary>
     private static readonly TimeSpan SearchBudget = TimeSpan.FromSeconds(20);
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
-    public SourceSearchResult Search(
+    public static SourceSearchResult Search(
         SqliteConnection connection,
         string pattern,
         string? filePattern,

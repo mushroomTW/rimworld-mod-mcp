@@ -15,7 +15,6 @@ public sealed class DirectoryLinkContracts : IDisposable
 {
     private readonly string _root;
     private readonly string _target;
-    private readonly DirectoryLink _links = new();
 
     public DirectoryLinkContracts()
     {
@@ -58,7 +57,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     {
         var link = LinkPath();
 
-        _links.EnsureLink(link, _target);
+        DirectoryLink.EnsureLink(link, _target);
 
         Assert.True(Directory.Exists(link));
         Assert.True(new DirectoryInfo(link).Attributes.HasFlag(FileAttributes.ReparsePoint));
@@ -72,10 +71,10 @@ public sealed class DirectoryLinkContracts : IDisposable
     {
         var link = LinkPath();
 
-        _links.EnsureLink(link, _target);
-        _links.EnsureLink(link, _target);
+        DirectoryLink.EnsureLink(link, _target);
+        DirectoryLink.EnsureLink(link, _target);
 
-        Assert.True(_links.IsOwnedLink(link, _target));
+        Assert.True(DirectoryLink.IsOwnedLink(link, _target));
     }
 
     /// <summary>
@@ -91,7 +90,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     public void OwnedLinkDetectionMatchesPlatformSemantics()
     {
         var link = LinkPath();
-        _links.EnsureLink(link, _target);
+        DirectoryLink.EnsureLink(link, _target);
 
         var info = new DirectoryInfo(link);
 
@@ -103,7 +102,7 @@ public sealed class DirectoryLinkContracts : IDisposable
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(_target)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved!.FullName)));
 
-        Assert.True(_links.IsOwnedLink(link, _target));
+        Assert.True(DirectoryLink.IsOwnedLink(link, _target));
     }
 
     /// <summary>契約：已存在但指向別處的連結不得被覆寫。</summary>
@@ -114,12 +113,12 @@ public sealed class DirectoryLinkContracts : IDisposable
         Directory.CreateDirectory(other);
 
         var link = LinkPath();
-        _links.EnsureLink(link, other);
+        DirectoryLink.EnsureLink(link, other);
 
-        Assert.Throws<IOException>(() => _links.EnsureLink(link, _target));
+        Assert.Throws<IOException>(() => DirectoryLink.EnsureLink(link, _target));
 
         // 失敗之後原本的連結必須完好，不能被拆掉一半。
-        Assert.True(_links.IsOwnedLink(link, other));
+        Assert.True(DirectoryLink.IsOwnedLink(link, other));
     }
 
     /// <summary>
@@ -135,9 +134,9 @@ public sealed class DirectoryLinkContracts : IDisposable
     public void RemoveLinkDeletesTheLinkAndKeepsTheMod()
     {
         var link = LinkPath();
-        _links.EnsureLink(link, _target);
+        DirectoryLink.EnsureLink(link, _target);
 
-        _links.RemoveLink(link, _target);
+        DirectoryLink.RemoveLink(link, _target);
 
         Assert.False(Directory.Exists(link));
         Assert.True(Directory.Exists(_target));
@@ -152,7 +151,7 @@ public sealed class DirectoryLinkContracts : IDisposable
         Directory.CreateDirectory(intruder);
         File.WriteAllText(Path.Combine(intruder, "About.xml"), "<ModMetaData />");
 
-        var result = _links.RemoveLink(intruder, _target);
+        var result = DirectoryLink.RemoveLink(intruder, _target);
 
         Assert.Equal(LinkRemoval.NotOurs, result);
         Assert.True(Directory.Exists(intruder));
@@ -183,15 +182,15 @@ public sealed class DirectoryLinkContracts : IDisposable
 
         // 中間層：一個指向真實位置的連結，扮演被重新導向的路徑。
         var redirected = Path.Combine(_root, DirectoryLink.LinkPrefix + "Redirected");
-        _links.EnsureLink(redirected, real);
+        DirectoryLink.EnsureLink(redirected, real);
 
         // 我們建立的連結指向那個「被重新導向的路徑」，而不是最終位置。
         var link = LinkPath("ViaRedirect");
-        _links.EnsureLink(link, redirected);
+        DirectoryLink.EnsureLink(link, redirected);
 
-        Assert.True(_links.IsOwnedLink(link, redirected), "應認出指向重新導向路徑的自家連結");
+        Assert.True(DirectoryLink.IsOwnedLink(link, redirected), "應認出指向重新導向路徑的自家連結");
 
-        _links.RemoveLink(link, redirected);
+        DirectoryLink.RemoveLink(link, redirected);
 
         Assert.False(Directory.Exists(link));
         // 中間層與真實內容都必須完好。
@@ -204,12 +203,12 @@ public sealed class DirectoryLinkContracts : IDisposable
     public void RemoveLinkReportsWhetherTheLinkIsGone()
     {
         var link = LinkPath("Reported");
-        _links.EnsureLink(link, _target);
+        DirectoryLink.EnsureLink(link, _target);
 
-        Assert.Equal(LinkRemoval.Removed, _links.RemoveLink(link, _target));
+        Assert.Equal(LinkRemoval.Removed, DirectoryLink.RemoveLink(link, _target));
         Assert.False(Directory.Exists(link));
 
         // 已經不存在的連結再移除一次也算成功。
-        Assert.Equal(LinkRemoval.Removed, _links.RemoveLink(link, _target));
+        Assert.Equal(LinkRemoval.Removed, DirectoryLink.RemoveLink(link, _target));
     }
 }

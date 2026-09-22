@@ -15,13 +15,11 @@ public sealed record LoadOrder(
 /// incompatibleWith 雙方都在選集內則直接拒絕。
 /// </para>
 /// </summary>
-public sealed class LoadOrderResolver
+public static class LoadOrderResolver
 {
     private const string CorePackageId = "ludeon.rimworld";
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service")]
-    public LoadOrder Resolve(IReadOnlyList<ModInfo> selected, IReadOnlyList<ModInfo> available)
+    public static LoadOrder Resolve(IReadOnlyList<ModInfo> selected, IReadOnlyList<ModInfo> available)
     {
         var index = available.ToDictionary(m => m.PackageId, StringComparer.Ordinal);
         var wanted = new HashSet<string>(selected.Select(m => m.PackageId), StringComparer.Ordinal);
