@@ -184,9 +184,73 @@ public sealed class DaemonListenerTests : IDisposable
     [Fact]
     public void ControlCharactersSurviveTheRoundTrip()
     {
-        var text = "tab\there\nandcontrol";
+        var text = "tab\there\nandcontrol";
         _listener.Accept(Line("error", Token, text), Token);
 
         Assert.Equal(text, _diagnostics.Read()[0].Text);
+    }
+
+    /// <summary>
+    /// F02：埠被佔用時 daemon 不可同時失去 Bridge 與 Player.log 診斷。
+    /// 日誌監看必須獨立於 TCP 綁定運作：進入僅日誌模式並寫自述檔，
+    /// 呼叫端才知道 Player.log 仍可用（而不是拿到空診斷誤判無錯誤）。
+    /// </summary>
+    [Fact]
+    public async Task PortConflictStillTailsThePlayerLog()
+    {
+        using var occupier = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        occupier.Start();
+        var port = ((System.Net.IPEndPoint)occupier.LocalEndpoint).Port;
+
+        Directory.CreateDirectory(_root);
+        var log = Path.Combine(_root, "Player.log");
+        File.WriteAllText(log, "Error: fallback check\n");
+
+        var sessions = new TestSessionStore(_store);
+        sessions.Write(new TestSession
+        {
+            State = "running",
+            RunId = "run-f02",
+            PlayerLog = log,
+            LogOffset = 0,
+            BridgePort = port,
+        });
+
+        var listener = new DaemonListener(
+            _store, port, _diagnostics, sessions, new DaemonRecordStore(_store), _gameState);
+
+        using var cancellation = new CancellationTokenSource();
+        var running = listener.RunAsync(cancellation.Token);
+
+        try
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+            var found = false;
+
+            while (DateTime.UtcNow < deadline)
+            {
+                if (_diagnostics.Read().Any(r => r.Text.Contains("fallback check", StringComparison.Ordinal)))
+                {
+                    found = true;
+                    break;
+                }
+
+                await Task.Delay(100);
+            }
+
+            Assert.True(found, "Player.log tailing did not produce diagnostics in log-only mode.");
+            Assert.Contains(
+                _diagnostics.Read(),
+                r => r.Text.Contains("fallback check", StringComparison.Ordinal));
+
+            var record = new DaemonRecordStore(_store).Read();
+            Assert.NotNull(record);
+            Assert.Equal(DaemonRecord.ModeLogOnly, record.Mode);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await running.WaitAsync(TimeSpan.FromSeconds(15));
+        }
     }
 }

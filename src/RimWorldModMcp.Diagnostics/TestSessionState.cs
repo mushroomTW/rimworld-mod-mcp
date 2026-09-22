@@ -8,7 +8,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// <summary>一個測試場次的狀態。</summary>
 public sealed record TestSession
 {
-    /// <summary>idle、starting、running 或 stopped。</summary>
+    /// <summary>idle、starting、running、needs_cleanup 或 stopped。needs_cleanup 代表仍有存活行程或殘留資源待清理，可再次 stop_test。</summary>
     [JsonPropertyName("state")]
     public required string State { get; init; }
 
@@ -155,6 +155,12 @@ public sealed class TestSessionStore(StoreDirectories store)
 /// <summary>daemon 的自述檔，讓其他程序能認出「這個埠是我們的 daemon 佔的」。</summary>
 public sealed record DaemonRecord
 {
+    /// <summary>完整模式：Bridge＋Player.log 皆可用。</summary>
+    public const string ModeFull = "full";
+
+    /// <summary>僅日誌模式：埠被佔用，僅 Player.log 可用。</summary>
+    public const string ModeLogOnly = "log_only";
+
     [JsonPropertyName("pid")]
     public required int Pid { get; init; }
 
@@ -166,6 +172,14 @@ public sealed record DaemonRecord
 
     [JsonPropertyName("start_time_utc")]
     public DateTime? StartTimeUtc { get; init; }
+
+    /// <summary>full（Bridge + Player.log）或 log_only（埠被佔用，僅 Player.log）。</summary>
+    [JsonPropertyName("mode")]
+    public string? Mode { get; init; }
+
+    /// <summary>log_only 時說明 Bridge 不可用的原因。</summary>
+    [JsonPropertyName("reason")]
+    public string? Reason { get; init; }
 }
 
 /// <summary>daemon 自述檔的讀寫。</summary>

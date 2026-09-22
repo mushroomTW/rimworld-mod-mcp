@@ -424,21 +424,26 @@ public sealed class AssemblySymbolReader
         }
     }
 
-    /// <summary>去掉 arity 標記（`1）與泛型引數列表（＜...＞）。</summary>
+    /// <summary>
+    /// 去掉 arity 標記（`1）與泛型引數列表（＜...＞），但保留巢狀層次（F10）。
+    /// 舊作法對整個字串切第一個 backtick／角括號，`Outer`1+Nested` 會直接丟失 `+Nested`，
+    /// 使參數型別顯示錯誤、基底鏈混淆外層與巢狀基底。這裡按頂層 `+` 分層、每層各自去除。
+    /// </summary>
     private static string StripGenericSuffix(string name)
     {
-        var backtick = name.IndexOf('`');
-        var angle = name.IndexOf('<');
+        var parts = MetadataNames.SplitNestedTopLevel(name);
+        var rendered = new string[parts.Length];
 
-        var cut = (backtick, angle) switch
+        for (var i = 0; i < parts.Length; i++)
         {
-            (< 0, < 0) => -1,
-            (< 0, _) => angle,
-            (_, < 0) => backtick,
-            _ => Math.Min(backtick, angle),
-        };
+            var part = parts[i];
+            var (bare, _) = MetadataNames.SplitArity(part);
+            var angle = bare.IndexOf('<');
 
-        return cut < 0 ? name : name[..cut];
+            rendered[i] = angle < 0 ? bare : bare[..angle];
+        }
+
+        return string.Join("+", rendered);
     }
 
     private static List<string> Interfaces(MetadataReader reader, TypeDefinition type, GenericContext context)

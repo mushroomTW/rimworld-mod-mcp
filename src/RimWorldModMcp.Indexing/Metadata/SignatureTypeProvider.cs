@@ -69,10 +69,28 @@ internal sealed class SignatureTypeProvider : ISignatureTypeProvider<string, Gen
 
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
     {
-        // 去掉 arity 標記（List`1 → List）再補上實際的型別引數。
-        var backtick = genericType.LastIndexOf('`');
-        var name = backtick >= 0 ? genericType[..backtick] : genericType;
-        return $"{name}<{string.Join(", ", typeArguments)}>";
+        // 逐層巢狀處理 arity 與型別引數（F10）：genericType 如 `Ns.Outer`1+Nested`，
+        // 直接對整個字串切 backtick 會把 `+Nested` 一併丟掉。
+        // 每層只消耗屬於該層的引數（外層先），無 arity 的巢狀層原樣保留。
+        var parts = MetadataNames.SplitNestedTopLevel(genericType);
+        var rendered = new string[parts.Length];
+        var argIndex = 0;
+
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var (name, arity) = MetadataNames.SplitArity(parts[i]);
+            var take = Math.Min(arity, typeArguments.Length - argIndex);
+
+            if (take > 0)
+            {
+                name += $"<{string.Join(", ", typeArguments.Skip(argIndex).Take(take))}>";
+            }
+
+            rendered[i] = name;
+            argIndex += arity;
+        }
+
+        return string.Join("+", rendered);
     }
 
     public string GetGenericTypeParameter(GenericContext genericContext, int index)

@@ -362,6 +362,11 @@ public sealed record SearchSourceResult
     /// </summary>
     [JsonPropertyName("budget_exceeded")]
     public required bool BudgetExceeded { get; init; }
+
+    /// <summary>Why the result is incomplete (null when complete). time_budget: time ran out with candidates left — narrow file_pattern/pattern/limit and run again. candidate_bytes: candidate size budget ran out — split the corpus with file_pattern and query in parts.</summary>
+    [JsonPropertyName("incomplete_reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IncompleteReason { get; init; }
 }
 
 /// <summary>One matching line in source.</summary>

@@ -401,6 +401,7 @@ public sealed class IndexTools(
                 Indexing = result.Indexing,
                 IndexError = result.Error,
                 BudgetExceeded = result.BudgetExceeded,
+                IncompleteReason = result.IncompleteReason,
             };
         }
 
@@ -417,6 +418,7 @@ public sealed class IndexTools(
             Indexing = progress.Running,
             IndexError = progress.Error,
             BudgetExceeded = search.BudgetExceeded,
+            IncompleteReason = search.IncompleteReason,
         };
     });
 

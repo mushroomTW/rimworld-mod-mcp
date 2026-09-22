@@ -62,4 +62,65 @@ internal static class MetadataNames
 
         return parameters.Count == 0 ? name : $"{name}<{string.Join(", ", parameters)}>";
     }
+
+    /// <summary>按巢狀分隔 `+` 切分，但角括號（泛型引數）內的 `+` 不切。</summary>
+    internal static string[] SplitNestedTopLevel(string name)
+    {
+        var parts = new List<string>();
+        var depth = 0;
+        var start = 0;
+
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+
+            if (c == '<')
+            {
+                depth++;
+            }
+            else if (c == '>')
+            {
+                if (depth > 0)
+                {
+                    depth--;
+                }
+            }
+            else if (c == '+' && depth == 0)
+            {
+                parts.Add(name[start..i]);
+                start = i + 1;
+            }
+        }
+
+        parts.Add(name[start..]);
+        return [.. parts];
+    }
+
+    /// <summary>
+    /// 解析單一巢狀層的名稱與 arity（`N）。回傳去除 arity 標記的名稱與 arity；
+    /// 沒有標記時 arity 為 0。
+    /// </summary>
+    internal static (string Name, int Arity) SplitArity(string segment)
+    {
+        var backtick = segment.LastIndexOf('`');
+
+        if (backtick < 0)
+        {
+            return (segment, 0);
+        }
+
+        var digits = 0;
+
+        while (backtick + 1 + digits < segment.Length && char.IsDigit(segment[backtick + 1 + digits]))
+        {
+            digits++;
+        }
+
+        if (digits == 0 || !int.TryParse(segment.AsSpan(backtick + 1, digits), out var arity))
+        {
+            return (segment, 0);
+        }
+
+        return (segment[..backtick], arity);
+    }
 }

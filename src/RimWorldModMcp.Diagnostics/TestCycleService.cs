@@ -193,9 +193,14 @@ public sealed class TestCycleService(
         return resolved;
     }
 
-    /// <summary>停止測試場次並清理。</summary>
+    /// <summary>停止測試場次並清理。與 Start 共用 test 鎖，避免拆掉啟動中的場次（F06）。</summary>
     public TestSession Stop(bool terminateGame)
     {
+        // 與 Start 同一把跨程序鎖：Start 在「檢查→佈置→啟動」臨界區內持有它，
+        // Stop 若不取鎖會在 starting 中間狀態刪除連結與目錄，造成狀態與環境不一致。
+        // 鎖被佔用時拋 LockHeldException（可重試），而不是靜默破壞啟動中的場次。
+        using var _ = locks.Hold("test", new Dictionary<string, string> { ["operation"] = "stop_test" });
+
         var session = sessions.Read();
 
         if (session.State is "idle" or "stopped")
@@ -250,6 +255,50 @@ public sealed class TestCycleService(
             {
                 // 檔案仍被鎖住；下次啟動的清理會處理掉。
             }
+        }
+
+        // 寫回前驗證 run_id：若期間有新場次寫入（例如另一個 Start 在我們等待鎖後搶先），
+        // 不可用舊工作覆蓋新場次。
+        var current = sessions.Read();
+
+        if (session.RunId is not null && current.RunId is not null
+            && !string.Equals(current.RunId, session.RunId, StringComparison.Ordinal)
+            && current.State is "starting" or "running")
+        {
+            return current;
+        }
+
+        var saveDataRemaining = session.SaveData is not null && Directory.Exists(session.SaveData);
+
+        // 遊戲仍存活或仍有殘留資源時，不可寫無動作的 stopped（會丟掉 PID 與連結追蹤，
+        // 下一次 Stop(true) 因提前返回而永遠清不掉，F05）。
+        if (gameStillAlive || remaining.Count > 0 || saveDataRemaining)
+        {
+            var pending = new TestSession
+            {
+                State = "needs_cleanup",
+                RunId = session.RunId,
+                StartedAt = session.StartedAt,
+                Mod = session.Mod,
+                SaveData = session.SaveData,
+                ActiveMods = session.ActiveMods,
+                SkippedLoadAfter = session.SkippedLoadAfter,
+                Links = remaining,
+                PlayerLog = session.PlayerLog,
+                LogOffset = session.LogOffset,
+                BridgePort = session.BridgePort,
+                Bridge = session.Bridge,
+                Daemon = session.Daemon,
+                DaemonPid = session.DaemonPid,
+                DaemonStartUtc = session.DaemonStartUtc,
+                GamePid = gameStillAlive ? session.GamePid : null,
+                GameStartUtc = gameStillAlive ? session.GameStartUtc : null,
+                PreviousRun = session.RunId,
+                Terminated = new TerminationResult { Daemon = daemonStopped, Game = gameStopped },
+            };
+
+            sessions.Write(pending);
+            return pending;
         }
 
         var stopped = new TestSession

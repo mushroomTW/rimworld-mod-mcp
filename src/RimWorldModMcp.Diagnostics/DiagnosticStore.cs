@@ -62,6 +62,9 @@ public sealed record DiagnosticCursor(long At, long Sequence)
         => record.At > At || (record.At == At && record.Sequence > Sequence);
 }
 
+/// <summary>定位一筆診斷的鍵：型別＋首行＋來源＋場次。</summary>
+public sealed record DiagnosticIdentity(string Type, string FirstLine, string Source, string? RunId);
+
 /// <summary>
 /// 整個測試場次的累計筆數。
 ///
@@ -170,6 +173,67 @@ public sealed class DiagnosticStore(StoreDirectories store)
             Evict(records);
             AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
             BumpTotals(newErrors, newWarnings);
+        }
+    }
+
+    /// <summary>
+    /// 把跨輪詢才寫入的堆疊續行併入最近一筆診斷（F09）。
+    /// 第一輪已把錯誤標題寫入、stack 在下一輪才出現時，下一批的 `at ...` 行
+    /// 本身不含 error/warning，若無此合併會被丟棄。只有當 Type + FirstLine + Source + RunId
+    /// 吻合的最新一筆**同時是整份清單的最後一筆**才合併——期間若已寫入其他診斷，
+    /// 續行歸屬不明，寧可丟棄也不誤併（找不到或非末筆時什麼都不做）。
+    /// </summary>
+    public void AppendContinuation(DiagnosticIdentity identity, string continuationText)
+    {
+        if (string.IsNullOrWhiteSpace(continuationText))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            using var fileLock = AcquireFileLock();
+
+            var records = Read().ToList();
+            EnsureSequenceInitialized(records);
+
+            var index = -1;
+
+            for (var i = records.Count - 1; i >= 0; i--)
+            {
+                var r = records[i];
+
+                if (string.Equals(r.Type, identity.Type, StringComparison.Ordinal)
+                    && string.Equals(r.FirstLine, identity.FirstLine, StringComparison.Ordinal)
+                    && string.Equals(r.Source, identity.Source, StringComparison.Ordinal)
+                    && string.Equals(r.RunId, identity.RunId, StringComparison.Ordinal))
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            if (index < 0 || index != records.Count - 1)
+            {
+                return;
+            }
+
+            var record = records[index];
+            var merged = record.Text + "\n" + continuationText;
+
+            if (merged.Length > MaxTextChars)
+            {
+                merged = merged[..MaxTextChars];
+            }
+
+            records[index] = record with
+            {
+                Text = merged,
+                At = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Sequence = ++_nextSequence,
+            };
+
+            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
         }
     }
 

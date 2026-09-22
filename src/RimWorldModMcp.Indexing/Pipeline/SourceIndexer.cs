@@ -119,6 +119,8 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             using var connection = database.Open();
 
             IndexMetaRepository.Set(connection, "source_index_error", string.Empty);
+            var failures = new List<string>();
+            var skippedTypes = 0;
 
             foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal))
             {
@@ -143,18 +145,39 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
                 // 馬上 search_source(package_id)。分批也讓中途失敗時已寫入的檔案得以保留。
                 var batch = new List<(string Path, string Text)>(BatchSize);
 
-                foreach (var file in decompiler.DecompileAll(assembly, cancellationToken))
+                // F12：無法載入的組件不可標記完成，否則壞 DLL 被永久當成成功快取。
+                // 只要 onUnavailable 被觸發就不寫 done stamp——不論有無部分寫入，
+                // 部分成功的快取仍可能缺檔，下次重試才是安全選項。
+                string? assemblyUnavailable = null;
+                var writtenForAssembly = 0;
+
+                foreach (var file in decompiler.DecompileAll(
+                    assembly, cancellationToken,
+                    onUnavailable: reason => assemblyUnavailable ??= reason,
+                    onTypeSkipped: _ => skippedTypes++))
                 {
                     batch.Add(file);
 
                     if (batch.Count >= BatchSize)
                     {
-                        indexed += Write(connection, name, batch);
+                        var written = Write(connection, name, batch);
+                        indexed += written;
+                        writtenForAssembly += written;
                         Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
                     }
                 }
 
-                indexed += Write(connection, name, batch);
+                var tail = Write(connection, name, batch);
+                indexed += tail;
+                writtenForAssembly += tail;
+
+                if (assemblyUnavailable is not null)
+                {
+                    // 失敗組件不寫完成 stamp，下次仍會重試；累積原因供結尾回報部分完成。
+                    failures.Add($"{name}: {assemblyUnavailable}");
+                    continue;
+                }
+
                 IndexMetaRepository.Set(connection, doneKey, stamp);
             }
 
@@ -168,6 +191,28 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             // 用同一條連線寫 meta。開第二條連線時第一條還活著——WAL 下沒事，
             // 但快取目錄落在 OneDrive／網路磁碟時會退回 DELETE journal，
             // 兩條連線會互卡到 busy_timeout 之後拋 SQLITE_BUSY。
+            // 型別層級略過數一律寫入 meta 以便可觀察（F12）；個別型別失敗不影響整體完成判定。
+            IndexMetaRepository.Set(connection, "source_skipped_types", skippedTypes.ToString());
+
+            // F12：有組件反編譯失敗時不可標完成，否則壞 DLL 被永久當成成功快取；
+            // 明確區分完成與部分完成，失敗原因寫入 meta 以便可觀察。
+            if (failures.Count > 0)
+            {
+                var message = $"Some assemblies could not be decompiled and were skipped: {string.Join("; ", failures)}";
+
+                if (skippedTypes > 0)
+                {
+                    message += $" ({skippedTypes} types skipped during decompilation)";
+                }
+
+                IndexMetaRepository.Set(connection, "source_indexed", "false");
+                IndexMetaRepository.Set(connection, "source_file_count", indexed.ToString());
+                IndexMetaRepository.Set(connection, "source_index_error", message);
+
+                stopwatch.Stop();
+                return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, message));
+            }
+
             IndexMetaRepository.Set(connection, "source_indexed", "true");
             IndexMetaRepository.Set(connection, "source_file_count", indexed.ToString());
 

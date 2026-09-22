@@ -264,4 +264,46 @@ public sealed class SourceQueryServiceTests : IDisposable
         Assert.Contains("Simplify it", error.Message, StringComparison.Ordinal);
         Assert.Contains("Verse/Slow.cs", error.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// F01：目標排在多個不符檔案之後時，分頁必須能找到它，而不是在固定候選窗後靜默截斷。
+    /// 舊實作只看前 limit*4 個檔：5 個不符檔 + 目標，limit=1 時目標永遠看不到，
+    /// 卻同時回報零筆、未達上限、未超預算（誤導為「不存在」）。
+    /// </summary>
+    [Fact]
+    public void TargetBeyondTheOldCandidateWindowIsFoundByPaging()
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            SourceFileRepository.Insert(_connection, "Assembly-CSharp", $"Paging/Noise{i}.cs",
+                $"public class PagingNoise{i}\n{{\n    public void NothingHere{i}() {{ }}\n}}\n");
+        }
+
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Paging/Target.cs", "42\n");
+
+        var result = _queries.Search(_connection, @"^\d+$", null, 1);
+
+        Assert.False(result.BudgetExceeded);
+        Assert.Null(result.IncompleteReason);
+        Assert.Single(result.Hits);
+        Assert.Equal("Paging/Target.cs", result.Hits[0].File);
+    }
+
+    /// <summary>
+    /// F03：負向後顧與具名群組的內容不可被當成必需關鍵字。
+    /// `(?&lt;!Async)RenderZone` 的 Async 只是條件，`(?&lt;capture&gt;RenderZone)` 的 capture 只是組名；
+    /// 把它們當必現詞會在 FTS 預篩選就剔除正確檔案，regex 沒機會執行。
+    /// </summary>
+    [Theory]
+    [InlineData("(?<!Async)RenderZone")]
+    [InlineData("(?<capture>RenderZone)")]
+    public void LookbehindAndNamedGroupDoNotBecomeRequiredKeywords(string pattern)
+    {
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Zone.cs",
+            "public class Zone\n{\n    public void RenderZone() { }\n}\n");
+
+        var result = _queries.Search(_connection, pattern, "Verse/Zone.cs", 10);
+
+        Assert.Contains(result.Hits, hit => hit.File == "Verse/Zone.cs");
+    }
 }

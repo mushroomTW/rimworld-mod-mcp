@@ -25,14 +25,15 @@ public sealed record ModAssemblyInfo(
 /// <summary>
 /// Mod 原始碼搜尋結果。<paramref name="Indexing"/> 為 true 代表索引正在背景建立、
 /// 本次沒有搜；<paramref name="Error"/> 是上一次背景索引失敗的原因；
-/// <paramref name="BudgetExceeded"/> 為 true 代表搜尋用完時間預算，結果不完整。
+/// <paramref name="BudgetExceeded"/> 為 true 代表搜尋用完時間／候選預算，結果不完整。
 /// </summary>
 public sealed record ModSearchResult(
     IReadOnlyList<SourceHit> Hits,
     bool SourceIndexed,
     bool Indexing,
     string? Error,
-    bool BudgetExceeded = false);
+    bool BudgetExceeded = false,
+    string? IncompleteReason = null);
 
 /// <summary>
 /// 按需檢視已安裝 Mod 的組件。
@@ -209,7 +210,7 @@ public sealed class ModInspectionService(
             return new ModSearchResult([], SourceIndexed: false, Indexing: false, Error: null);
         }
 
-        if (!IsIndexed(packageId, modPath, assemblies))
+        if (!IsIndexed(packageId, modPath, assemblies) || HasStaleAssemblies(packageId, modPath, assemblies))
         {
             if (_indexErrors.TryGetValue(packageId, out var error))
             {
@@ -233,7 +234,40 @@ public sealed class ModInspectionService(
             SourceIndexed: true,
             Indexing: false,
             Error: null,
-            search.BudgetExceeded);
+            search.BudgetExceeded,
+            search.IncompleteReason);
+    }
+
+    /// <summary>
+    /// 索引是否含已刪除組件的殘留鍵。只讀，不取鎖；
+    /// 有殘留即視為未索引，觸發背景重整（其內的 ForgetStale 會清掉幽靈版本）。
+    /// </summary>
+    private bool HasStaleAssemblies(string packageId, string modPath, IReadOnlyList<string> assemblies)
+    {
+        var live = assemblies
+            .Select(a => AssemblyKey(packageId, modPath, a))
+            .ToHashSet(StringComparer.Ordinal);
+
+        using var connection = database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT assembly FROM symbol WHERE assembly LIKE $like ESCAPE '\'
+            UNION
+            SELECT assembly FROM source_file WHERE assembly LIKE $like ESCAPE '\';
+            """;
+        command.Parameters.AddWithValue("$like", AssemblyLike(packageId, null));
+
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            if (!live.Contains(reader.GetString(0)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>所有組件的 stamp 都與快取一致才算已索引。只讀，不取鎖。</summary>

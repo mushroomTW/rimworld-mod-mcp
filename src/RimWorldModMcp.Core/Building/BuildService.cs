@@ -87,6 +87,8 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
         if (projects.Length == 0)
         {
+            ValidateGameXml(mod);
+
             return new BuildResult
             {
                 Kind = "xml_only",
@@ -171,6 +173,48 @@ public sealed partial class BuildService(RimWorldLocator locator)
             Warnings = warnings,
             Message = message,
         };
+    }
+
+    /// <summary>
+    /// 驗證交給遊戲讀取的 XML 是否 well-formed（Defs/、Patches/ 底下所有 .xml）。
+    /// 只做格式檢查，不做語意驗證；格式錯誤即拋出並帶檔案與行列。
+    /// </summary>
+    private static void ValidateGameXml(string mod)
+    {
+        foreach (var folder in (string[])["Defs", "Patches"])
+        {
+            var root = Path.Combine(mod, folder);
+
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.GetFiles(root, "*.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                ValidateOneXml(mod, file);
+            }
+        }
+    }
+
+    private static void ValidateOneXml(string mod, string file)
+    {
+        var relative = Path.GetRelativePath(mod, file).Replace('\\', '/');
+
+        try
+        {
+            using var stream = File.OpenRead(file);
+            XDocument.Load(stream);
+        }
+        catch (System.Xml.XmlException e)
+        {
+            throw new InvalidOperationException(
+                $"Invalid XML in {relative} (line {e.LineNumber}, position {e.LinePosition}): {e.Message}");
+        }
+        catch (IOException e)
+        {
+            throw new InvalidOperationException($"Could not read {relative}: {e.Message}");
+        }
     }
 
     private static void ValidateAbout(string mod)

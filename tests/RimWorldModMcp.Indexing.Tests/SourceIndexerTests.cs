@@ -126,4 +126,30 @@ public sealed class SourceIndexerTests : IDisposable
     {
         Assert.False(_indexer.IsInterrupted());
     }
+
+    /// <summary>
+    /// F12：遊戲 DLL 無法反編譯時，來源索引不可標記完成。
+    /// 舊實作在 DecompileAll 回空集合後照常寫 done 與 source_indexed=true，
+    /// 壞掉的 DLL 被永久當成成功快取。
+    /// </summary>
+    [Fact]
+    public void UnloadableGameAssemblyIsNotMarkedDone()
+    {
+        var managed = Path.Combine(_root, "RimWorld", ManagedRelativePath());
+        File.WriteAllBytes(
+            Path.Combine(managed, "Assembly-CSharp.dll"),
+            "this is not a .NET assembly"u8.ToArray());
+
+        var progress = _indexer.Run();
+
+        Assert.False(progress.Completed);
+        Assert.NotNull(progress.Error);
+        Assert.Contains("Assembly-CSharp", progress.Error, StringComparison.Ordinal);
+
+        using var connection = _database.Open();
+        Assert.NotEqual("true", IndexMetaRepository.Get(connection, "source_indexed"));
+        Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp"));
+        // 型別層級略過數一律可觀察（成功時為 0）。
+        Assert.NotNull(IndexMetaRepository.Get(connection, "source_skipped_types"));
+    }
 }

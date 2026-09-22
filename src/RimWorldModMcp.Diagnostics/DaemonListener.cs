@@ -62,22 +62,47 @@ public sealed class DaemonListener(
     /// </summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        var listener = new TcpListener(IPAddress.Loopback, bridgePort);
+        // 日誌監看必須獨立於 TCP 綁定：埠被佔用時仍要收集 Player.log，
+        // 否則 Bridge 與 Player.log 診斷會同時遺失（F02）。
+        var tailer = new PlayerLogTailer(sessions, diagnostics);
+        var tailing = tailer.RunAsync(cancellationToken);
 
-        listener.Start();
+        TcpListener? listener = null;
 
         try
         {
+            listener = new TcpListener(IPAddress.Loopback, bridgePort);
+
+            try
+            {
+                listener.Start();
+            }
+            catch (SocketException e) when (e.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            {
+                // 埠被其他程式佔用：進入僅日誌模式，Bridge 不可用但 Player.log 仍 tail。
+                // 自述檔照寫，Bootstrapper 才能認出這是自己人並回報降級狀態，而不是誤報 unavailable。
+                records.Write(new DaemonRecord
+                {
+                    Pid = Environment.ProcessId,
+                    Port = bridgePort,
+                    StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    StartTimeUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
+                    Mode = DaemonRecord.ModeLogOnly,
+                    Reason = $"Port {bridgePort} is held by a non-service process; the Bridge cannot report diagnostics. Player.log tailing remains active.",
+                });
+
+                await tailing;
+                return;
+            }
+
             records.Write(new DaemonRecord
             {
                 Pid = Environment.ProcessId,
                 Port = bridgePort,
                 StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 StartTimeUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
+                Mode = DaemonRecord.ModeFull,
             });
-
-            var tailer = new PlayerLogTailer(sessions, diagnostics);
-            var tailing = tailer.RunAsync(cancellationToken);
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -100,7 +125,7 @@ public sealed class DaemonListener(
         }
         finally
         {
-            listener.Stop();
+            listener?.Stop();
             records.ClearIfOwnedBy(Environment.ProcessId);
         }
     }

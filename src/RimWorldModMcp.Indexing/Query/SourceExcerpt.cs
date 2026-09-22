@@ -37,14 +37,16 @@ public sealed record SourceExcerpt(string Text, int StartLine, int EndLine, int 
         for (var i = first - 1; i < total; i++)
         {
             var line = lines[i].TrimEnd('\r');
-            var cost = System.Text.Encoding.UTF8.GetByteCount(line) + (buffer.Length > 0 ? 1 : 0);
+            // 以已加入行數判斷分隔符：前導空行 Length 仍為 0，用 buffer.Length 會吞掉換行。
+            var hasLines = last >= first;
+            var cost = System.Text.Encoding.UTF8.GetByteCount(line) + (hasLines ? 1 : 0);
 
             if (bytes + cost > maxBytes)
             {
                 break;
             }
 
-            if (buffer.Length > 0)
+            if (hasLines)
             {
                 buffer.Append('\n');
             }

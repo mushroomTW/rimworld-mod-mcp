@@ -59,6 +59,20 @@ public sealed class SourceExcerptTests
         Assert.False(excerpt.Truncated);
     }
 
+    /// <summary>
+    /// F13：前導空行不可被吞掉，否則文字與行號不一致
+    ///（Text 缺兩行，StartLine/EndLine 卻照原始行數推進）。
+    /// 舊實作以 buffer.Length 判斷分隔符，空字串 Length 仍為 0 而不加換行。
+    /// </summary>
+    [Fact]
+    public void LeadingBlankLinesArePreserved()
+    {
+        var excerpt = SourceExcerpt.Take("\n\nclass Demo {}", 1, 1024);
+
+        Assert.Equal("\n\nclass Demo {}", excerpt.Text);
+        Assert.Equal((1, 3, 3, false), (excerpt.StartLine, excerpt.EndLine, excerpt.TotalLines, excerpt.Truncated));
+    }
+
     /// <summary>照文件用 end_line + 1 翻頁必須能前進，且最後會停在空頁。</summary>
     [Fact]
     public void PagingByEndLineReachesAnEmptyPageAndStops()

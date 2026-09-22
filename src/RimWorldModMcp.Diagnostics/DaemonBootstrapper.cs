@@ -40,11 +40,17 @@ public sealed class DaemonBootstrapper(
             && processes.IsAlive(existing.Pid)
             && StartTimeMatches(existing))
         {
+            // 沿用既有 daemon：若它是 log_only 降級模式，把實際可用來源如實回報。
+            var reusedReason = existing.Mode == DaemonRecord.ModeLogOnly
+                ? existing.Reason ?? $"Port {port} is held by a non-service process; the Bridge cannot report diagnostics. Player.log tailing remains active."
+                : null;
+
             return (new DaemonState
             {
                 State = "reused",
                 Port = port,
                 OwnerPid = existing.Pid,
+                Reason = reusedReason,
             }, null);
         }
 
@@ -61,9 +67,10 @@ public sealed class DaemonBootstrapper(
         {
             if (process.HasExited)
             {
-                // 子行程綁不到埠就會用這個離開碼退出，代表埠被別人佔著。
+                // 子行程若在寫自述檔前就退出（例如埠被佔且 tailer 未能啟動），
+                // Bridge 與 Player.log 皆不可用，不可再宣稱有 Player.log 備援。
                 var reason = process.ExitCode == PortInUseExitCode
-                    ? $"Port {port} is held by a non-service process; the Bridge cannot report diagnostics and this run falls back to Player.log only."
+                    ? $"Port {port} is held by a non-service process and the diagnostics daemon exited before Player.log tailing started; neither Bridge nor Player.log diagnostics are available for this run."
                       + $" Set RIMWORLD_MOD_MCP_BRIDGE_PORT to use another port."
                     : $"Diagnostics daemon failed to start (exit code {process.ExitCode}).";
 
@@ -72,14 +79,19 @@ public sealed class DaemonBootstrapper(
 
             var record = records.Read();
 
-            // 自述檔在 bind 成功之後才寫，所以看到它就代表埠真的是我們的。
+            // 自述檔在 bind 成功（或進入 log_only 降級）之後才寫，所以看到它就代表是我們的 daemon。
             if (record is not null && record.Pid == process.Id && record.Port == port)
             {
+                var startedReason = record.Mode == DaemonRecord.ModeLogOnly
+                    ? record.Reason ?? $"Port {port} is held by a non-service process; the Bridge cannot report diagnostics. Player.log tailing remains active."
+                    : null;
+
                 return (new DaemonState
                 {
                     State = "started",
                     Port = port,
                     OwnerPid = process.Id,
+                    Reason = startedReason,
                 }, process.Id);
             }
 

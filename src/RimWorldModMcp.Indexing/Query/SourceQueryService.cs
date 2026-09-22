@@ -14,8 +14,15 @@ public sealed record SourceHit(string Assembly, string File, int Line, string Te
 /// <param name="BudgetExceeded">
 /// true 代表時間預算用完時還有候選檔案沒掃完——結果**不完整**。
 /// 這必須回報給呼叫端：把「掃到一半」誤當成「掃完了」是靜默的 false negative。
+/// 候選數上限與候選字元預算截斷同樣視為不完整（見 <see cref="IncompleteReason"/>）。
 /// </param>
-public sealed record SourceSearchResult(IReadOnlyList<SourceHit> Hits, bool BudgetExceeded);
+/// <param name="IncompleteReason">
+/// 結果不完整的原因，完整時為 null。呼叫端據此繼續搜尋：
+/// time_budget（時間預算用完，還有候選檔沒掃）→ 縮小範圍（file_pattern、
+/// 更具體的 pattern、較小的 limit）後重查；candidate_bytes（候選字元預算用完）
+/// → 同上，且優先以 file_pattern 切分 corpus 再分次查詢。
+/// </param>
+public sealed record SourceSearchResult(IReadOnlyList<SourceHit> Hits, bool BudgetExceeded, string? IncompleteReason = null);
 
 /// <summary>
 /// 對反編譯後的原始碼做搜尋。
@@ -30,6 +37,12 @@ public sealed class SourceQueryService
 {
     /// <summary>單行回傳的字元上限，避免壓縮過的長行灌爆輸出。</summary>
     private const int MaxLineLength = 1000;
+
+    /// <summary>結果不完整的原因代碼（見 <see cref="SourceSearchResult"/>）。</summary>
+    public const string IncompleteTimeBudget = "time_budget";
+
+    /// <summary>結果不完整的原因代碼（見 <see cref="SourceSearchResult"/>）。</summary>
+    public const string IncompleteCandidateBytes = "candidate_bytes";
 
     /// <summary>
     /// 單行比對的逾時。這是災難性回溯的偵測點。
@@ -75,58 +88,82 @@ public sealed class SourceQueryService
         var results = new List<SourceHit>(Math.Min(cap, 128));
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-        foreach (var (assembly, path, text) in Candidates(connection, pattern, filePattern, cap, assemblyLike))
+        // F01：候選查詢分頁，直到命中上限或實際用完時間／容量預算。
+        // 固定只看前 limit*4 個檔時，目標在截斷點之後即靜默漏報（零筆＋未超預算）。
+        const int pageSize = 500;
+        var baseSql = BuildCandidateSql(pattern, filePattern, assemblyLike);
+        var consumed = 0L;
+        var offset = 0;
+
+        while (true)
         {
-            if (stopwatch.Elapsed > SearchBudget)
+            var (page, hasMore) = QueryCandidatePage(connection, baseSql, pageSize, offset);
+
+            foreach (var (assembly, path, text) in page)
             {
-                return new SourceSearchResult(results, BudgetExceeded: true);
+                if (stopwatch.Elapsed > SearchBudget)
+                {
+                    return new SourceSearchResult(results, BudgetExceeded: true, IncompleteReason: IncompleteTimeBudget);
+                }
+
+                consumed += text.Length;
+
+                if (consumed > MaxCandidateChars)
+                {
+                    return new SourceSearchResult(results, BudgetExceeded: true, IncompleteReason: IncompleteCandidateBytes);
+                }
+
+                var line = 0;
+
+                foreach (var content in text.Split('\n'))
+                {
+                    line++;
+
+                    bool matched;
+
+                    try
+                    {
+                        matched = regex.IsMatch(content);
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        // 單行超過 MatchTimeout 代表模式有災難性回溯。訊息要說「怎麼改」，
+                        // 而不是只說「逾時」——呼叫端是 LLM，它會照著訊息調整模式。
+                        // （RegexMatchTimeoutException 繼承 TimeoutException，
+                        //   所以 ToolGuard 會把這個訊息原樣送達。）
+                        throw new TimeoutException(
+                            $"The pattern took longer than {MatchTimeout.TotalSeconds:0}s on a single line of {path}. "
+                            + "Simplify it — prefer literal words (e.g. CurTimeSpeed) over nested quantifiers, "
+                            + "or narrow the search with file_pattern.");
+                    }
+
+                    if (!matched)
+                    {
+                        continue;
+                    }
+
+                    // 縮排對呼叫端沒有意義，前導 tab 卻每列都要算 token。
+                    var trimmed = content.Trim();
+                    results.Add(new SourceHit(
+                        assembly,
+                        path,
+                        line,
+                        trimmed.Length > MaxLineLength ? trimmed[..MaxLineLength] : trimmed));
+
+                    if (results.Count >= cap)
+                    {
+                        return new SourceSearchResult(results, BudgetExceeded: false);
+                    }
+                }
             }
 
-            var line = 0;
-
-            foreach (var content in text.Split('\n'))
+            if (!hasMore)
             {
-                line++;
-
-                bool matched;
-
-                try
-                {
-                    matched = regex.IsMatch(content);
-                }
-                catch (RegexMatchTimeoutException)
-                {
-                    // 單行超過 MatchTimeout 代表模式有災難性回溯。訊息要說「怎麼改」，
-                    // 而不是只說「逾時」——呼叫端是 LLM，它會照著訊息調整模式。
-                    // （RegexMatchTimeoutException 繼承 TimeoutException，
-                    //   所以 ToolGuard 會把這個訊息原樣送達。）
-                    throw new TimeoutException(
-                        $"The pattern took longer than {MatchTimeout.TotalSeconds:0}s on a single line of {path}. "
-                        + "Simplify it — prefer literal words (e.g. CurTimeSpeed) over nested quantifiers, "
-                        + "or narrow the search with file_pattern.");
-                }
-
-                if (!matched)
-                {
-                    continue;
-                }
-
-                // 縮排對呼叫端沒有意義，前導 tab 卻每列都要算 token。
-                var trimmed = content.Trim();
-                results.Add(new SourceHit(
-                    assembly,
-                    path,
-                    line,
-                    trimmed.Length > MaxLineLength ? trimmed[..MaxLineLength] : trimmed));
-
-                if (results.Count >= cap)
-                {
-                    return new SourceSearchResult(results, BudgetExceeded: false);
-                }
+                return new SourceSearchResult(results, BudgetExceeded: false);
             }
+
+            offset += pageSize;
         }
-
-        return new SourceSearchResult(results, BudgetExceeded: false);
     }
 
     /// <summary>
@@ -137,12 +174,16 @@ public sealed class SourceQueryService
     /// 最壞情況會把數百 MB 的字串一次拉進記憶體。</summary>
     private const long MaxCandidateChars = 32L * 1024 * 1024;
 
-    private static IEnumerable<(string Assembly, string Path, string Text)> Candidates(
-        SqliteConnection connection,
-        string pattern,
-        string? filePattern,
-        int limit,
-        string? assemblyLike)
+    private sealed record CandidateQuery(
+        string Sql,
+        string Match,
+        string? PathLike,
+        string? AssemblyLike,
+        bool HasMatch,
+        bool HasPath,
+        bool HasAssembly);
+
+    private static CandidateQuery BuildCandidateSql(string pattern, string? filePattern, string? assemblyLike)
     {
         var match = BuildMatch(pattern);
 
@@ -155,7 +196,9 @@ public sealed class SourceQueryService
               """
             : "SELECT assembly, path, text FROM source_file s WHERE 1=1";
 
-        if (!string.IsNullOrEmpty(filePattern) && filePattern != "*")
+        var hasPath = !string.IsNullOrEmpty(filePattern) && filePattern != "*";
+
+        if (hasPath)
         {
             sql += " AND s.path LIKE $path ESCAPE '\\'";
         }
@@ -174,45 +217,61 @@ public sealed class SourceQueryService
             sql += " ORDER BY rank";
         }
 
-        // 候選檔案數放寬到命中上限的數倍：一個檔案裡可能有多行命中，
-        // 但也可能一行都沒有（FTS 命中的關鍵字出現在別處）。
-        sql += " LIMIT $limit";
+        return new CandidateQuery(
+            sql,
+            match,
+            hasPath ? GlobToLike(filePattern!) : null,
+            !string.IsNullOrEmpty(assemblyLike) ? assemblyLike : null,
+            match.Length > 0,
+            hasPath,
+            !string.IsNullOrEmpty(assemblyLike));
+    }
 
+    /// <summary>
+    /// 取一頁候選檔案。`hasMore` 為 true 代表後面還有未掃檔案。
+    /// 多取一筆偵測，避免恰好掃完時誤報不完整。
+    /// </summary>
+    private static (List<(string Assembly, string Path, string Text)> Page, bool HasMore) QueryCandidatePage(
+        SqliteConnection connection,
+        CandidateQuery baseQuery,
+        int pageSize,
+        int offset)
+    {
         using var command = connection.CreateCommand();
-        command.CommandText = sql;
+        command.CommandText = baseQuery.Sql + " LIMIT $limit OFFSET $offset";
 
-        if (match.Length > 0)
+        if (baseQuery.HasMatch)
         {
-            command.Parameters.AddWithValue("$match", match);
+            command.Parameters.AddWithValue("$match", baseQuery.Match);
         }
 
-        if (!string.IsNullOrEmpty(filePattern) && filePattern != "*")
+        if (baseQuery.HasPath)
         {
-            command.Parameters.AddWithValue("$path", GlobToLike(filePattern));
+            command.Parameters.AddWithValue("$path", baseQuery.PathLike!);
         }
 
-        if (!string.IsNullOrEmpty(assemblyLike))
+        if (baseQuery.HasAssembly)
         {
-            command.Parameters.AddWithValue("$assembly", assemblyLike);
+            command.Parameters.AddWithValue("$assembly", baseQuery.AssemblyLike!);
         }
 
-        command.Parameters.AddWithValue("$limit", limit * 4);
+        command.Parameters.AddWithValue("$limit", pageSize + 1);
+        command.Parameters.AddWithValue("$offset", offset);
 
         using var reader = command.ExecuteReader();
-        var consumed = 0L;
+        var items = new List<(string Assembly, string Path, string Text)>(Math.Min(pageSize, 256));
 
         while (reader.Read())
         {
-            var text = reader.GetString(2);
-            consumed += text.Length;
-
-            yield return (reader.GetString(0), reader.GetString(1), text);
-
-            if (consumed > MaxCandidateChars)
+            if (items.Count >= pageSize)
             {
-                yield break;
+                return (items, true);
             }
+
+            items.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2)));
         }
+
+        return (items, false);
     }
 
     /// <summary>
@@ -420,9 +479,13 @@ public sealed class SourceQueryService
         (@"\\(?:x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|.)", " "),
         // 字元類 [abc]：只需其中一個字元，裡面的字面不是必定出現。
         (@"\[[^\]]*\]", " "),
-        // lookaround (?!Bar) (?=Bar) (?<!Bar) (?<=Bar)：內容是條件不是必定出現，
+        // 具名群組 (?<name>...) (?'name'...) (?P<name>...)：群組名稱不是來源文字，
+        // 只剝掉名稱前綴、保留群組內容（(?<capture>RenderZone) 必然出現 RenderZone）。
+        (@"\(\?<'?[A-Za-z_][A-Za-z0-9_]*'?>", "("),
+        (@"\(\?P<[A-Za-z_][A-Za-z0-9_]*>", "("),
+        // lookaround (?=Bar) (?!Bar) (?<=Bar) (?<!Bar)：內容是條件不是必定出現，
         // 抽成必要關鍵字會把符合目標的檔案濾掉（Foo(?!Bar) 把 Bar 當必現詞）。
-        (@"\(\?[=!]<?(?:[^()]|\([^()]*\))*\)", " "),
+        (@"\(\?(?:[=!]|<[=!])(?:[^()]|\([^()]*\))*\)", " "),
         // 含 alternation 的群組 (Foo|Bar)：其中一支可以不出現，整個群組都不是必定出現。
         // 要在前面那些只處理單一「原子」的規則之後，否則 Foo(Bar|Baz) 會先被吃成半截。
         (@"\([^()]*\|[^()]*\)(?:\?|\*|\{0,?\d*\})?", " "),

@@ -188,9 +188,16 @@ public sealed class IndexBuilder(
 
         // 健康度一定要先查（獨立連線跑 quick_check）：不健康時資料表計數本身會拋例外。
         // 忙碌與損毀必須分開——它們的正確反應完全不同（稍後重試 vs. 重建）。
+        // F11：不健康時不可再開連線讀資料表，否則 NOTADB／CORRUPT 逃出，
+        // rimworld_status 無法按結構化契約回報 healthy=false。
         var health = database.Check();
         var busy = health == IndexDatabase.Health.Busy;
         var healthy = health == IndexDatabase.Health.Ok;
+
+        if (!healthy)
+        {
+            return new IndexStatus(false, healthy, busy, null, 0, 0, false, new SourceIndexState(false, 0, null));
+        }
 
         using var connection = database.Open();
 
@@ -205,6 +212,11 @@ public sealed class IndexBuilder(
             // DELETE journal 模式下讀者也會被寫鎖擋住。狀態工具仍應該回答
             // 「有人在寫」而不是整個失敗，所以這裡吞掉並讓下面的 busy 說明原因。
         }
+        catch (SqliteException e) when (SqliteCorruption.IsCorrupt(e))
+        {
+            // Check 通過後資料表仍可能損毀（競態）：降級為不健康而非拋錯。
+            return CorruptStatus(null);
+        }
 
         // 兩邊都必須是實際算得出來的值才談得上一致；
         // 偵測不到遊戲時 current 為 null，這種情況一律視為不新鮮。
@@ -212,21 +224,27 @@ public sealed class IndexBuilder(
             && !string.IsNullOrEmpty(stored)
             && string.Equals(stored, current, StringComparison.Ordinal);
 
-        if (!healthy)
+        try
         {
-            return new IndexStatus(fresh, healthy, busy, stored, 0, 0, false, new SourceIndexState(false, 0, null));
+            return new IndexStatus(
+                fresh,
+                healthy,
+                busy,
+                stored,
+                DefRepository.Count(connection),
+                SymbolRepository.Count(connection),
+                IndexMetaRepository.Get(connection, "source_indexed") == "true",
+                SourceIndexState(connection));
         }
-
-        return new IndexStatus(
-            fresh,
-            healthy,
-            busy,
-            stored,
-            DefRepository.Count(connection),
-            SymbolRepository.Count(connection),
-            IndexMetaRepository.Get(connection, "source_indexed") == "true",
-            SourceIndexState(connection));
+        catch (SqliteException e) when (SqliteCorruption.IsCorrupt(e))
+        {
+            return CorruptStatus(stored);
+        }
     }
+
+    /// <summary>損毀時的降級狀態：結構化回報不健康，不再依賴資料表內容。</summary>
+    private static IndexStatus CorruptStatus(string? stored)
+        => new(false, false, false, stored, 0, 0, false, new SourceIndexState(false, 0, null));
 
     private SourceIndexState SourceIndexState(SqliteConnection connection)
     {

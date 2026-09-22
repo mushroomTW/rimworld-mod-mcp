@@ -77,4 +77,78 @@ public sealed class NestedGenericTypeTests : IDisposable
         Assert.Equal("DistanceComparer", constructor.ShortName);
         Assert.Equal("Verse.Dijkstra<T>+DistanceComparer.DistanceComparer", constructor.Fqn);
     }
+
+    /// <summary>
+    /// F10：泛型實例化為參數時，巢狀層不可被截掉。
+    /// `Take(Outer&lt;int&gt;.Nested)` 舊實作顯示為 `Take(Outer&lt;int&gt;)`。
+    /// </summary>
+    [Fact]
+    public void NestedGenericInstantiationInParameterKeepsTheNestedLevel()
+    {
+        const string source = """
+            namespace Verse
+            {
+                public class Outer<T>
+                {
+                    public class Nested { }
+                    public void Take(Outer<int>.Nested value) { }
+                }
+            }
+            """;
+
+        var root = Path.Combine(Path.GetTempPath(), "rwmm-nested-param-" + Guid.NewGuid().ToString("n")[..12]);
+
+        try
+        {
+            var symbols = new AssemblySymbolReader().Read(SyntheticAssembly.Emit(source, "Assembly-CSharp", root));
+            var method = symbols.Single(s => s.Kind == SymbolKind.Method && s.ShortName == "Take");
+
+            Assert.Contains("Outer<int>+Nested", method.Signature, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// F10：巢狀泛型為基底時，基底鏈不可混淆為外層型別。
+    /// `Derived : Outer&lt;int&gt;.Nested` 舊鏈為 `Outer|Object`。
+    /// </summary>
+    [Fact]
+    public void NestedGenericBaseChainKeepsTheNestedLevel()
+    {
+        const string source = """
+            namespace Verse
+            {
+                public class Outer<T>
+                {
+                    public class Nested { }
+                }
+                public class Derived : Outer<int>.Nested { }
+            }
+            """;
+
+        var root = Path.Combine(Path.GetTempPath(), "rwmm-nested-base-" + Guid.NewGuid().ToString("n")[..12]);
+
+        try
+        {
+            var symbols = new AssemblySymbolReader().Read(SyntheticAssembly.Emit(source, "Assembly-CSharp", root));
+            var derived = symbols.Single(s => s.Kind == SymbolKind.Class && s.ShortName == "Derived");
+
+            Assert.NotNull(derived.BaseChain);
+            Assert.Contains("Verse.Outer+Nested", derived.BaseChain!, StringComparison.Ordinal);
+            Assert.DoesNotContain("Verse.Outer|", derived.BaseChain!, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
 }

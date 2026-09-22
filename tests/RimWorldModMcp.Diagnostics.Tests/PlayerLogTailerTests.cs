@@ -213,6 +213,53 @@ public sealed class PlayerLogTailerTests : IDisposable
         Assert.Contains("at C.D()", batch[1].Text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// F08：日誌重建且快速長大時不可漏掉開頭的錯誤。
+    /// 僅以 length &lt; offset 判斷換檔時，重建後的新檔若已超過舊 offset，
+    /// 會被誤認為原檔而直接跳過開頭。
+    /// </summary>
+    [Fact]
+    public void RecreatedLogLongerThanTheOldOffsetIsReadFromTheStart()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        File.WriteAllText(log, new string('x', 60) + "\nerror: old\n", new UTF8Encoding(false));
+
+        var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        // 重建（刪除後重建，新檔開頭即錯誤，且總長度已超過舊 offset）。
+        File.Delete(log);
+        File.WriteAllText(
+            log,
+            "Error: early failure\n" + new string('y', 200) + "\n",
+            new UTF8Encoding(false));
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        Assert.Contains(
+            _diagnostics.Read().Select(record => record.Text),
+            text => text.Contains("early failure", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// F09：錯誤標題與堆疊分處兩輪輪詢時，堆疊不可遺失。
+    /// 上一批尾是診斷、本批頭是 `at ...` 續行時，必須併入同一筆。
+    /// </summary>
+    [Fact]
+    public void StackTraceAcrossPollsIsMergedIntoTheSameDiagnostic()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        File.WriteAllText(log, "Error: failed\n", new UTF8Encoding(false));
+
+        var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        File.AppendAllText(log, "  at Example.Work()\n", new UTF8Encoding(false));
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        var entry = Assert.Single(_diagnostics.Read());
+        Assert.Contains("Example.Work()", entry.Text, StringComparison.Ordinal);
+    }
+
     private static TestSession Session(string playerLog, long logOffset = 0) => new()
     {
         State = "running",

@@ -105,10 +105,12 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
     /// </para>
     /// </summary>
     /// <param name="onUnavailable">組件無法載入時呼叫一次，參數是給人看的原因。</param>
+    /// <param name="onTypeSkipped">個別型別反編譯失敗被跳過時呼叫一次，參數是型別全名（F12 的略過統計用）。</param>
     public IEnumerable<(string Path, string Text)> DecompileAll(
         string assemblyPath,
         CancellationToken cancellationToken = default,
-        Action<string>? onUnavailable = null)
+        Action<string>? onUnavailable = null,
+        Action<string>? onTypeSkipped = null)
     {
         var attempt = TryHandle(assemblyPath);
 
@@ -155,6 +157,15 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
                             // 「returncode 非 0 但有產出 .cs 就算成功」的寬容規則。
                             // 並行淘汰造成的 ObjectDisposedException 也在這裡被吃掉，
                             // 變成該型別的靜默跳過，而不是整個組件失敗。
+                            try
+                            {
+                                onTypeSkipped?.Invoke(Metadata.MetadataNames.FullName(reader, type));
+                            }
+                            catch
+                            {
+                                // 統計回呼不可影響反編譯主流程。
+                            }
+
                             continue;
                         }
                     }

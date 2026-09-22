@@ -185,6 +185,37 @@ public sealed class ModInspectionServiceTests : IDisposable
     }
 
     /// <summary>
+    /// F04：Mod 刪除 DLL 後，搜尋不可繼續回傳舊組件內容。
+    /// 舊 IsIndexed 只比對現存 DLL 的 stamp，集合縮小不觸發重整；
+    /// 必須把殘留鍵視為未索引（觸發背景重整），而不是回 SourceIndexed=true 的幽靈命中。
+    /// </summary>
+    [Fact]
+    public async Task SearchAfterAssemblyRemovalDoesNotServeStaleContent()
+    {
+        _service.Inspect("pkg", _modPath);
+        Assert.NotEmpty(_service.TrySearchSource("pkg", _modPath, "TryStartJob", 10).Hits);
+
+        Directory.Delete(Path.Combine(_modPath, "1.5"), recursive: true);
+
+        var stale = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10);
+
+        // 不可再宣稱已索引並回傳含幽靈版本的命中。
+        Assert.False(stale.SourceIndexed && stale.Hits.Any(h => h.Assembly.Contains("1.5/")));
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        while (_service.TrySearchSource("pkg", _modPath, "TryStartJob", 10) is { Indexing: true })
+        {
+            await Task.Delay(50, cancellation.Token);
+        }
+
+        var done = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10);
+
+        Assert.True(done.SourceIndexed);
+        Assert.All(done.Hits, h => Assert.DoesNotContain("1.5/", h.Assembly, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// 第一次搜尋不同步反編譯：立刻回「索引中」，背景完成後再搜就有結果。
     /// 大 Mod 同步反編譯要幾分鐘，MCP client 的呼叫逾時通常只有一兩分鐘。
     /// </summary>

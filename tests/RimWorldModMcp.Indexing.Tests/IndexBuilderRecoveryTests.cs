@@ -74,6 +74,37 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
         Assert.Equal(0, DefRepository.Count(connection));
     }
 
+    /// <summary>
+    /// F11：索引已損毀時，狀態查詢必須按結構化契約回報 healthy=false，
+    /// 不可再讀損毀資料表而把 NOTADB／CORRUPT 拋給呼叫端。
+    /// </summary>
+    [Fact]
+    public void StatusOnACorruptDatabaseReportsUnhealthyInsteadOfThrowing()
+    {
+        var store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));
+        var database = new IndexDatabase(store);
+        using (database.Open())
+        {
+        }
+
+        SqliteConnection.ClearAllPools();
+        File.WriteAllText(database.DatabasePath, "this is not a sqlite database");
+
+        var builder = new IndexBuilder(
+            database,
+            new RimWorldLocator(),
+            new IndexFingerprint(),
+            new CriticalSectionLock(store, new AlwaysAliveProcessHost()),
+            new SourceIndexer(database, new RimWorldLocator()));
+
+        Assert.Equal(IndexDatabase.Health.Unusable, database.Check());
+
+        var status = builder.Status();
+
+        Assert.False(status.Healthy);
+        Assert.False(status.Busy);
+    }
+
     private sealed class AlwaysAliveProcessHost : IProcessHost
     {
         public bool IsAlive(int processId) => true;
