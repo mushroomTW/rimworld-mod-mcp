@@ -125,7 +125,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
             var (record, isNew) = MergeInto(records, type, firstLine, text, source, runId);
 
             Evict(records);
-            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
+            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions, durable: false);
 
             var errors = 0;
             var warnings = 0;
@@ -171,7 +171,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
             }
 
             Evict(records);
-            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
+            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions, durable: false);
             BumpTotals(newErrors, newWarnings);
         }
     }
@@ -233,7 +233,7 @@ public sealed class DiagnosticStore(StoreDirectories store)
                 Sequence = ++_nextSequence,
             };
 
-            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions);
+            AtomicJson.Write(store.DiagnosticsFile, records, JsonOptions, durable: false);
         }
     }
 
@@ -316,6 +316,13 @@ public sealed class DiagnosticStore(StoreDirectories store)
         var existingIndex = records.FindIndex(r => r.Hash == hash);
 
         DiagnosticRecord record;
+
+        if (existingIndex >= 0 && records[existingIndex].Source != source)
+        {
+            // Bridge 與 Player.log 會對同一次發生各報一次。只讓紀錄原本的來源累加次數，
+            // 否則 count 會是實際的兩倍；也不動 At，免得輪詢游標把它當成新發生。
+            return (records[existingIndex], false);
+        }
 
         if (existingIndex >= 0)
         {
@@ -442,15 +449,20 @@ public sealed class DiagnosticStore(StoreDirectories store)
     /// 算出一筆診斷的去重簽章。
     ///
     /// <para>
-    /// 優先使用堆疊行（含 " at " 的行）——同一個例外每次拋出時的
+    /// 優先使用堆疊行（以 "at " 開頭或含 " at " 的行）——同一個例外每次拋出時的
     /// 前後文可能不同，但堆疊是一樣的。沒有堆疊就退回全文。
+    /// </para>
+    /// <para>
+    /// 每行先 trim：Bridge 送來的堆疊行帶縮排，Player.log 的已被 tailer trim 過，
+    /// 不正規化的話同一個例外在兩個來源的簽章不同，被記成兩筆、error_count 算兩次。
     /// </para>
     /// </summary>
     private static string Signature(string type, string text)
     {
         var stackLines = text
             .Split('\n')
-            .Where(line => line.Contains(" at ", StringComparison.Ordinal))
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("at ", StringComparison.Ordinal) || line.Contains(" at ", StringComparison.Ordinal))
             .ToList();
 
         var signature = stackLines.Count > 0 ? string.Join('\n', stackLines) : text;

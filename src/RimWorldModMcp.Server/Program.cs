@@ -1,4 +1,3 @@
-using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -65,18 +64,9 @@ static async Task<int> RunDaemon()
     using var cancellation = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
 
-    try
-    {
-        await listener.RunAsync(cancellation.Token);
-        return 0;
-    }
-    catch (SocketException e) when (e.SocketErrorCode == SocketError.AddressAlreadyInUse)
-    {
-        // 埠已被佔用。以約定的離開碼退出，讓啟動者知道要去讀自述檔判斷
-        // 佔用者是不是自己人——由 OS 的 bind 當唯一仲裁者，沒有 TOCTOU 空窗。
-        await Console.Error.WriteLineAsync($"Port {locator.BridgePort()} is already in use.");
-        return DaemonBootstrapper.PortInUseExitCode;
-    }
+    // 埠被佔用由 DaemonListener 自己降級成僅日誌模式處理，不會拋到這裡。
+    await listener.RunAsync(cancellation.Token);
+    return 0;
 }
 
 /// <summary>以 stdio 傳輸執行 MCP server。</summary>

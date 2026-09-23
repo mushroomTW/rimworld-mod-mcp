@@ -145,12 +145,16 @@ public sealed class DaemonListener(
                 // 必然在新連線上生效。
                 var expected = ReadToken();
 
+                // run_id 同理：連線與遊戲行程同生共死，一條連線只屬於一個場次。
+                // 每行都讀一次狀態檔的話，錯誤風暴時就是每行一次磁碟讀取。
+                var runId = sessions.Read().RunId;
+
                 using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeoutSource.CancelAfter(_readTimeout);
 
                 await foreach (var line in ReadLinesAsync(client.GetStream(), timeoutSource.Token).ConfigureAwait(false))
                 {
-                    Accept(line, expected);
+                    Accept(line, expected, runId);
 
                     // 逾時是「閒置」逾時：每收到一行就重新計時。不重設的話，
                     // Bridge 的長連線一到 2 分鐘就被切，切斷後它的第一次寫入
@@ -239,8 +243,11 @@ public sealed class DaemonListener(
         return false;
     }
 
+    /// <summary>以目前場次的 run_id 收下一行。</summary>
+    internal void Accept(string line, string? expectedToken) => Accept(line, expectedToken, sessions.Read().RunId);
+
     /// <summary>驗證並收下一行 NDJSON。任何一項不通過就安靜丟棄，不中斷連線。</summary>
-    internal void Accept(string line, string? expectedToken)
+    internal void Accept(string line, string? expectedToken, string? runId)
     {
         if (string.IsNullOrWhiteSpace(expectedToken))
         {
@@ -283,7 +290,7 @@ public sealed class DaemonListener(
         {
             try
             {
-                gameState.Write(ToGameState(payload, sessions.Read().RunId));
+                gameState.Write(ToGameState(payload, runId));
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -308,7 +315,7 @@ public sealed class DaemonListener(
             : string.Empty;
 
         // 只取需要的欄位——token 到此為止，不會進入儲存或回應。
-        diagnostics.Add(typeText, firstLine, text, "bridge", sessions.Read().RunId);
+        diagnostics.Add(typeText, firstLine, text, "bridge", runId);
     }
 
     /// <summary>每個欄位各自容錯：Bridge 版本較舊而少送某個欄位時，其餘欄位仍然可用。</summary>

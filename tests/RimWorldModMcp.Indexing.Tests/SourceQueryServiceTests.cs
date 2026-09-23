@@ -227,11 +227,32 @@ public sealed class SourceQueryServiceTests : IDisposable
     [InlineData(@"EndCurrentJo[bB]")]
     [InlineData(@"EndCurrentJobs?")]
     [InlineData(@"^\s*public void EndCurrentJob\(\)")]
+    // 巢狀群組：外層可選或外層是 alternation 時，內層字面同樣不是必定出現。
+    [InlineData(@"(Missing(Inner))?EndCurrentJob")]
+    [InlineData(@"EndCurrent(Qzq(Xyz)?|Job)")]
+    // \k<name> 的群組名與 \p{...} 的 Unicode 類別名都不是來源文字。
+    [InlineData(@"(?<word>End)CurrentJob\k<word>?")]
+    [InlineData(@"\p{IsBasicLatin}EndCurrentJob")]
     public void OptionalPartsDoNotExcludeCandidates(string pattern)
     {
         var hits = SourceQueryService.Search(_connection, pattern, null, 10).Hits;
 
         Assert.Contains(hits, hit => hit.File == "RimWorld/Pawn.cs");
+    }
+
+    /// <summary>
+    /// Windows 上反編譯輸出是 \r\n 換行；只以 \n 切行時每行尾端殘留 \r，
+    /// 使用 $ 錨點的模式在 Windows 上一律零筆。
+    /// </summary>
+    [Fact]
+    public void EndAnchorMatchesCrLfSource()
+    {
+        SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/CrLf.cs",
+            "public class CrLf\r\n{\r\n    public int Speed = 1;\r\n}\r\n");
+
+        var hits = SourceQueryService.Search(_connection, @"Speed = 1;$", null, 10).Hits;
+
+        Assert.Contains(hits, hit => hit.File == "Verse/CrLf.cs" && hit.Line == 3);
     }
 
     /// <summary>正常搜尋必須明確回報「預算沒有用完」——結果是完整的。</summary>

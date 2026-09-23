@@ -74,6 +74,9 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
         ValidateAbout(mod);
 
+        // C# Mod 也有 Defs／Patches，遊戲一樣會載入；在花時間建置之前先擋掉格式錯誤。
+        ValidateGameXml(mod);
+
         var sourceDirectory = Path.Combine(mod, "Source");
 
         // 不跟隨 symlink / junction，避免掃到工作區外或掉進自我指涉的連結。
@@ -87,8 +90,6 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
         if (projects.Length == 0)
         {
-            ValidateGameXml(mod);
-
             return new BuildResult
             {
                 Kind = "xml_only",
@@ -176,21 +177,32 @@ public sealed partial class BuildService(RimWorldLocator locator)
     }
 
     /// <summary>
-    /// 驗證交給遊戲讀取的 XML 是否 well-formed（Defs/、Patches/ 底下所有 .xml）。
+    /// 驗證交給遊戲讀取的 XML 是否 well-formed：Mod 根目錄與每個第一層子資料夾
+    ///（1.6/、Common/、LoadFolders.xml 指定的資料夾）底下的 Defs/、Patches/。
     /// 只做格式檢查，不做語意驗證；格式錯誤即拋出並帶檔案與行列。
+    /// 不跟隨 symlink／junction，與 csproj 搜尋一致。
     /// </summary>
     private static void ValidateGameXml(string mod)
     {
-        foreach (var folder in (string[])["Defs", "Patches"])
+        var options = new EnumerationOptions
         {
-            var root = Path.Combine(mod, folder);
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        };
 
+        var bases = new List<string> { mod };
+        bases.AddRange(Directory.GetDirectories(mod, "*", new EnumerationOptions { AttributesToSkip = FileAttributes.ReparsePoint })
+            .Where(d => !Path.GetFileName(d).Equals("Source", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal));
+
+        foreach (var root in bases.SelectMany(b => new[] { Path.Combine(b, "Defs"), Path.Combine(b, "Patches") }))
+        {
             if (!Directory.Exists(root))
             {
                 continue;
             }
 
-            foreach (var file in Directory.GetFiles(root, "*.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            foreach (var file in Directory.GetFiles(root, "*.xml", options).Order(StringComparer.Ordinal))
             {
                 ValidateOneXml(mod, file);
             }

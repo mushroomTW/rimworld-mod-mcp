@@ -30,6 +30,10 @@ public sealed record TestSession
     [JsonPropertyName("skipped_load_after")]
     public IReadOnlyList<string> SkippedLoadAfter { get; init; } = [];
 
+    /// <summary>不阻擋啟動、但使用者該知道的問題（例如 Bridge 自帶的 Harmony 掩蓋了漏宣告的相依）。</summary>
+    [JsonPropertyName("warnings")]
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+
     [JsonPropertyName("links")]
     public IReadOnlyList<TestLink> Links { get; init; } = [];
 
@@ -39,6 +43,13 @@ public sealed record TestSession
     /// <summary>啟動遊戲前 Player.log 的大小，用來只讀取這次測試新增的內容。</summary>
     [JsonPropertyName("log_offset")]
     public long LogOffset { get; init; }
+
+    /// <summary>
+    /// 啟動遊戲前 Player-prev.log 的戳記（見 PlayerLogTailer.PreviousLogStamp）。
+    /// 它變了代表遊戲已把舊 log 輪替走，Player.log 是新檔，LogOffset 不再適用。
+    /// </summary>
+    [JsonPropertyName("previous_log_stamp")]
+    public string? PreviousLogStamp { get; init; }
 
     [JsonPropertyName("bridge_port")]
     public int BridgePort { get; init; }

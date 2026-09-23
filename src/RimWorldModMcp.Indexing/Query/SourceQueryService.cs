@@ -113,9 +113,12 @@ public static class SourceQueryService
 
                 var line = 0;
 
-                foreach (var content in text.Split('\n'))
+                foreach (var raw in text.Split('\n'))
                 {
                     line++;
+
+                    // Windows 上的反編譯輸出是 \r\n；殘留的 \r 會讓 $ 錨點永遠比對不到。
+                    var content = raw.TrimEnd('\r');
 
                     bool matched;
 
@@ -450,12 +453,23 @@ public static class SourceQueryService
     /// </summary>
     private static string[] KeywordsForBranch(string branch)
     {
-        var cleaned = branch;
+        var cleaned = Apply(branch, AtomCleanups);
 
-        foreach (var (pattern, replacement) in KeywordCleanups)
+        // 群組規則反覆套用到不再變化：每條規則只認不含巢狀括號的群組，
+        // 巢狀時要先剝掉內層，外層的可選／alternation 群組才認得出來。
+        // 只跑一輪的話 (Foo(Bar))?Baz 會把 Foo、Bar 當成必現詞。
+        for (var pass = 0; pass < 32; pass++)
         {
-            cleaned = Regex.Replace(cleaned, pattern, replacement, RegexOptions.None, TimeSpan.FromSeconds(1));
+            var before = cleaned;
+            cleaned = Apply(cleaned, GroupCleanups);
+
+            if (cleaned == before)
+            {
+                break;
+            }
         }
+
+        cleaned = Apply(cleaned, SeparatorCleanups);
 
         // 連續三個以上的英數字元（trigram 的最短可查長度）。
         var matches = Regex.Matches(
@@ -470,13 +484,34 @@ public static class SourceQueryService
             .Take(4)];
     }
 
-    /// <summary>依序套用；跳脫序列必須最先處理，\[ 才不會被當成字元類的開頭。</summary>
-    private static readonly (string Pattern, string Replacement)[] KeywordCleanups =
+    private static string Apply(string text, (string Pattern, string Replacement)[] rules)
+    {
+        foreach (var (pattern, replacement) in rules)
+        {
+            text = Regex.Replace(text, pattern, replacement, RegexOptions.None, TimeSpan.FromSeconds(1));
+        }
+
+        return text;
+    }
+
+    /// <summary>只跑一次；跳脫序列必須最先處理，\[ 才不會被當成字元類的開頭。</summary>
+    private static readonly (string Pattern, string Replacement)[] AtomCleanups =
     [
+        // 反向參考 \k<name> \k'name' 與 Unicode 類別 \p{Lu} \P{IsGreek}：
+        // 名稱不是來源文字，整段當分隔（只拿掉 \k、\p 會把名稱抽成必現詞）。
+        (@"\\k(?:<[^>]*>|'[^']*')", " "),
+        (@"\\[pP]\{[^}]*\}", " "),
         // \b \s \. \x41 A 等跳脫序列：整個換成分隔，不能只拿掉反斜線。
         (@"\\(?:x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|.)", " "),
         // 字元類 [abc]：只需其中一個字元，裡面的字面不是必定出現。
         (@"\[[^\]]*\]", " "),
+        // 註解群組 (?#...)：內容不是來源文字。
+        (@"\(\?#[^)]*\)", " "),
+    ];
+
+    /// <summary>反覆套用到不再變化，每一輪都只處理最內層（不含括號）的群組。</summary>
+    private static readonly (string Pattern, string Replacement)[] GroupCleanups =
+    [
         // 具名群組 (?<name>...) (?'name'...) (?P<name>...)：群組名稱不是來源文字，
         // 只剝掉名稱前綴、保留群組內容（(?<capture>RenderZone) 必然出現 RenderZone）。
         (@"\(\?<'?[A-Za-z_][A-Za-z0-9_]*'?>", "("),
@@ -489,6 +524,15 @@ public static class SourceQueryService
         (@"\([^()]*\|[^()]*\)(?:\?|\*|\{0,?\d*\})?", " "),
         // 可選的群組 (Foo)? (Foo)* (Foo){0,2}：整個群組可以不出現。
         (@"\([^()]*\)(?:\?|\*|\{0,?\d*\})", " "),
+        // 其餘不可省略、不含 alternation 的最內層群組 (Bar)、(?:Bar)：內容必定出現，
+        // 拆掉括號讓外層群組變成「不含巢狀」，下一輪的可選／alternation 規則才認得出來。
+        // lookaround 已在前面移除，這裡再排除一次以免把條件內容拆成必現詞。
+        (@"\((?!\?(?:[=!]|<[=!]))(?:\?:)?([^()|]*)\)(?![?*]|\{0)", "$1"),
+    ];
+
+    /// <summary>群組處理完之後才套用：元字元一旦換成分隔，括號結構就不見了。</summary>
+    private static readonly (string Pattern, string Replacement)[] SeparatorCleanups =
+    [
         // 可選的單一字元 o? o* o{0,3}：那個字元可以不出現，前面的字面仍然必定出現。
         (@"\w(?:\?|\*|\{0,?\d*\})", " "),
         // 其餘 regex 元字元都當分隔。

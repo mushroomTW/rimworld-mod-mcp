@@ -19,9 +19,6 @@ public sealed class DaemonBootstrapper(
     IProcessHost processes,
     DaemonRecordStore records)
 {
-    /// <summary>子行程因為埠已被佔用而結束時的離開碼。</summary>
-    public const int PortInUseExitCode = 3;
-
     private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>確保 daemon 可用，回傳它的狀態與（若由本次啟動）行程 ID。</summary>
@@ -67,14 +64,9 @@ public sealed class DaemonBootstrapper(
         {
             if (process.HasExited)
             {
-                // 子行程若在寫自述檔前就退出（例如埠被佔且 tailer 未能啟動），
-                // Bridge 與 Player.log 皆不可用，不可再宣稱有 Player.log 備援。
-                var reason = process.ExitCode == PortInUseExitCode
-                    ? $"Port {port} is held by a non-service process and the diagnostics daemon exited before Player.log tailing started; neither Bridge nor Player.log diagnostics are available for this run."
-                      + $" Set RIMWORLD_MOD_MCP_BRIDGE_PORT to use another port."
-                    : $"Diagnostics daemon failed to start (exit code {process.ExitCode}).";
-
-                return (Unavailable(port, reason), null);
+                // 子行程在寫自述檔前就退出：Bridge 與 Player.log 皆不可用，不可宣稱有備援。
+                // （埠被佔用不會走到這裡——daemon 會降級成 log_only 並照樣寫自述檔。）
+                return (Unavailable(port, $"Diagnostics daemon failed to start (exit code {process.ExitCode})."), null);
             }
 
             var record = records.Read();

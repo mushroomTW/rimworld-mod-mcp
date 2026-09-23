@@ -200,7 +200,7 @@ public sealed class IndexTools(
             bool? truncated = null;
 
             // 優先用索引裡記錄的實際組件路徑——Mod 組件的 assembly 欄位是
-            // mod:pkg:Name:hash 形式的索引鍵，拼 Managed\<key>.dll 出來的
+            // mod:pkg:<DLL 相對路徑> 形式的索引鍵，拼 Managed\<key>.dll 出來的
             // 根本不是合法路徑。
             var assemblyPath = hit.AssemblyPath
                 ?? (managed is not null ? Path.Combine(managed, hit.Assembly + ".dll") : null);
@@ -439,8 +439,10 @@ public sealed class IndexTools(
         [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>
     {
+        var kind = ToolGuard.OneOf(source_kind, nameof(source_kind), "def_xml", "game_source");
+
         using var connection = database.Open();
-        var usages = DefReferenceRepository.Find(connection, def_name, source_kind, limit);
+        var usages = DefReferenceRepository.Find(connection, def_name, kind, limit);
 
         return new FindDefUsagesResult
         {

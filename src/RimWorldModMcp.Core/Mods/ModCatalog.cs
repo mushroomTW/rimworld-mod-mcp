@@ -13,9 +13,10 @@ public sealed class ModCatalog(RimWorldLocator locator)
     {
         var paths = locator.Detect();
         var mods = new List<ModInfo>();
+        var version = GameVersion.ReadMajorMinor(paths.InstallRoot);
 
-        Collect(paths.ModsDir, "local", mods);
-        Collect(paths.WorkshopDir, "workshop", mods);
+        Collect(paths.ModsDir, "local", version, mods);
+        Collect(paths.WorkshopDir, "workshop", version, mods);
 
         return [.. mods.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ThenBy(m => m.PackageId, StringComparer.Ordinal)];
     }
@@ -47,9 +48,11 @@ public sealed class ModCatalog(RimWorldLocator locator)
             return [];
         }
 
+        var version = GameVersion.ReadMajorMinor(paths.InstallRoot);
+
         foreach (var directory in directories.Order(StringComparer.Ordinal))
         {
-            var info = AboutXml.Parse(directory, IsCore(directory) ? "core" : "expansion");
+            var info = AboutXml.Parse(directory, IsCore(directory) ? "core" : "expansion", version);
 
             if (info is not null)
             {
@@ -72,7 +75,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
     private static bool IsCore(string directory)
         => string.Equals(Path.GetFileName(directory), "Core", StringComparison.OrdinalIgnoreCase);
 
-    private static void Collect(string? root, string source, List<ModInfo> into)
+    private static void Collect(string? root, string source, string? gameVersion, List<ModInfo> into)
     {
         if (root is null || !Directory.Exists(root))
         {
@@ -93,7 +96,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
 
         foreach (var directory in directories)
         {
-            var info = AboutXml.Parse(directory, source);
+            var info = AboutXml.Parse(directory, source, gameVersion);
 
             if (info is not null)
             {

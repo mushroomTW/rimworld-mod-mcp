@@ -38,6 +38,29 @@ public sealed class DiagnosticStoreTests : IDisposable
         Assert.Equal(2, records[0].Count);
     }
 
+    /// <summary>
+    /// 同一個例外 Bridge 與 Player.log 各送一次：Bridge 的堆疊行帶縮排，Player.log 的已被 trim。
+    /// 兩者必須併成一筆，error_count 只算一次，count 也不被另一個來源重複累加。
+    /// </summary>
+    [Fact]
+    public void SameExceptionFromBridgeAndPlayerLogIsCountedOnce()
+    {
+        _diagnostics.Add("error", "Exception ticking X: boom",
+            "Exception ticking X: boom\n  at Verse.Thing.Tick () [0x00000] in <abc>:0\n  at Verse.TickList.Tick () [0x00000] in <abc>:0",
+            "bridge", "run-1");
+
+        _diagnostics.AddRange(
+        [
+            ("error", "Exception ticking X: boom",
+                "Exception ticking X: boom\nat Verse.Thing.Tick () [0x00000] in <abc>:0\nat Verse.TickList.Tick () [0x00000] in <abc>:0"),
+        ], "player.log", "run-1");
+
+        var record = Assert.Single(_diagnostics.Read());
+        Assert.Equal(1, record.Count);
+        Assert.Equal("bridge", record.Source);
+        Assert.Equal(1, _diagnostics.Totals.Error);
+    }
+
     [Fact]
     public void ReadSinceReturnsNewAndReoccurringRecordsOnly()
     {

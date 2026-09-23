@@ -242,7 +242,7 @@ public sealed partial class TestEnvironmentPreparer(
 
             return (string.IsNullOrEmpty(version) ? fallbackVersion : version, expansions);
         }
-        catch (Exception e) when (e is IOException or System.Xml.XmlException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
             return (fallbackVersion, []);
         }
@@ -387,9 +387,9 @@ public sealed partial class TestEnvironmentPreparer(
             {
                 Directory.Delete(directory, recursive: true);
             }
-            catch (IOException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // 還被佔用的就留著，下次再清。
+                // 還被佔用（或含唯讀檔）的就留著，下次再清；不能因此讓新場次啟動失敗。
             }
         }
     }

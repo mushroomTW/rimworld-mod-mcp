@@ -118,6 +118,35 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.NotNull(token);
     }
 
+    /// <summary>
+    /// Unix 上 FileShare.None 是「先建檔、再上 flock」兩步：中間有一瞬間鎖檔是空的且沒鎖住。
+    /// 剛建立的空檔是正在寫入的活鎖，不能當殘骸接管，否則兩個程序會同時持有臨界區。
+    /// </summary>
+    [Fact]
+    public void FreshlyCreatedEmptyLockFileIsTreatedAsHeld()
+    {
+        Directory.CreateDirectory(_store.LocksDirectory);
+        File.WriteAllText(Path.Combine(_store.LocksDirectory, "index.json"), string.Empty);
+
+        var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = false });
+
+        Assert.Throws<LockHeldException>(() => locks.Acquire("index"));
+    }
+
+    /// <summary>寫到一半就崩潰留下的空鎖檔，過了寬限期仍要能接管，否則工具永遠卡住。</summary>
+    [Fact]
+    public void StaleEmptyLockFileIsReclaimed()
+    {
+        Directory.CreateDirectory(_store.LocksDirectory);
+        var path = Path.Combine(_store.LocksDirectory, "index.json");
+        File.WriteAllText(path, string.Empty);
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow - TimeSpan.FromMinutes(1));
+
+        var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = false });
+
+        Assert.NotNull(locks.Acquire("index"));
+    }
+
     [Fact]
     public void LockIsReclaimedWhenPidWasRecycled()
     {

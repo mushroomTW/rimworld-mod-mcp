@@ -168,6 +168,9 @@ public sealed class IndexBuilder(
         IndexMetaRepository.Set(connection, "reference_count", referenceCount.ToString());
         IndexMetaRepository.Set(connection, "source_indexed", "false");
 
+        // 換掉建置世代：其他行程仍在跑的背景原始碼索引據此放棄寫完成標記（見 SourceIndexer.GenerationKey）。
+        IndexMetaRepository.Set(connection, SourceIndexer.GenerationKey, Guid.NewGuid().ToString("n"));
+
         transaction.Commit();
         stopwatch.Stop();
 

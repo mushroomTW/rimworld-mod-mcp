@@ -138,6 +138,15 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
                     offset = 0;
                 }
             }
+
+            // Windows 的檔案通道效應會讓新檔沿用舊檔的建立時間，上面的判斷就失效了。
+            // Unity 輪替時舊檔改名成 Player-prev.log，它的戳記一變就代表目前這份是新檔。
+            if (offset > 0
+                && session.PreviousLogStamp is { } before
+                && PreviousLogStamp(path) != before)
+            {
+                offset = 0;
+            }
         }
 
         string prefix;
@@ -314,6 +323,26 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         }
     }
 
+    /// <summary>
+    /// 同目錄 Player-prev.log 的「大小:修改時間」戳記；不存在時為 missing。
+    /// 啟動遊戲前記一次，之後不同就代表 Unity 已把舊 Player.log 輪替成它。
+    /// 改名保留修改時間，所以輪替後的戳記是舊 Player.log 的，與先前的 prev 不同。
+    /// </summary>
+    public static string PreviousLogStamp(string playerLog)
+    {
+        var directory = Path.GetDirectoryName(playerLog);
+        var info = new FileInfo(Path.Combine(directory ?? string.Empty, "Player-prev.log"));
+
+        try
+        {
+            return info.Exists ? $"{info.Length}:{info.LastWriteTimeUtc.Ticks}" : "missing";
+        }
+        catch (IOException)
+        {
+            return "unknown";
+        }
+    }
+
     /// <summary>讀取檔頭前綴供身分比對。呼叫端已處理 IOException。</summary>
     private static string ReadPrefix(string path, long length)
     {
@@ -392,6 +421,24 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
     /// </summary>
     private static string Normalise(string line) => line.Trim().TrimStart('﻿').Trim();
 
+    /// <summary>
+    /// 含 error 字樣、實際卻是 Log.Warning 的訊息。「Translation data ... has N errors」
+    /// 來自 LoadedLanguage，而使用者的語言設定會隨 Prefs.xml 帶進每一場測試——
+    /// 不排除的話每場都憑空多一個 error。
+    /// </summary>
+    private static readonly string[] KnownWarnings =
+    [
+        "Translation data for language",
+        "(using undefined sound instead)",
+    ];
+
+    /// <summary>不含 error／exception 字樣的 Log.Error（DirectXmlCrossRefLoader、DefDatabase）。</summary>
+    private static readonly string[] KnownErrors =
+    [
+        "Could not resolve cross-reference",
+        "Failed to find ",
+    ];
+
     private static (string Type, string FirstLine, string Text)? Classify(string line)
     {
         var text = Normalise(line);
@@ -399,6 +446,17 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         if (text.Length == 0)
         {
             return null;
+        }
+
+        // Player.log 沒有層級標記，只能靠關鍵字；已知會被關鍵字誤判的 RimWorld 訊息先按真實層級處理。
+        if (KnownWarnings.Any(marker => text.Contains(marker, StringComparison.Ordinal)))
+        {
+            return ("warning", text, text);
+        }
+
+        if (KnownErrors.Any(marker => text.StartsWith(marker, StringComparison.Ordinal)))
+        {
+            return ("error", text, text);
         }
 
         var isError = text.Contains("error", StringComparison.OrdinalIgnoreCase)

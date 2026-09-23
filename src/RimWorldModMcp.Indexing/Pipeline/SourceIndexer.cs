@@ -34,6 +34,32 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
     /// <summary>index_meta 鍵前綴：某個組件已完整索引，值是該 DLL 的 stamp。</summary>
     public const string DoneKeyPrefix = "source_done:";
 
+    /// <summary>
+    /// index_meta 鍵：第一層索引的建置世代，每次 rebuild_index 換新值。
+    /// 背景索引開跑時記下它，寫完成標記前確認沒變——另一個行程的重建清空了
+    /// source_file 的話，本行程的 <see cref="Cancel"/> 管不到那邊，只能靠這個比對。
+    /// </summary>
+    public const string GenerationKey = "build_generation";
+
+    /// <summary>
+    /// 世代仍是 <paramref name="generation"/> 才執行 <paramref name="write"/> 並提交。
+    /// 用 IMMEDIATE 交易：讀世代與寫入之間，重建的寫交易插不進來。
+    /// </summary>
+    internal static bool CommitIfCurrent(
+        Microsoft.Data.Sqlite.SqliteConnection connection, string? generation, Action<Microsoft.Data.Sqlite.SqliteConnection> write)
+    {
+        using var transaction = connection.BeginTransaction(deferred: false);
+
+        if (IndexMetaRepository.Get(connection, GenerationKey) != generation)
+        {
+            return false;
+        }
+
+        write(connection);
+        transaction.Commit();
+        return true;
+    }
+
     public SourceIndexProgress Progress
     {
         get
@@ -119,6 +145,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             using var connection = database.Open();
 
             IndexMetaRepository.Set(connection, "source_index_error", string.Empty);
+            var generation = IndexMetaRepository.Get(connection, GenerationKey);
             var failures = new List<string>();
             var skippedTypes = 0;
 
@@ -178,7 +205,10 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
                     continue;
                 }
 
-                IndexMetaRepository.Set(connection, doneKey, stamp);
+                if (!CommitIfCurrent(connection, generation, c => IndexMetaRepository.Set(c, doneKey, stamp)))
+                {
+                    return Superseded(stopwatch, indexed);
+                }
             }
 
             // 收尾前再檢查一次取消。Rebuild 只等 Cancel 最多 10 秒
@@ -192,31 +222,44 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             // 但快取目錄落在 OneDrive／網路磁碟時會退回 DELETE journal，
             // 兩條連線會互卡到 busy_timeout 之後拋 SQLITE_BUSY。
             // 型別層級略過數一律寫入 meta 以便可觀察（F12）；個別型別失敗不影響整體完成判定。
-            IndexMetaRepository.Set(connection, "source_skipped_types", skippedTypes.ToString());
-
             // F12：有組件反編譯失敗時不可標完成，否則壞 DLL 被永久當成成功快取；
             // 明確區分完成與部分完成，失敗原因寫入 meta 以便可觀察。
+            string? failureMessage = null;
+
             if (failures.Count > 0)
             {
-                var message = $"Some assemblies could not be decompiled and were skipped: {string.Join("; ", failures)}";
+                failureMessage = $"Some assemblies could not be decompiled and were skipped: {string.Join("; ", failures)}";
 
                 if (skippedTypes > 0)
                 {
-                    message += $" ({skippedTypes} types skipped during decompilation)";
+                    failureMessage += $" ({skippedTypes} types skipped during decompilation)";
                 }
-
-                IndexMetaRepository.Set(connection, "source_indexed", "false");
-                IndexMetaRepository.Set(connection, "source_file_count", indexed.ToString());
-                IndexMetaRepository.Set(connection, "source_index_error", message);
-
-                stopwatch.Stop();
-                return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, message));
             }
 
-            IndexMetaRepository.Set(connection, "source_indexed", "true");
-            IndexMetaRepository.Set(connection, "source_file_count", indexed.ToString());
+            var committed = CommitIfCurrent(connection, generation, c =>
+            {
+                IndexMetaRepository.Set(c, "source_skipped_types", skippedTypes.ToString());
+                IndexMetaRepository.Set(c, "source_indexed", failureMessage is null ? "true" : "false");
+                IndexMetaRepository.Set(c, "source_file_count", indexed.ToString());
+
+                if (failureMessage is not null)
+                {
+                    IndexMetaRepository.Set(c, "source_index_error", failureMessage);
+                }
+            });
+
+            if (!committed)
+            {
+                return Superseded(stopwatch, indexed);
+            }
 
             stopwatch.Stop();
+
+            if (failureMessage is not null)
+            {
+                return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, failureMessage));
+            }
+
             return Report(new SourceIndexProgress(false, true, indexed, stopwatch.ElapsedMilliseconds, null));
         }
         catch (OperationCanceledException)
@@ -289,6 +332,17 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         {
             // 連錯誤都寫不進去（資料庫本身壞了）時，_progress 至少還在。
         }
+    }
+
+    /// <summary>
+    /// 期間另一個行程重建了第一層：這一輪的成果已被清掉，不寫任何完成標記，
+    /// 也不寫進 source_index_error——那不是失敗，重建方會自己重跑第三層。
+    /// </summary>
+    private SourceIndexProgress Superseded(Stopwatch stopwatch, int indexed)
+    {
+        stopwatch.Stop();
+        return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds,
+            "superseded: the index was rebuilt by another session while the source index was running"));
     }
 
     private SourceIndexProgress Report(SourceIndexProgress progress)

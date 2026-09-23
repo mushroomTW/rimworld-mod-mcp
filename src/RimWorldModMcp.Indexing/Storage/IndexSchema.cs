@@ -40,7 +40,7 @@ public static class IndexSchema
         CREATE TABLE IF NOT EXISTS symbol (
           id             INTEGER PRIMARY KEY,
           assembly       TEXT NOT NULL,
-          -- 組件檔案的實際路徑。Mod 組件的 assembly 是 mod:pkg:Name:hash 形式的
+          -- 組件檔案的實際路徑。Mod 組件的 assembly 是 mod:pkg:<DLL 相對路徑> 形式的
           -- 索引鍵，拼不回檔案位置；反編譯入口需要真實路徑。
           assembly_path  TEXT,
           fqn            TEXT NOT NULL,

@@ -66,7 +66,7 @@ public sealed class GameStateStore(StoreDirectories store)
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public void Write(GameStateRecord record) => AtomicJson.Write(store.GameStateFile, record, JsonOptions);
+    public void Write(GameStateRecord record) => AtomicJson.Write(store.GameStateFile, record, JsonOptions, durable: false);
 
     /// <summary>沒有回報過、或檔案正在被覆寫時回 null。</summary>
     public GameStateRecord? Read() => AtomicJson.Read<GameStateRecord>(store.GameStateFile, JsonOptions);

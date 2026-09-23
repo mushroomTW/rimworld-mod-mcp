@@ -38,15 +38,16 @@ public sealed class TestCycleTools(
         int wait_seconds = 30,
         CancellationToken cancellationToken = default) => ToolGuard.RunAsync(async () =>
     {
+        var target = ToolGuard.OneOf(wait_for_state, nameof(wait_for_state), "Entry", "MapInitializing", "Playing");
         var state = gameState.Read();
 
-        if (!string.IsNullOrWhiteSpace(wait_for_state))
+        if (target is not null)
         {
             // 與 list_test_diagnostics 相同的理由：daemon 是另一個行程寫檔，只能輪詢，
             // 但把輪詢留在 server 端，agent 的一次呼叫就抵過原本十次「到了沒」。
             var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(wait_seconds, 0, 50));
 
-            while (!Reached(state, wait_for_state) && DateTimeOffset.UtcNow < deadline)
+            while (!Reached(state, target) && DateTimeOffset.UtcNow < deadline)
             {
                 await Task.Delay(500, cancellationToken).ConfigureAwait(false);
                 state = gameState.Read();
@@ -57,7 +58,7 @@ public sealed class TestCycleTools(
     });
 
     private static bool Reached(GameStateRecord? state, string target)
-        => state is not null && string.Equals(state.ProgramState, target.Trim(), StringComparison.OrdinalIgnoreCase);
+        => state is not null && string.Equals(state.ProgramState, target, StringComparison.OrdinalIgnoreCase);
 
     [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true, Idempotent = true)]
     [Description("Stop the test session: remove temporary links, terminate the diagnostics daemon, and clean up the temporary save data.")]
@@ -97,6 +98,7 @@ public sealed class TestCycleTools(
         // server 還在等，agent 看到的是工具壞掉而不是空結果。
         // (since_at, since_sequence) 是 DiagnosticCursor 的線上契約形狀：參數必須維持兩個
         // snake_case 欄位，內部先綁成一個游標再用，避免兩值散落傳遞。
+        type = ToolGuard.OneOf(type, nameof(type), "error", "warning", "diagnostic", "loaded_mods", "performance");
         var since = new DiagnosticCursor(since_at, since_sequence);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Clamp(wait_seconds, 0, 50));
         var records = Filter(diagnostics.ReadSince(since), type);
@@ -181,6 +183,7 @@ public sealed class TestCycleTools(
         Mod = session.Mod,
         ActiveMods = session.ActiveMods,
         SkippedLoadAfter = session.SkippedLoadAfter,
+        Warnings = session.Warnings,
         SaveData = session.SaveData,
         PlayerLog = session.PlayerLog,
         BridgePort = session.BridgePort,
@@ -246,6 +249,10 @@ public sealed record TestSessionResult
     /// <summary>Soft load-after targets absent from the selection, hence skipped.</summary>
     [JsonPropertyName("skipped_load_after")]
     public IReadOnlyList<string> SkippedLoadAfter { get; init; } = [];
+
+    /// <summary>Problems that did not block the launch but need fixing, e.g. a Harmony dependency masked by the Bridge's bundled Harmony.</summary>
+    [JsonPropertyName("warnings")]
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 
     [JsonPropertyName("save_data")]
     public string? SaveData { get; init; }

@@ -132,6 +132,34 @@ public sealed class PlayerLogTailerTests : IDisposable
             text => text.Contains("with bom", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Unity 啟動時把 Player.log 改名成 Player-prev.log 再建新檔。Windows 的檔案通道效應
+    /// 讓新檔沿用舊檔的建立時間，建立時間判斷失效；新檔在第一次輪詢前就長得比 LogOffset 長時，
+    /// 新檔開頭（XML 載入錯誤正好在這裡）會被當成「上一場的內容」跳過。
+    /// 以 Player-prev.log 的戳記變化判定輪替。
+    /// </summary>
+    [Fact]
+    public void RotationBeforeTheFirstReadStartsFromTheBeginningOfTheNewLog()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        var old = "old\n";
+        File.WriteAllText(log, old, new UTF8Encoding(false));
+
+        var session = Session(log, logOffset: Encoding.UTF8.GetByteCount(old)) with
+        {
+            PreviousLogStamp = PlayerLogTailer.PreviousLogStamp(log),
+        };
+
+        File.Move(log, Path.Combine(_root, "Player-prev.log"));
+        File.WriteAllText(log, "error: early startup failure\nloading...\n", new UTF8Encoding(false));
+
+        _tailer.ReadNewLines(session, new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Contains(
+            _diagnostics.Read().Select(record => record.Text),
+            text => text.Contains("early startup", StringComparison.Ordinal));
+    }
+
     /// <summary>只讀「這次測試新增」的內容：LogOffset 之前的不算。</summary>
     [Fact]
     public void ContentBeforeLogOffsetIsNotReported()
@@ -192,6 +220,22 @@ public sealed class PlayerLogTailerTests : IDisposable
 
         Assert.Equal("error: real", entry.Text);
         Assert.DoesNotContain("Orphan", entry.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Player.log 沒有層級標記，關鍵字分類會誤判已知訊息：「Translation data ... has 18 errors」
+    /// 是 RimWorld 的 Log.Warning（LoadedLanguage），而且使用者的 Prefs 語言設定會帶進每一場測試；
+    /// 「Could not resolve cross-reference」是 Log.Error，卻不含 error 字樣。
+    /// </summary>
+    [Theory]
+    [InlineData("Translation data for language Simplified Chinese has 18 errors. Generate translation report for more info.", "warning")]
+    [InlineData("Could not resolve cross-reference: No Verse.ThingDef named Foo found to give to X", "error")]
+    [InlineData("Failed to find Verse.ThingDef named Foo. There are 10 defs of this type loaded.", "error")]
+    public void KnownRimWorldMessagesAreClassifiedByTheirRealLevel(string line, string expected)
+    {
+        var entry = Assert.Single(PlayerLogTailer.ClassifyBatch([line]));
+
+        Assert.Equal(expected, entry.Type);
     }
 
     /// <summary>兩個例外各自成筆，堆疊不會跨過空行或中斷行混在一起。</summary>

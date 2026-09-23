@@ -13,7 +13,11 @@ namespace RimWorldModMcp.Core;
 /// </summary>
 public static class AtomicJson
 {
-    public static void Write<T>(string path, T value, JsonSerializerOptions? options = null)
+    /// <param name="durable">
+    /// 是否先 fsync 再置換。false 時仍保證讀端只看到完整的舊版或新版（行程崩潰也一樣），
+    /// 只是斷電可能丟掉最後一次寫入——給每秒寫好幾次的暫態檔（診斷、遊戲狀態）用。
+    /// </param>
+    public static void Write<T>(string path, T value, JsonSerializerOptions? options = null, bool durable = true)
     {
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
@@ -29,7 +33,7 @@ public static class AtomicJson
             using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 JsonSerializer.Serialize(stream, value, options);
-                stream.Flush(flushToDisk: true);
+                stream.Flush(flushToDisk: durable);
             }
 
             File.Move(temporary, path, overwrite: true);

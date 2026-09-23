@@ -33,7 +33,8 @@ public static class AboutXml
     /// 讀取一個 Mod 目錄的 About.xml。
     /// 缺少 packageId 或檔案無法解析時回傳 null——那代表這個目錄不是 Mod。
     /// </summary>
-    public static ModInfo? Parse(string modDirectory, string source)
+    /// <param name="gameVersion">遊戲的 major.minor（例如 1.6）；給了才會套用 *ByVersion 清單。</param>
+    public static ModInfo? Parse(string modDirectory, string source, string? gameVersion = null)
     {
         var aboutPath = System.IO.Path.Combine(modDirectory, "About", "About.xml");
 
@@ -72,12 +73,40 @@ public static class AboutXml
                 : System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(modDirectory)),
             Path = modDirectory,
             Source = source,
-            Dependencies = PackageIds(root.Element("modDependencies")),
-            LoadAfter = PackageIds(root.Element("loadAfter")),
-            LoadBefore = PackageIds(root.Element("loadBefore")),
-            IncompatibleWith = PackageIds(root.Element("incompatibleWith")),
+            Dependencies = PackageIds(Versioned(root, "modDependencies", gameVersion)),
+            LoadAfter = PackageIds(Versioned(root, "loadAfter", gameVersion)),
+            LoadBefore = PackageIds(Versioned(root, "loadBefore", gameVersion)),
+            IncompatibleWith = PackageIds(Versioned(root, "incompatibleWith", gameVersion)),
             SupportedVersions = [.. (root.Element("supportedVersions")?.Elements("li") ?? []).Select(e => e.Value.Trim())],
         };
+    }
+
+    /// <summary>
+    /// 仿 RimWorld 的 ModMetaData.InitVersionedData：＜name＞ByVersion 底下若有目前版本的
+    /// 條目（元素名轉小寫、去掉開頭的 v，例如 ＜v1.6＞），它**取代**基本清單；
+    /// 同版本重複時取第一個。沒有對應條目就用基本清單。
+    /// </summary>
+    private static XElement? Versioned(XElement root, string name, string? gameVersion)
+    {
+        if (gameVersion is not null)
+        {
+            foreach (var entry in root.Element(name + "ByVersion")?.Elements() ?? [])
+            {
+                var version = entry.Name.LocalName.ToLowerInvariant();
+
+                if (version.StartsWith('v'))
+                {
+                    version = version[1..];
+                }
+
+                if (version == gameVersion)
+                {
+                    return entry;
+                }
+            }
+        }
+
+        return root.Element(name);
     }
 
     /// <summary>

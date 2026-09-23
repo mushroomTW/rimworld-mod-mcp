@@ -57,6 +57,22 @@ internal static class ToolGuard
     }
 
     /// <summary>
+    /// 列舉型字串參數：空值回 null（不過濾），否則回 <paramref name="allowed"/> 裡的正式寫法（大小寫不分）。
+    /// 不在清單裡就拋——打錯的值若被當成「沒有符合的結果」，呼叫端會誤以為問對了。
+    /// 必須在 <see cref="Run{T}"/> 之內呼叫，訊息才送得到呼叫端。
+    /// </summary>
+    public static string? OneOf(string? value, string parameter, params string[] allowed)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return allowed.FirstOrDefault(a => string.Equals(a, value.Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException($"Unknown {parameter}: {value}. Valid values: {string.Join(", ", allowed)}.", parameter);
+    }
+
+    /// <summary>
     /// 索引資料庫的狀態問題要告訴呼叫端該怎麼辦。損毀時每一個查詢工具都會失敗，
     /// 只回「An error occurred」的話，呼叫端不知道 rebuild_index 就能重設；
     /// 被鎖住則是背景索引正在寫，稍後重試即可。其餘 SQLite 錯誤維持原樣進 stderr。

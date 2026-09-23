@@ -43,6 +43,39 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => _service.Build(mod));
     }
 
+    /// <summary>版本資料夾（1.6/Defs、Common/Patches）同樣會被遊戲載入，壞了一樣要擋。</summary>
+    [Theory]
+    [InlineData("1.6", "Defs")]
+    [InlineData("Common", "Patches")]
+    public void BrokenXmlInAVersionFolderFailsTheBuild(string folder, string kind)
+    {
+        var mod = NewMod();
+        Directory.CreateDirectory(Path.Combine(mod, folder, kind));
+        File.WriteAllText(Path.Combine(mod, folder, kind, "Broken.xml"), "<Defs><ThingDef>");
+
+        var error = Assert.Throws<InvalidOperationException>(() => _service.Build(mod));
+
+        Assert.Contains($"{folder}/{kind}/Broken.xml", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C# Mod 的 Defs 也要驗：舊實作只在 XML-only 路徑驗，C# Mod 的 Defs 壞了照樣回 success。
+    /// 驗證在 dotnet build 之前，所以這個測試不需要 SDK 建置成功。
+    /// </summary>
+    [Fact]
+    public void BrokenDefXmlFailsACSharpModBeforeBuilding()
+    {
+        var mod = NewMod();
+        Directory.CreateDirectory(Path.Combine(mod, "Source"));
+        File.WriteAllText(Path.Combine(mod, "Source", "Mod.csproj"), "<Project />");
+        Directory.CreateDirectory(Path.Combine(mod, "Defs"));
+        File.WriteAllText(Path.Combine(mod, "Defs", "Broken.xml"), "<Defs><ThingDef>");
+
+        var error = Assert.Throws<InvalidOperationException>(() => _service.Build(mod));
+
+        Assert.Contains("Defs/Broken.xml", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ValidXmlOnlyModStillPasses()
     {

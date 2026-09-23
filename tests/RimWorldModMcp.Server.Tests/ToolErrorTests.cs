@@ -25,6 +25,29 @@ public sealed class ToolErrorTests : IAsyncLifetime
         Assert.Contains("Unknown symbol kind: Bogus", error.Message);
     }
 
+    /// <summary>
+    /// 列舉型參數打錯不能靜默吞掉：find_def_usages 會回「沒有引用」、list_test_diagnostics
+    /// 會回空清單（加上 wait_seconds 還白等 50 秒）、test_status 會阻塞到逾時。
+    /// </summary>
+    [Theory]
+    [InlineData("find_def_usages", "source_kind", "xml", "def_name", "Steel")]
+    [InlineData("list_test_diagnostics", "type", "errors", null, null)]
+    [InlineData("test_status", "wait_for_state", "Play", null, null)]
+    public async Task UnknownEnumValueIsRejectedWithTheValidValues(string tool, string parameter, string value, string? otherName, string? otherValue)
+    {
+        var arguments = new Dictionary<string, object?> { [parameter] = value };
+
+        if (otherName is not null)
+        {
+            arguments[otherName] = otherValue;
+        }
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => _server.CallAsync(tool, arguments));
+
+        Assert.Contains(parameter, error.Message, StringComparison.Ordinal);
+        Assert.Contains(value, error.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>索引損毀時每個查詢工具都會失敗；訊息必須指向 rebuild_index。</summary>
     [Theory]
     [InlineData(11)] // SQLITE_CORRUPT

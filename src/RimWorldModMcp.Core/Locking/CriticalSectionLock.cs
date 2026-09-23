@@ -113,7 +113,9 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
                 var stale = outcome switch
                 {
                     // 內容壞掉的鎖檔視為殘骸——留著它只會讓工具永遠卡住。
-                    ReadOutcome.Corrupt => true,
+                    // 但剛建立的不算：Unix 上 FileShare.None 是「建檔後才上 flock」，
+                    // 中間一瞬間讀到的空檔是正在寫入的活鎖。
+                    ReadOutcome.Corrupt => IsPastCorruptGrace(path),
                     ReadOutcome.Ok => IsStale(existing),
                     // 檔案在讀取前消失：持有者剛釋放，直接重試建檔。
                     ReadOutcome.Missing => true,
@@ -216,6 +218,21 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         }
 
         return false;
+    }
+
+    /// <summary>內容壞掉的鎖檔要放多久才當殘骸。持有者寫入鎖紀錄只要幾毫秒，5 秒綽綽有餘。</summary>
+    private static readonly TimeSpan CorruptGrace = TimeSpan.FromSeconds(5);
+
+    private static bool IsPastCorruptGrace(string path)
+    {
+        try
+        {
+            return DateTime.UtcNow - File.GetLastWriteTimeUtc(path) > CorruptGrace;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private string LockPath(string name) => Path.Combine(store.LocksDirectory, name + ".json");

@@ -50,11 +50,12 @@ public sealed class TestCycleService(
             throw new DirectoryNotFoundException("RimWorld executable or Mods directory not found.");
         }
 
-        var info = AboutXml.Parse(mod, "workspace")
+        var info = AboutXml.Parse(mod, "workspace", GameVersion.ReadMajorMinor(paths.InstallRoot))
             ?? throw new InvalidOperationException("The mod's About/About.xml is invalid or missing packageId.");
 
         var runId = $"{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
         var modSet = ResolveModSet(info, companionMods);
+        var harmonyWarning = HarmonyDependencyWarning(mod, modSet.ActiveMods);
 
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
 
@@ -115,10 +116,12 @@ public sealed class TestCycleService(
                 SaveData = prepared.SaveData,
                 ActiveMods = prepared.ActiveMods,
                 SkippedLoadAfter = modSet.SkippedLoadAfter,
+                Warnings = harmonyWarning is null ? [] : [harmonyWarning],
                 // 上一場次清不掉的孤兒連結也納入追蹤，stop_test 才有機會補清並回報。
                 Links = [.. prepared.Links, .. orphanedLinks],
                 PlayerLog = paths.PlayerLog,
                 LogOffset = logOffset,
+                PreviousLogStamp = paths.PlayerLog is not null ? PlayerLogTailer.PreviousLogStamp(paths.PlayerLog) : null,
                 BridgePort = locator.BridgePort(),
                 Bridge = prepared.Bridge,
                 Daemon = daemonState,
@@ -250,9 +253,10 @@ public sealed class TestCycleService(
             {
                 Directory.Delete(session.SaveData, recursive: true);
             }
-            catch (IOException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // 檔案仍被鎖住；下次啟動的清理會處理掉。
+                // 檔案仍被鎖住或是唯讀；下次啟動的清理會處理掉。漏接 UnauthorizedAccessException
+                // 會讓 Stop 在連結已拆、daemon 已殺之後中斷，場次狀態停在 running。
             }
         }
 
@@ -285,6 +289,7 @@ public sealed class TestCycleService(
                 Links = remaining,
                 PlayerLog = session.PlayerLog,
                 LogOffset = session.LogOffset,
+                PreviousLogStamp = session.PreviousLogStamp,
                 BridgePort = session.BridgePort,
                 Bridge = session.Bridge,
                 Daemon = session.Daemon,
@@ -321,11 +326,22 @@ public sealed class TestCycleService(
 
     private TestModSet ResolveModSet(ModInfo mod, IReadOnlyList<string>? companionMods)
     {
+        var installedMods = catalog.Installed();
+        var duplicates = DuplicateLocalCopies(mod.PackageId, mod.Path, installedMods);
+
+        if (duplicates.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Another local copy of {mod.PackageId} is in the Mods folder ({string.Join(", ", duplicates)}). "
+                + "RimWorld loads only one mod per packageId, so the test could run that copy instead of this one. "
+                + "Move or rename the other copy, or test it in place by passing its path.");
+        }
+
         // 同一個 packageId 可能同時出現在 Mods\ 與 Workshop，受測 Mod 也可能本來就住在 Mods\ 裡；
         // 以 packageId 去重，受測 Mod 一律以呼叫者指定的路徑為準。
         var available = new Dictionary<string, ModInfo>(StringComparer.Ordinal);
 
-        foreach (var installed in catalog.BuiltinPacks().Concat(catalog.Installed()))
+        foreach (var installed in catalog.BuiltinPacks().Concat(installedMods))
         {
             available.TryAdd(installed.PackageId, installed);
         }
@@ -352,5 +368,86 @@ public sealed class TestCycleService(
         }
 
         return new TestModSet(order.Active, order.SkippedLoadAfter);
+    }
+
+    /// <summary>
+    /// Mods/ 底下與受測 Mod 同 packageId 的其他本機副本。RimWorld 對同 packageId 只載入一份
+    /// 並記 Log.Error（ModLister.TryAddMod），測到的可能是舊副本。Workshop 副本不算——
+    /// RimWorld 會替它加 _steam 後綴，兩者可並存；本工具自己的連結（上一場的殘骸）也不算。
+    /// </summary>
+    internal static IReadOnlyList<string> DuplicateLocalCopies(string packageId, string modPath, IEnumerable<ModInfo> installed)
+    {
+        var self = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modPath));
+
+        return [.. installed
+            .Where(m => m.Source == "local" && m.PackageId == packageId)
+            .Where(m => !DirectoryLink.HasOwnedPrefix(m.Path))
+            .Select(m => m.Path)
+            .Where(p => !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(p)), self, PathText.Comparison))];
+    }
+
+    private const string HarmonyPackageId = "brrainz.harmony";
+
+    /// <summary>
+    /// 受測 Mod 的組件參考了 0Harmony、自己卻沒帶 0Harmony.dll，而選集裡也沒有 Harmony Mod 時的警告。
+    ///
+    /// <para>
+    /// Bridge 自帶 0Harmony.dll，所以這種 Mod 在測試場次裡照樣能跑——少宣告的
+    /// brrainz.harmony 相依被掩蓋了，到玩家那邊才會壞。
+    /// </para>
+    /// </summary>
+    internal static string? HarmonyDependencyWarning(string modPath, IReadOnlyCollection<string> activeMods)
+    {
+        if (activeMods.Contains(HarmonyPackageId, StringComparer.Ordinal))
+        {
+            return null;
+        }
+
+        var libraries = Directory
+            .EnumerateFiles(modPath, "*.dll", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
+            .Where(path => !Path.GetRelativePath(modPath, path)
+                .Split(['/', '\\'])
+                .SkipLast(1)
+                .Any(segment => segment.Equals("Source", StringComparison.OrdinalIgnoreCase)
+                    || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                    || segment.Equals("obj", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (libraries.Any(path => Path.GetFileName(path).Equals("0Harmony.dll", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        var user = libraries.FirstOrDefault(ReferencesHarmony);
+
+        return user is null
+            ? null
+            : $"{Path.GetFileName(user)} references 0Harmony, but the mod does not declare {HarmonyPackageId} in modDependencies. "
+              + "It only works in this test session because the Bridge bundles Harmony; players without the Harmony mod will get load errors.";
+    }
+
+    private static bool ReferencesHarmony(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+
+            if (!pe.HasMetadata)
+            {
+                return false;
+            }
+
+            var metadata = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+
+            return metadata.AssemblyReferences
+                .Select(handle => metadata.GetString(metadata.GetAssemblyReference(handle).Name))
+                .Any(name => name == "0Harmony");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException)
+        {
+            // 原生 DLL、損壞或被鎖住的檔案：無從判斷，不警告。
+            return false;
+        }
     }
 }

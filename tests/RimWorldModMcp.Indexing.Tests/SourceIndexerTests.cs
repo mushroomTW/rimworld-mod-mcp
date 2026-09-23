@@ -152,4 +152,22 @@ public sealed class SourceIndexerTests : IDisposable
         // 型別層級略過數一律可觀察（成功時為 0）。
         Assert.NotNull(IndexMetaRepository.Get(connection, "source_skipped_types"));
     }
+
+    /// <summary>
+    /// 另一個行程的 rebuild_index 會換掉建置世代並清空 source_file。本行程的背景索引
+    /// 不受那邊的 Cancel 管，若照樣寫入完成標記，只寫了一部分的表會被標成 source_indexed=true。
+    /// </summary>
+    [Fact]
+    public void CommitIsRefusedAfterTheGenerationChanged()
+    {
+        using var connection = _database.Open();
+        IndexMetaRepository.Set(connection, SourceIndexer.GenerationKey, "g1");
+
+        Assert.True(SourceIndexer.CommitIfCurrent(connection, "g1", c => IndexMetaRepository.Set(c, "probe", "first")));
+
+        IndexMetaRepository.Set(connection, SourceIndexer.GenerationKey, "g2");
+
+        Assert.False(SourceIndexer.CommitIfCurrent(connection, "g1", c => IndexMetaRepository.Set(c, "probe", "second")));
+        Assert.Equal("first", IndexMetaRepository.Get(connection, "probe"));
+    }
 }
