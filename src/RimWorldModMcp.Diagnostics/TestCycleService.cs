@@ -38,8 +38,7 @@ public sealed class TestCycleService(
         string modPath,
         IReadOnlyList<string>? companionMods,
         bool quickTest,
-        IReadOnlyList<string>? seedConfig = null,
-        bool fullscreen = true)
+        IReadOnlyList<string>? seedConfig = null)
     {
         var mod = PathText.ResolveDirectory(modPath);
         var seedFiles = ResolveSeedConfig(seedConfig);
@@ -93,7 +92,7 @@ public sealed class TestCycleService(
                 throw new InvalidOperationException("RimWorld is running. Close the game before starting a test.");
             }
 
-            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles, fullscreen);
+            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles);
 
             diagnostics.Clear();
             gameState.Clear();

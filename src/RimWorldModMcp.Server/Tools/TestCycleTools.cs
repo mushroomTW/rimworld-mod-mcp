@@ -24,10 +24,8 @@ public sealed class TestCycleTools(
         [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
         bool quicktest = true,
         [Description("Config files to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up. ModsConfig.xml is rejected.")]
-        string[]? seed_config = null,
-        [Description("Launch as a borderless fullscreen window (rewrites <fullscreen> in the isolated Prefs.xml copy; the user's own Prefs.xml is untouched). Set false to keep whatever the user's Prefs.xml says.")]
-        bool fullscreen = true) => ToolGuard.Run(() =>
-        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config, fullscreen), game: null));
+        string[]? seed_config = null) => ToolGuard.Run(() =>
+        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config), game: null));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
     [Description("Report the current test session state: whether the bridge and diagnostics daemon are healthy, and game (the in-game state the bridge last reported: program_state Entry/MapInitializing/Playing, map_loaded, tick, paused, loading, open_windows, age_ms). game is null until the bridge reports. Pass wait_for_state to block until program_state reaches it, e.g. wait_for_state=Playing before checking for errors.")]

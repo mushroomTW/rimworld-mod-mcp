@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Core.Platform;
@@ -23,7 +22,7 @@ public sealed record PreparedEnvironment(
 /// <see cref="GameLauncher"/>，協調歸 TestCycleService。
 /// </para>
 /// </summary>
-public sealed partial class TestEnvironmentPreparer(
+public sealed class TestEnvironmentPreparer(
     StoreDirectories store,
     BridgeBuilder bridgeBuilder)
 {
@@ -40,8 +39,7 @@ public sealed partial class TestEnvironmentPreparer(
         RimWorldPaths paths,
         IReadOnlyList<string> orderedActiveMods,
         string token,
-        IReadOnlyList<string> seedConfigFiles,
-        bool fullscreen)
+        IReadOnlyList<string> seedConfigFiles)
     {
         var createdLinks = new List<TestLink>();
 
@@ -98,7 +96,7 @@ public sealed partial class TestEnvironmentPreparer(
             WriteModsConfig(configDirectory, paths.ModsConfig, activeMods, GameVersion.ReadMajorMinor(paths.InstallRoot));
             CopyPrefs(configDirectory, paths.PrefsXml);
             SeedConfig(configDirectory, seedConfigFiles, testFolderName);
-            ApplyFullscreen(configDirectory, fullscreen);
+            ApplyFullscreen(configDirectory);
             WriteBridgeToken(token);
 
             return new PreparedEnvironment(saveData, createdLinks, activeMods, bridgeState);
@@ -288,49 +286,45 @@ public sealed partial class TestEnvironmentPreparer(
     }
 
     /// <summary>
-    /// 改寫隔離環境 Prefs.xml 的視窗模式。放在 SeedConfig 之後，seed_config 帶進來的
-    /// Prefs.xml 也會被覆寫。只動複本，使用者本人的 Prefs.xml 不受影響。
+    /// 測試場次一律全螢幕。放在 SeedConfig 之後，seed_config 帶進來的 Prefs.xml 也會被改到。
+    /// 只動複本，使用者本人的 Prefs.xml 不受影響。
     /// </summary>
-    private static void ApplyFullscreen(string configDirectory, bool fullscreen)
+    private static void ApplyFullscreen(string configDirectory)
     {
         var prefs = Path.Combine(configDirectory, "Prefs.xml");
 
         if (!File.Exists(prefs))
         {
-            // 沒有 Prefs.xml 可改時交給遊戲預設值，不憑空生一份。
+            // 沒有 Prefs.xml 可改時交給遊戲預設值，不憑空生一份——缺檔時遊戲會做
+            // 首次啟動的初始化（系統語言、建議 UI 縮放），自己生一份會把它跳過。
             return;
         }
 
-        var original = File.ReadAllText(prefs);
-        var rewritten = WithFullscreen(original, fullscreen);
-
-        if (!ReferenceEquals(original, rewritten))
+        try
         {
-            // RimWorld 自己寫出的 Prefs.xml 是帶 BOM 的 UTF-8，照樣寫回。
-            File.WriteAllText(prefs, rewritten, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            var document = XDocument.Load(prefs);
+
+            if (document.Root is { } root)
+            {
+                ApplyFullscreen(root);
+
+                // 和 RimWorld 自己的 Prefs.Save 用同一個 API，寫出的格式一致。
+                document.Save(prefs);
+            }
+        }
+        catch (System.Xml.XmlException)
+        {
+            // 壞掉的 Prefs.xml 交給遊戲自己處理。
         }
     }
 
     /// <summary>
-    /// RimWorld（Unity 2022，Windows）的 fullscreen=True 走 FullScreenWindow，
-    /// 也就是無邊框全螢幕視窗；解析度沿用 Prefs 原本的 screenWidth/screenHeight。
-    /// 找不到 ＜fullscreen＞ 元素時原樣回傳（同一個字串實例）。
+    /// fullscreen=True 在 Unity 2022 走 FullScreenWindow：無邊框、不論 Prefs 的解析度
+    /// 是多少都填滿螢幕（解析度不同時縮放），所以不必知道使用者的螢幕尺寸。
+    /// 不用 -popupwindow：那種視窗的大小就是 Prefs 的解析度，和螢幕不符時填不滿；
+    /// Unity 在 macOS 也不支援它。
     /// </summary>
-    public static string WithFullscreen(string prefsXml, bool fullscreen)
-    {
-        var value = fullscreen ? "True" : "False";
-        var match = FullscreenElement().Match(prefsXml);
-
-        if (!match.Success || match.Groups[1].Value == value)
-        {
-            return prefsXml;
-        }
-
-        return string.Concat(prefsXml.AsSpan(0, match.Groups[1].Index), value, prefsXml.AsSpan(match.Groups[1].Index + match.Groups[1].Length));
-    }
-
-    [GeneratedRegex(@"<fullscreen>\s*(True|False)\s*</fullscreen>", RegexOptions.IgnoreCase)]
-    private static partial Regex FullscreenElement();
+    public static void ApplyFullscreen(XElement prefs) => prefs.SetElementValue("fullscreen", "True");
 
     /// <summary>
     /// RimWorld 以 Mod_＜Mod 資料夾名＞_＜Mod 類別名＞.xml 讀取 ModSettings，

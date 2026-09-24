@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using RimWorldModMcp.Diagnostics;
 
 namespace RimWorldModMcp.Diagnostics.Tests;
@@ -30,32 +31,35 @@ public sealed class TestEnvironmentPreparerTests
     private const string Prefs = """
         <?xml version="1.0" encoding="utf-8"?>
         <PrefsData>
-          <screenWidth>2560</screenWidth>
+          <screenWidth>1600</screenWidth>
+          <screenHeight>900</screenHeight>
           <fullscreen>False</fullscreen>
           <uiScale>1.25</uiScale>
         </PrefsData>
         """;
 
     [Fact]
-    public void WithFullscreen_rewrites_only_the_fullscreen_element()
+    public void ApplyFullscreen_turns_fullscreen_on_and_leaves_the_rest_alone()
     {
-        var result = TestEnvironmentPreparer.WithFullscreen(Prefs, fullscreen: true);
+        var root = XDocument.Parse(Prefs).Root!;
 
-        Assert.Equal(Prefs.Replace("<fullscreen>False</fullscreen>", "<fullscreen>True</fullscreen>"), result);
+        TestEnvironmentPreparer.ApplyFullscreen(root);
+
+        Assert.Equal("True", root.Element("fullscreen")!.Value);
+        Assert.Equal("1600", root.Element("screenWidth")!.Value);
+        Assert.Equal("900", root.Element("screenHeight")!.Value);
+        Assert.Equal("1.25", root.Element("uiScale")!.Value);
     }
 
     [Fact]
-    public void WithFullscreen_returns_same_instance_when_already_matching()
+    public void ApplyFullscreen_adds_a_missing_element()
     {
-        Assert.Same(Prefs, TestEnvironmentPreparer.WithFullscreen(Prefs, fullscreen: false));
-    }
+        // RimWorld 不一定寫出預設值（false）的欄位，缺了也要補上。
+        var root = XElement.Parse("<PrefsData><uiScale>1</uiScale></PrefsData>");
 
-    [Fact]
-    public void WithFullscreen_leaves_prefs_without_the_element_alone()
-    {
-        const string noElement = "<PrefsData><screenWidth>1920</screenWidth></PrefsData>";
+        TestEnvironmentPreparer.ApplyFullscreen(root);
 
-        Assert.Same(noElement, TestEnvironmentPreparer.WithFullscreen(noElement, fullscreen: true));
+        Assert.Equal("True", root.Element("fullscreen")!.Value);
     }
 
     private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\Games\RimWorld" : "/opt/rimworld";
