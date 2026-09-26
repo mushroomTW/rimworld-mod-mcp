@@ -23,7 +23,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
     /// 只比建立時間會被 Windows 的檔案通道效應（delete＋重建仍保留建立時間）騙過，
     /// 所以再比開頭前綴——追加寫入不會改變檔頭，重建／截斷重寫幾乎一定改變它。
     /// </summary>
-    private readonly Dictionary<string, (DateTime CreationUtc, long Length, string Prefix)> _identities = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (DateTime? CreationUtc, long Length, string Prefix)> _identities = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// 上一批尾的診斷（F09 接續用）。帶時間戳：續行若與標題相隔超過
@@ -109,12 +109,16 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         }
 
         long length;
-        DateTime creationUtc;
+        DateTime? creationUtc;
 
         try
         {
             length = info.Length;
-            creationUtc = info.CreationTimeUtc;
+
+            // Linux 上 .NET 的 CreationTimeUtc 不是真正的建立時間（取自 mtime／ctime），
+            // 追加寫入就會改變它，拿來判斷身分會把每次追加誤認為重建。視為未知，
+            // 改由長度、檔頭前綴與 Player-prev.log 戳記判斷。
+            creationUtc = OperatingSystem.IsLinux() ? null : info.CreationTimeUtc;
         }
         catch (IOException)
         {
@@ -133,7 +137,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             {
                 var sessionStart = DateTimeOffset.FromUnixTimeMilliseconds(startedAt).UtcDateTime;
 
-                if (creationUtc >= sessionStart - TimeSpan.FromSeconds(1))
+                if (creationUtc is { } created && created >= sessionStart - TimeSpan.FromSeconds(1))
                 {
                     offset = 0;
                 }

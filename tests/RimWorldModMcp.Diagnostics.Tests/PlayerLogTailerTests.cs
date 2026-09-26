@@ -304,6 +304,58 @@ public sealed class PlayerLogTailerTests : IDisposable
         Assert.Contains("Example.Work()", entry.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Linux 上 .NET 的 CreationTimeUtc 在沒有真正建立時間可用時取自 mtime／ctime，
+    /// 追加寫入就會改變它。若拿來判斷檔案身分，每次追加都被當成重建而從頭重讀，
+    /// 同一筆錯誤重複回報、跨輪詢的堆疊也接不上。檔案時間戳粒度粗，追加若落在同一刻度
+    /// 會碰巧沒事，所以這裡先把修改時間往前調，讓追加必然改變 Linux 上的建立時間。
+    /// </summary>
+    [Fact]
+    public void AppendAfterTheTimestampTickDoesNotRestartReading()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        File.WriteAllText(log, "Error: failed\n", new UTF8Encoding(false));
+        File.SetLastWriteTimeUtc(log, DateTime.UtcNow.AddHours(-1));
+
+        var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        File.AppendAllText(log, "  at Example.Work()\n", new UTF8Encoding(false));
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        var entry = Assert.Single(_diagnostics.Read());
+        Assert.Contains("Example.Work()", entry.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 場次開始前就存在、場次中持續被追加的 Player.log 不是「本場次建立的新檔」。
+    /// Linux 上建立時間會隨追加更新，若據此判斷就會把 LogOffset 之前（上一場）的內容當成本場診斷。
+    /// </summary>
+    [Fact]
+    public void LogAppendedDuringTheSessionIsNotMistakenForANewFile()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        var previous = "error: from the previous run\n";
+        File.WriteAllText(log, previous, new UTF8Encoding(false));
+
+        var longAgo = DateTime.UtcNow.AddHours(-1);
+        File.SetCreationTimeUtc(log, longAgo);
+        File.SetLastWriteTimeUtc(log, longAgo);
+
+        var session = Session(log, logOffset: Encoding.UTF8.GetByteCount(previous)) with
+        {
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-30).ToUnixTimeMilliseconds(),
+        };
+
+        File.AppendAllText(log, "error: this run\n", new UTF8Encoding(false));
+        _tailer.ReadNewLines(session, new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase));
+
+        var texts = _diagnostics.Read().Select(record => record.Text).ToList();
+
+        Assert.DoesNotContain(texts, text => text.Contains("previous run", StringComparison.Ordinal));
+        Assert.Contains(texts, text => text.Contains("this run", StringComparison.Ordinal));
+    }
+
     private static TestSession Session(string playerLog, long logOffset = 0) => new()
     {
         State = "running",
