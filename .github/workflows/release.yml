@@ -1,0 +1,68 @@
+name: Release
+
+# 推送 v* 標籤時，在各平台自己的 runner 上發佈單一執行檔並建立 GitHub Release 草稿。
+# 建成草稿而非直接發佈：發佈前可以先補上 release notes、檢查附件。
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          # 在 macOS 上發佈，SDK 才會替 arm64 執行檔做 ad-hoc 簽章；
+          # 從其他平台交叉發佈的執行檔沒有簽章，Apple Silicon 會拒絕執行。
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.x'
+      - run: >
+          dotnet publish src/RimWorldModMcp.Server -c Release -r ${{ matrix.rid }}
+          --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -o publish/${{ matrix.rid }}
+        shell: bash
+      # 附件只放執行檔與 bridge/（README 所述的發佈內容），不附 .pdb。
+      # 用 python 打包：三個 runner 都有 python3，且 zipfile 會保留 Unix 執行權限。
+      - run: |
+          python3 - <<'EOF'
+          import os, pathlib, shutil, sys
+          rid = "${{ matrix.rid }}"
+          root = pathlib.Path("publish", rid)
+          bridge = (root / "bridge/Prebuilt/RimWorldModMcp.Bridge.dll").read_bytes()
+          # RimWorld 跑在 Mono 上，只載得了 net472；編成其他目標框架的 Bridge 等於沒有。
+          if b".NETFramework,Version=v4.7.2" not in bridge:
+              sys.exit("prebuilt bridge is not built for net472")
+          for pdb in root.glob("*.pdb"):
+              pdb.unlink()
+          tag = os.environ["GITHUB_REF_NAME"]
+          shutil.make_archive(f"dist/rimworld-mod-mcp-{tag}-{rid}", "zip", root)
+          EOF
+        shell: bash
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.rid }}
+          path: dist/*.zip
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" dist/*.zip --draft --title "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
