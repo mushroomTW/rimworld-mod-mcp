@@ -193,15 +193,14 @@ There are several AI-modding tools for RimWorld. They mostly occupy different ni
 | | rimworld-mod-mcp | [Modmixer](https://github.com/lebek/modmixer) | [RimSage](https://github.com/realloon/RimSage) | [RimBridgeServer](https://github.com/pardeike/RimBridgeServer) | [RiMCP_hybrid](https://github.com/h7lu/RiMCP_hybrid) |
 | --- | --- | --- | --- | --- | --- |
 | Form | MCP server (single dotnet tool / executable), bring your own agent | Electron desktop app with a built-in agent; you supply a model API key | MCP server (Bun + ripgrep); hosted at mcp.rimsage.com or self-hosted | In-game mod exposing a tool bridge; used through [GABS](https://github.com/pardeike/GABS) or a direct connection | MCP server (C#, Lucene + vector + graph RAG) |
-| Game API research | IL metadata symbol index in seconds; per-member decompilation on demand; full-text source in the background | Decompiles all assemblies with a vendored `ilspycmd` on first launch, then indexes | Yes, but you decompile the game yourself first (`import-csharp` takes a decompiled source tree) | No | Yes; requires an embedding model (local or remote API) to build the index |
+| Game API research | IL metadata symbol index in seconds; per-member decompilation on demand; full-text source in the background | Decompiles all assemblies with a vendored `ilspycmd` on first launch, then indexes | Yes, but you decompile the game yourself first (`import-csharp` takes a decompiled source tree) | No | Yes, but you decompile the game yourself first (ILSpy or dnSpy output placed in `RimWorldData/`); requires an embedding model (local or remote API) to build the index |
 | Def XML search | Yes, with cross-reference lookup (`find_def_usages`) | Yes | Yes (`search_defs`, `get_def_details`) | No | Yes |
-| Installed mods | List, decompile and search other mods' assemblies | — | No | List mods, read/change mod settings and load order in the running game | No |
+| Installed mods | List, decompile and search other mods' assemblies | Lists local and Workshop mods, edits the active list and load order, flags missing dependencies, incompatibilities and load-order problems; decompiles only game/DLC assemblies | No | List mods, read/change mod settings and load order in the running game | No |
 | Build | C# build with structured compiler diagnostics | Yes (agent edits and builds) | No | No | No |
 | Test launch | Isolated save folder, generated `ModsConfig.xml`, junction/symlink to your workspace | Launches the game with the mod installed; bridge mod watches for errors | No | Starts a debug game or loads a save through GABS | No |
-| In-game feedback | Errors/warnings + game state (scene, map, tick, paused, open dialogs) | Errors via its bridge mod | — | Full live state, semantic UI layout, screenshots, debug actions, Lua scripting | — |
-| Steam Workshop | None by design | Publishing built in | — | — | — |
-| Network | None; everything stays local | Model provider API, Workshop upload; ships `@sentry/electron` | Hosted mode sends queries to rimsage.com; self-hosted mode is local | Local | Local unless a remote embedding API is used |
-| Games | RimWorld | RimWorld, Minecraft | RimWorld | RimWorld | RimWorld |
+| In-game feedback | Errors/warnings + game state (scene, map, tick, paused, open dialogs) | Errors via its bridge mod | No | Full live state, semantic UI layout, screenshots, debug actions, Lua scripting | No |
+| Steam Workshop | None by design | Publishing built in | No | No | No |
+| Network | Local | Model provider API, Workshop upload; ships `@sentry/electron` | Hosted mode sends queries to rimsage.com; self-hosted mode is local | Local | Local unless a remote embedding API is used |
 | License | MIT | MIT | MIT | MIT | MIT |
 
 Where this project fits:
