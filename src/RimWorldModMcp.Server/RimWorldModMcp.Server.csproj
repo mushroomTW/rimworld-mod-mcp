@@ -58,8 +58,11 @@
       獨立的中繼與輸出目錄：solution 建置會以另一組屬性建置同一個 Bridge 專案，
       共用 obj/bin 會互相覆蓋。ExcludeAssets 是在 restore 時寫進 project.assets.json 的，
       所以連 obj 根目錄（assets 檔所在）也要分開，否則兩種建置會互相覆蓋對方的參考集。
+      MSBuildProjectExtensionsPath 必須是絕對路徑：以全域屬性傳入時 Microsoft.Common.props 無法
+      把它轉成絕對路徑，相對路徑會被當成相對於 SDK 目錄而匯入不到 nuget.g.props，
+      net472 參考組件套件因此失效——只有裝了 .NET Framework Developer Pack 的 Windows 看不出來。
     -->
-    <BridgePrebuiltProperties>Configuration=Release;BridgeUseReferenceAssemblies=true;OutDir=bin\prebuilt\;BaseIntermediateOutputPath=obj\prebuilt\;MSBuildProjectExtensionsPath=obj\prebuilt\</BridgePrebuiltProperties>
+    <BridgePrebuiltProperties>Configuration=Release;BridgeUseReferenceAssemblies=true;OutDir=bin\prebuilt\;BaseIntermediateOutputPath=obj\prebuilt\;MSBuildProjectExtensionsPath=$([System.IO.Path]::GetDirectoryName($(BridgeProject)))\obj\prebuilt\</BridgePrebuiltProperties>
   </PropertyGroup>
 
   <!--
