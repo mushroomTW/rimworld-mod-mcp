@@ -43,7 +43,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     /// 這是「Mod 索引等 rebuild_index 寫完」那條路徑的基礎。
     /// </summary>
     [Fact]
-    public void AcquireWithTimeoutWaitsForTheHolderToRelease()
+    public async Task AcquireWithTimeoutWaitsForTheHolderToRelease()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
         var token = locks.Acquire("index");
@@ -63,7 +63,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         var waited = locks.Acquire("index", TimeSpan.FromSeconds(10));
 
         Assert.NotNull(waited);
-        released.Wait();
+        await released;
     }
 
     /// <summary>等不到就必須拋出，不能無限期卡住——呼叫端要能把它當成可重試的失敗。</summary>

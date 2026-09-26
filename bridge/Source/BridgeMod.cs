@@ -196,7 +196,7 @@ namespace RimWorldModMcp.Bridge
 
         internal static long UptimeMilliseconds => startedAt.ElapsedMilliseconds;
 
-        internal static void Configure(string value, string requestedPort)
+        internal static void Configure(string value, string? requestedPort)
         {
             token = value;
             int parsed;
