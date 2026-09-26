@@ -10,7 +10,7 @@
 
 ## 特色
 
-- 支援 Windows、macOS、Linux，發佈為單一 dotnet tool。
+- 支援 Windows、macOS、Linux，發佈為 Self-Contained 單一執行檔（也可從原始碼安裝為 dotnet tool）。
 - **直接讀取 IL metadata 建立符號索引**——十萬個符號約數秒完成，含完整繼承鏈與真實型別簽章。
 - SQLite FTS5 全文索引涵蓋 Def、符號與反編譯後的原始碼。
 - 以 `ICSharpCode.Decompiler` 在行程內反編譯，不需要外部工具，也沒有工具鏈安裝步驟。
@@ -23,32 +23,45 @@
 
 ## 系統需求
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download)
 - 本機已合法安裝的 RimWorld
+- [.NET SDK 10](https://dotnet.microsoft.com/download)：只有 `build_mod`（編譯 C# Mod）、從原始碼安裝，或 `run_test_cycle` 必須退回就地建置 Bridge 時才需要
 
 > [!NOTE]
-> 若使用 Self-Contained 獨立單一執行檔，執行伺服器本體無需安裝 .NET 10 Runtime；`build_mod`（編譯 C# Mod）仍需要本機 .NET SDK。`run_test_cycle` 使用隨工具發佈的預編譯 Bridge，只有在已安裝遊戲的 major.minor 版本與預編譯版本不同時才退回就地編譯（那時才需要 SDK）；`test_status` 的 `bridge_origin` 會說明走的是哪一條路。
+> Release 的執行檔是 Self-Contained，執行伺服器本體不需要 .NET Runtime。`run_test_cycle` 使用內嵌在工具裡的預編譯 Bridge，只有在已安裝遊戲的 major.minor 版本與預編譯版本不同時才退回就地編譯（那時才需要 SDK）；`test_status` 的 `bridge_origin` 會說明走的是哪一條路。
 
 預編譯的 C# Bridge 以公開的 [Krafs.Rimworld.Ref](https://www.nuget.org/packages/Krafs.Rimworld.Ref) 參考組件編譯；就地建置的後備路徑才會參考偵測到的 RimWorld 組件。本 repository 不包含任何 RimWorld 二進位檔。
 
 ## 安裝
 
-作為 dotnet tool 全域安裝：
+### 從 Release 下載（推薦）
+
+到[最新版 Release](https://github.com/mushroomTW/rimworld-mod-mcp/releases/latest) 下載對應平台的執行檔：
+
+| 平台 | 檔案 |
+| --- | --- |
+| Windows x64 | `rimworld-mod-mcp-<版本>-win-x64.exe` |
+| macOS（Apple Silicon） | `rimworld-mod-mcp-<版本>-osx-arm64` |
+| Linux x64 | `rimworld-mod-mcp-<版本>-linux-x64` |
+
+這一個檔案就是整個工具：不需要 .NET Runtime，遊戲內 Bridge 也內嵌在裡面（`run_test_cycle` 第一次需要時才解到快取目錄）。放在任何位置，讓 MCP client 指向它即可。
+
+macOS 與 Linux 下載後要加上執行權限。macOS 可能因為執行檔未經公證而擋下它，清除一次隔離標記即可：
 
 ```bash
-dotnet tool install -g RimWorldModMcp
+chmod +x rimworld-mod-mcp-*-osx-arm64
+xattr -d com.apple.quarantine rimworld-mod-mcp-*-osx-arm64
 ```
 
-從原始碼安裝：
+### 從原始碼安裝
+
+作為 dotnet tool 全域安裝：
 
 ```bash
 dotnet pack src/RimWorldModMcp.Server -c Release -o ./nupkg
 dotnet tool install -g RimWorldModMcp --add-source ./nupkg
 ```
 
-### 打包為獨立單一執行檔（免安裝 .NET 10 Runtime）
-
-若希望在未安裝 .NET 10 的環境執行，或直接以單一執行檔分發，可發佈為 Self-Contained 單一可執行檔：
+或發佈為 Self-Contained 單一執行檔（與 Release 的建置方式相同）：
 
 ```bash
 # Windows (x64)
@@ -61,11 +74,24 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r osx-arm64 --self-containe
 dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
 ```
 
-> **注意**：發佈產物包含單一執行檔與 `bridge/` 目錄。若需執行 `run_test_cycle`（遊戲內隔離測試），請保持 `bridge/` 目錄與執行檔位於同層；其餘核心功能（Def 搜尋、反編譯、符號索引）皆已完全內嵌於單一執行檔內。
+> **注意**：發佈產物另外包含 `bridge/` 目錄。執行檔本身不需要它（Bridge 已內嵌），但若它與執行檔位於同層，會優先於內嵌的那份使用。
 
 ## MCP client 設定
 
-安裝為 dotnet tool 後 `rimworld-mod-mcp` 會在 PATH 上，設定不需要絕對路徑：
+讓 command 指向下載的執行檔——見 [local-build.mcp.json](examples/local-build.mcp.json)：
+
+```json
+{
+  "mcpServers": {
+    "rimworld": {
+      "command": "C:\path\to\rimworld-mod-mcp-<版本>-win-x64.exe",
+      "args": ["stdio"]
+    }
+  }
+}
+```
+
+macOS 與 Linux 改填下載檔案的絕對路徑。若從原始碼安裝為 dotnet tool，`rimworld-mod-mcp` 會在 PATH 上，設定不需要絕對路徑：
 
 ```json
 {
@@ -81,19 +107,6 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 `create_mod`、`build_mod`、`run_test_cycle` 接受任何本機目錄路徑，不設寫入邊界——寫入範圍的把關交給 MCP client 的權限機制與你自己。
 
 範本在 [examples/](examples/)：[Claude Code](examples/claude-code.mcp.json)、[Codex](examples/codex-mcp.toml)、[自訂埠與遊戲路徑](examples/custom-port.mcp.json)。
-
-若使用獨立單一執行檔發佈（或本機建置產物），也可以直接指向該執行檔路徑——見 [local-build.mcp.json](examples/local-build.mcp.json)：
-
-```json
-{
-  "mcpServers": {
-    "rimworld": {
-      "command": "C:\\path\\to\\publish\\RimWorldModMcp.Server.exe",
-      "args": ["stdio"]
-    }
-  }
-}
-```
 
 ## 首次使用
 

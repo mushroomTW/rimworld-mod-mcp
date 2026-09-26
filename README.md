@@ -10,7 +10,7 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 
 ## Highlights
 
-- Runs on Windows, macOS, and Linux; ships as a single dotnet tool.
+- Runs on Windows, macOS, and Linux; ships as a single self-contained executable (or a dotnet tool built from source).
 - **Reads IL metadata directly to build the symbol index** — roughly a hundred thousand symbols in seconds, with complete inheritance chains and real type signatures.
 - SQLite FTS5 full-text search over Defs, symbols, and decompiled source.
 - In-process decompilation via `ICSharpCode.Decompiler`. No external tools, no toolchain setup step.
@@ -23,32 +23,45 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 
 ## Requirements
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download)
 - A legitimately installed copy of RimWorld
+- [.NET SDK 10](https://dotnet.microsoft.com/download), only for `build_mod` (compiling C# mods), for installing from source, or when `run_test_cycle` has to fall back to building the bridge locally
 
 > [!NOTE]
-> When running as a self-contained single executable, the server itself does not require a local .NET 10 Runtime. A local .NET SDK is still required for `build_mod` (compiling C# mods). `run_test_cycle` uses the prebuilt in-game bridge shipped with the tool and only falls back to compiling it locally (which needs the SDK) when the installed game's major.minor version differs from the one the bridge was built for; `test_status` reports which path was taken in `bridge_origin`.
+> The release executable is self-contained: running the server needs no .NET Runtime. `run_test_cycle` uses the prebuilt in-game bridge embedded in the tool and only falls back to compiling it locally (which needs the SDK) when the installed game's major.minor version differs from the one the bridge was built for; `test_status` reports which path was taken in `bridge_origin`.
 
 The prebuilt C# bridge is compiled against the public [Krafs.Rimworld.Ref](https://www.nuget.org/packages/Krafs.Rimworld.Ref) reference assemblies; the local fallback build references the RimWorld assemblies it detects. This repository contains no RimWorld binaries.
 
 ## Installation
 
-As a global dotnet tool:
+### Download a release (recommended)
+
+Download the executable for your platform from the [latest release](https://github.com/mushroomTW/rimworld-mod-mcp/releases/latest):
+
+| Platform | File |
+| --- | --- |
+| Windows x64 | `rimworld-mod-mcp-<version>-win-x64.exe` |
+| macOS (Apple Silicon) | `rimworld-mod-mcp-<version>-osx-arm64` |
+| Linux x64 | `rimworld-mod-mcp-<version>-linux-x64` |
+
+That single file is the whole tool: no .NET Runtime is needed, and the in-game bridge is embedded in it (it is unpacked to the cache directory the first time `run_test_cycle` needs it). Put it anywhere and point your MCP client at it.
+
+On macOS and Linux, mark the file as executable after downloading. macOS may also block it because it is not notarized; clear the quarantine flag once:
 
 ```bash
-dotnet tool install -g RimWorldModMcp
+chmod +x rimworld-mod-mcp-*-osx-arm64
+xattr -d com.apple.quarantine rimworld-mod-mcp-*-osx-arm64
 ```
 
-From source:
+### From source
+
+As a global dotnet tool:
 
 ```bash
 dotnet pack src/RimWorldModMcp.Server -c Release -o ./nupkg
 dotnet tool install -g RimWorldModMcp --add-source ./nupkg
 ```
 
-### Publishing as a standalone single executable (no .NET 10 Runtime required)
-
-To run without installing .NET 10 or to distribute as a standalone executable, publish as a self-contained single file:
+Or as a self-contained single executable, the same way the releases are built:
 
 ```bash
 # Windows (x64)
@@ -61,11 +74,24 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r osx-arm64 --self-containe
 dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./publish
 ```
 
-> **Note**: The publish output contains the single executable and the `bridge/` directory. Keep the `bridge/` directory alongside the executable if you need `run_test_cycle` (isolated in-game testing); all other core features (Def search, decompilation, symbol indexing) are fully embedded inside the executable.
+> **Note**: The publish output also contains a `bridge/` directory. The executable does not need it (the bridge is embedded), but when it is present next to the executable it takes precedence over the embedded copy.
 
 ## MCP client configuration
 
-When installed as a dotnet tool, `rimworld-mod-mcp` is on your PATH, so no absolute paths are needed:
+Point the command at the executable you downloaded — see [local-build.mcp.json](examples/local-build.mcp.json):
+
+```json
+{
+  "mcpServers": {
+    "rimworld": {
+      "command": "C:\path\to\rimworld-mod-mcp-<version>-win-x64.exe",
+      "args": ["stdio"]
+    }
+  }
+}
+```
+
+On macOS and Linux, use the absolute path to the downloaded file instead. When installed as a dotnet tool from source, `rimworld-mod-mcp` is on your PATH, so no absolute path is needed:
 
 ```json
 {
@@ -81,19 +107,6 @@ When installed as a dotnet tool, `rimworld-mod-mcp` is on your PATH, so no absol
 `create_mod`, `build_mod`, and `run_test_cycle` accept any local directory path; there is no write boundary — scoping writes is left to your MCP client's permission prompts and to you.
 
 Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp.json), [Codex](examples/codex-mcp.toml), [custom port and game path](examples/custom-port.mcp.json).
-
-If you use the standalone executable (or want to point to local build output), point the command directly to the executable path — see [local-build.mcp.json](examples/local-build.mcp.json):
-
-```json
-{
-  "mcpServers": {
-    "rimworld": {
-      "command": "C:\\path\\to\\publish\\RimWorldModMcp.Server.exe",
-      "args": ["stdio"]
-    }
-  }
-}
-```
 
 ## First use
 
