@@ -69,10 +69,12 @@
     先建 Bridge 的預編譯版本再決定自己的輸出內容。
     只 pack Server 專案時 Bridge 不在 restore 圖裡，所以先自己 restore 一次；
     MSBuildRestoreSessionId 是讓 restore 與 build 不共用同一份專案評估的慣例。
+    RemoveProperties：pack 會以全域屬性 TargetFramework=net10.0 再建一次 Server，
+    不移除就會傳進 Bridge，把預編譯 DLL 編成 net10.0，RimWorld（Mono）載入不了。
   -->
   <Target Name="PrebuildBridge" BeforeTargets="AssignTargetPaths">
-    <MSBuild Projects="$(BridgeProject)" Targets="Restore" Properties="$(BridgePrebuiltProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
-    <MSBuild Projects="$(BridgeProject)" Targets="Build" Properties="$(BridgePrebuiltProperties)">
+    <MSBuild Projects="$(BridgeProject)" Targets="Restore" Properties="$(BridgePrebuiltProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" RemoveProperties="TargetFramework" />
+    <MSBuild Projects="$(BridgeProject)" Targets="Build" Properties="$(BridgePrebuiltProperties)" RemoveProperties="TargetFramework">
       <Output TaskParameter="TargetOutputs" ItemName="_BridgePrebuiltAssembly" />
     </MSBuild>
     <PropertyGroup>

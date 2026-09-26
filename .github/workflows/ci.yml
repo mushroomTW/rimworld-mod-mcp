@@ -54,10 +54,16 @@ jobs:
       - run: |
           python3 - <<'EOF'
           import glob, sys, zipfile
-          names = set(zipfile.ZipFile(glob.glob("nupkg/*.nupkg")[0]).namelist())
+          package = zipfile.ZipFile(glob.glob("nupkg/*.nupkg")[0])
+          names = set(package.namelist())
           missing = [f for f in ("RimWorldModMcp.Bridge.dll", "0Harmony.dll", "game-version.txt")
                      if f"tools/net10.0/any/bridge/Prebuilt/{f}" not in names]
-          sys.exit(f"prebuilt bridge files missing from package: {missing}" if missing else 0)
+          if missing:
+              sys.exit(f"prebuilt bridge files missing from package: {missing}")
+          # RimWorld 跑在 Mono 上，只載得了 net472；編成其他目標框架的 Bridge 等於沒有。
+          bridge = package.read("tools/net10.0/any/bridge/Prebuilt/RimWorldModMcp.Bridge.dll")
+          if b".NETFramework,Version=v4.7.2" not in bridge:
+              sys.exit("prebuilt bridge is not built for net472")
           EOF
         shell: bash
       - run: dotnet tool install -g RimWorldModMcp --add-source ./nupkg --version 0.1.0
