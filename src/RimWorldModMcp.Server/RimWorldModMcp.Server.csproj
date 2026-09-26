@@ -41,6 +41,8 @@
     - bridge/Prebuilt/：用公開參考組件（Krafs.Rimworld.Ref）預編譯的 DLL，遊戲 major.minor
       與 game-version.txt 相同時直接使用，run_test_cycle 就不需要本機 .NET SDK。
     - bridge/Source/：原始碼。遊戲版本不同（或預編譯檔缺失）時就地建置，參考使用者本機的遊戲組件。
+    兩者同時以 bridge/<相對路徑> 內嵌進組件：Release 只發佈單一執行檔，旁邊沒有 bridge/ 目錄，
+    執行期由 EmbeddedBridge 解到快取目錄。
   -->
   <ItemGroup>
     <!-- 複製到輸出目錄即可：dotnet tool 打包時會把整個輸出目錄收進 tools/<tfm>/any/。 -->
@@ -48,6 +50,7 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>bridge\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
+    <EmbeddedResource Include="..\..\bridge\**\*" Exclude="..\..\bridge\**\bin\**;..\..\bridge\**\obj\**;..\..\bridge\Assemblies\**;..\..\bridge\Prebuilt\**" LogicalName="bridge/%(RecursiveDir)%(Filename)%(Extension)" WithCulture="false" />
     <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
@@ -91,6 +94,7 @@
         -->
         <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       </None>
+      <EmbeddedResource Include="@(_BridgePrebuiltFile)" LogicalName="bridge/Prebuilt/%(Filename)%(Extension)" WithCulture="false" />
     </ItemGroup>
   </Target>
 

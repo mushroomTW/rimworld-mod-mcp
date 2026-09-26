@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using System.Xml.Linq;
 using RimWorldModMcp.Core.Paths;
@@ -168,8 +169,8 @@ public sealed class TestEnvironmentPreparer(
         }
     }
 
-    /// <summary>找出 repo 內的 Bridge Mod 目錄。</summary>
-    private static string? BridgeDirectory()
+    /// <summary>找出 Bridge Mod 目錄：執行檔旁、repo 內，最後才用執行檔內嵌的那份。</summary>
+    private string? BridgeDirectory()
     {
         var candidate = Path.Combine(AppContext.BaseDirectory, "bridge");
 
@@ -193,7 +194,8 @@ public sealed class TestEnvironmentPreparer(
             directory = directory.Parent;
         }
 
-        return null;
+        // Release 發佈的單一執行檔旁沒有 bridge/，改用內嵌在執行檔裡的那份。
+        return EmbeddedBridge.Extract(Assembly.GetEntryAssembly(), Path.Combine(store.CacheHome, "bridge-embedded"));
     }
 
     private static void WriteModsConfig(string configDirectory, string? existingConfig, IReadOnlyList<string> activeMods, string? installedVersion)

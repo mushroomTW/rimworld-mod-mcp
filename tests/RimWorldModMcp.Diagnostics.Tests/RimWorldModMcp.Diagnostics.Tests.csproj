@@ -25,6 +25,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- EmbeddedBridgeTests 用：模擬 Server 內嵌 Bridge 的資源命名（bridge/<相對路徑>）。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="EmbeddedBridgeFixture\**\*" LogicalName="bridge/%(RecursiveDir)%(Filename)%(Extension)" WithCulture="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\RimWorldModMcp.Diagnostics\RimWorldModMcp.Diagnostics.csproj" />
   </ItemGroup>
