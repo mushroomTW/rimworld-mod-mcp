@@ -11,6 +11,7 @@ namespace RimWorldModMcp.Diagnostics.Tests;
 /// 真 TCP 層的行為：長度上限與逐行解析。
 /// Accept() 的單元測試繞過了網路層，OOM 類的缺陷正落在那個縫裡。
 /// </summary>
+[Collection(TcpTimingCollection.Name)]
 public sealed class DaemonListenerTcpTests : IDisposable
 {
     private const string Token = "tcp-test-token";
@@ -124,6 +125,64 @@ public sealed class DaemonListenerTcpTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// 閒置逾時只計「等資料」的時間，不計處理一行的時間。處理（寫診斷檔）在負載下可能很慢，
+    /// 若也算進閒置，計時會在處理途中到期，下一次讀取直接被取消、連線被切，後續的行就遺失。
+    /// 這裡握住診斷檔的鎖讓處理卡住超過逾時，再放開並立刻送下一行。
+    /// </summary>
+    [Fact]
+    public async Task SlowProcessingDoesNotCountAsIdle()
+    {
+        var idle = TimeSpan.FromMilliseconds(300);
+        var listener = new DaemonListener(_store, _port, _diagnostics, new TestSessionStore(_store), _records, new GameStateStore(_store), idle);
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = listener.RunAsync(cancellation.Token);
+
+        while (_records.Read() is null)
+        {
+            Assert.False(running.IsCompleted, "daemon 不應在啟動階段就結束");
+            await Task.Delay(50, cancellation.Token);
+        }
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, _port, cancellation.Token);
+            var stream = client.GetStream();
+
+            using (new FileStream(_store.DiagnosticsFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                await stream.WriteAsync(Encoding.UTF8.GetBytes(ValidLine("slow") + "\n"), cancellation.Token);
+                await Task.Delay(idle * 2, cancellation.Token);
+            }
+
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(ValidLine("after") + "\n"), cancellation.Token);
+
+            while (_diagnostics.Read().Count < 2 && !cancellation.IsCancellationRequested)
+            {
+                if (client.Client.Poll(0, SelectMode.SelectRead) && client.Client.Available == 0)
+                {
+                    break; // 對端已關閉，第二行不會再被處理。
+                }
+
+                await Task.Delay(50, cancellation.Token);
+            }
+        }
+
+        Assert.Equal(2, _diagnostics.Read().Count);
+
+        cancellation.Cancel();
+
+        try
+        {
+            await running;
+        }
+        catch (OperationCanceledException)
+        {
+            // 預期的關閉路徑。
+        }
+    }
+
     [Fact]
     public async Task IdleConnectionIsClosedAfterTimeout()
     {
@@ -216,4 +275,15 @@ public sealed class DaemonListenerTcpTests : IDisposable
         {
         }
     }
+}
+
+/// <summary>
+/// 閒置逾時的測試以數百毫秒量測連線行為。與其他測試平行時，大量以 Thread.Sleep 等鎖的測試
+/// 會拖慢執行緒池，用戶端送出的時間點延後數百毫秒，daemon 便如實判定為閒置而切斷。
+/// 這些測試改在其他測試之後單獨執行。
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class TcpTimingCollection
+{
+    public const string Name = "TCP timing";
 }

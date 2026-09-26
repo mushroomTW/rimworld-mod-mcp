@@ -154,6 +154,9 @@ public sealed class DaemonListener(
 
                 await foreach (var line in ReadLinesAsync(client.GetStream(), timeoutSource.Token).ConfigureAwait(false))
                 {
+                    // 處理期間暫停計時：寫診斷檔在負載下可能很慢，算進閒置的話
+                    // 計時會在處理途中到期，下一次讀取直接被取消而切斷連線。
+                    timeoutSource.CancelAfter(Timeout.InfiniteTimeSpan);
                     Accept(line, expected, runId);
 
                     // 逾時是「閒置」逾時：每收到一行就重新計時。不重設的話，
