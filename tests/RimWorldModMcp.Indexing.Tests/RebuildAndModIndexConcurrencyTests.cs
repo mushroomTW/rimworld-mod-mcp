@@ -135,7 +135,7 @@ public sealed class RebuildAndModIndexConcurrencyTests : IDisposable
     /// </para>
     /// </summary>
     [RequiresGameFact]
-    public void TransientWriteLockConflictDoesNotBecomeAPermanentError()
+    public async Task TransientWriteLockConflictDoesNotBecomeAPermanentError()
     {
         var modPath = EmitMod();
 
@@ -148,7 +148,7 @@ public sealed class RebuildAndModIndexConcurrencyTests : IDisposable
         Assert.True(_service.TrySearchSource("pkg", modPath, "TryStartJob", 10).Indexing);
 
         // 至少跨過一輪 busy_timeout（5 秒），確保真的發生過一次寫鎖衝突。
-        Thread.Sleep(TimeSpan.FromSeconds(8));
+        await Task.Delay(TimeSpan.FromSeconds(8));
 
         var duringConflict = _service.TrySearchSource("pkg", modPath, "TryStartJob", 10);
 

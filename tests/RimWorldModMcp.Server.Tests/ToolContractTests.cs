@@ -3,9 +3,12 @@ using System.Text.RegularExpressions;
 namespace RimWorldModMcp.Server.Tests;
 
 /// <summary>工具清單與 schema 的契約：名稱與參數名一變，agent 的提示與工作流程就會失效。</summary>
-public sealed class ToolContractTests : IAsyncLifetime
+public sealed partial class ToolContractTests : IAsyncLifetime
 {
     private McpServerFixture _server = null!;
+
+    [GeneratedRegex("^[a-z][a-z0-9_]*$")]
+    private static partial Regex SnakeCasePattern();
 
     public async Task InitializeAsync() => _server = await McpServerFixture.StartAsync();
 
@@ -35,7 +38,7 @@ public sealed class ToolContractTests : IAsyncLifetime
     public async Task AllParametersAreSnakeCase()
     {
         var tools = await _server.Client.ListToolsAsync();
-        var pattern = new Regex("^[a-z][a-z0-9_]*$");
+        var pattern = SnakeCasePattern();
         var offenders = new List<string>();
 
         foreach (var tool in tools)

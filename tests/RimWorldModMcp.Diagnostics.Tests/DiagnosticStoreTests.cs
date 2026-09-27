@@ -62,7 +62,7 @@ public sealed class DiagnosticStoreTests : IDisposable
     }
 
     [Fact]
-    public void ReadSinceReturnsNewAndReoccurringRecordsOnly()
+    public async Task ReadSinceReturnsNewAndReoccurringRecordsOnly()
     {
         _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
         _diagnostics.Add("warning", "untouched", "before cursor", "bridge", "run-1");
@@ -71,7 +71,7 @@ public sealed class DiagnosticStoreTests : IDisposable
         var cursor = last.At;
         var sequence = last.Sequence;
 
-        Thread.Sleep(5);
+        await Task.Delay(5);
         _diagnostics.Add("error", "new", "new failure", "bridge", "run-1");
         _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
 
