@@ -84,7 +84,7 @@ public sealed class TestCycleService(
             //
             // 清不掉的必須帶進新場次（見下面的 Links）：丟掉結果的話，那個連結
             // 從此沒人追蹤，會永久留在使用者的 Mods 目錄，stop_test 也不會再補清。
-            var orphanedLinks = environment.RemoveLinks(active.Links);
+            var orphanedLinks = TestEnvironmentPreparer.RemoveLinks(active.Links);
 
             // 使用者自己開著遊戲時不能動 Mods 目錄——連結會被鎖住，而且會干擾他的存檔。
             if (launcher.IsGameRunning(paths.Executable))
@@ -150,7 +150,7 @@ public sealed class TestCycleService(
             // 會留下指向工作區的孤兒連結。（Prepare 內部的失敗由它自己回滾。）
             if (prepared is not null)
             {
-                environment.RemoveLinks(prepared.Links);
+                TestEnvironmentPreparer.RemoveLinks(prepared.Links);
                 environment.DeleteBridgeToken();
             }
 
@@ -352,7 +352,7 @@ public sealed class TestCycleService(
         return (daemonStopped, gameStopped);
     }
 
-    private List<TestLink> RemoveSessionLinks(IEnumerable<TestLink> links)
+    private static List<TestLink> RemoveSessionLinks(IEnumerable<TestLink> links)
     {
         var remaining = new List<TestLink>();
 
@@ -405,6 +405,7 @@ public sealed class TestCycleService(
     }
 
     private const string HarmonyPackageId = "brrainz.harmony";
+    private static readonly char[] PathSeparators = ['/', '\\'];
 
     /// <summary>
     /// 受測 Mod 的組件參考了 0Harmony、自己卻沒帶 0Harmony.dll，而選集裡也沒有 Harmony Mod 時的警告。
@@ -424,7 +425,7 @@ public sealed class TestCycleService(
         var libraries = Directory
             .EnumerateFiles(modPath, "*.dll", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
             .Where(path => !Path.GetRelativePath(modPath, path)
-                .Split('/', '\\')
+                .Split(PathSeparators)
                 .SkipLast(1)
                 .Any(segment => segment.Equals("Source", StringComparison.OrdinalIgnoreCase)
                     || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)

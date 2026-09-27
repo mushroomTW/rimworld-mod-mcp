@@ -131,7 +131,7 @@ public sealed class TestEnvironmentPreparerTests
             var intruder = Path.Combine(root, "RimWorldModMcp-Test-intruder");
             Directory.CreateDirectory(intruder);
 
-            var remaining = preparer.RemoveLinks([new TestLink(intruder, Path.Combine(root, "target"))]);
+            var remaining = TestEnvironmentPreparer.RemoveLinks([new TestLink(intruder, Path.Combine(root, "target"))]);
 
             var link = Assert.Single(remaining);
 
@@ -164,7 +164,7 @@ public sealed class TestEnvironmentPreparerTests
 
             var missing = Path.Combine(root, "RimWorldModMcp-Test-missing");
 
-            Assert.Empty(preparer.RemoveLinks([new TestLink(missing, Path.Combine(root, "target"))]));
+            Assert.Empty(TestEnvironmentPreparer.RemoveLinks([new TestLink(missing, Path.Combine(root, "target"))]));
         }
         finally
         {

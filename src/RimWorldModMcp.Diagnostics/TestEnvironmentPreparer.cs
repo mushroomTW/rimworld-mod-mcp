@@ -124,7 +124,7 @@ public sealed class TestEnvironmentPreparer(
     /// 呼叫端必須把回傳值併進新場次的追蹤清單。
     /// </para>
     /// </summary>
-    public IReadOnlyList<TestLink> RemoveLinks(IEnumerable<TestLink> toRemove)
+    public static IReadOnlyList<TestLink> RemoveLinks(IEnumerable<TestLink> toRemove)
     {
         var remaining = new List<TestLink>();
 

@@ -236,7 +236,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         return Convert.ToHexString(buffer.AsSpan(0, read));
     }
 
-    private long ResolveInitialOffset(string path, TestSession session, DateTime? creationUtc, Dictionary<string, long> offsets)
+    private static long ResolveInitialOffset(string path, TestSession session, DateTime? creationUtc, Dictionary<string, long> offsets)
     {
         if (offsets.TryGetValue(path, out var offset))
         {

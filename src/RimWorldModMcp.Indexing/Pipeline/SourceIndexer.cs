@@ -149,18 +149,15 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
             IndexMetaRepository.Set(connection, SourceIndexErrorKey, string.Empty);
             var generation = IndexMetaRepository.Get(connection, GenerationKey);
-            var failures = new List<string>();
-            var skippedTypes = 0;
+            var context = new IndexingContext(connection, decompiler, generation, stopwatch, cancellationToken);
 
             foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (!TryIndexAssembly(
-                    connection, decompiler, assembly, generation, stopwatch,
-                    ref indexed, ref skippedTypes, failures, cancellationToken))
+                if (!TryIndexAssembly(context, assembly))
                 {
-                    return Superseded(stopwatch, indexed);
+                    return Superseded(stopwatch, context.Indexed);
                 }
             }
 
@@ -179,21 +176,21 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             // 明確區分完成與部分完成，失敗原因寫入 meta 以便可觀察。
             string? failureMessage = null;
 
-            if (failures.Count > 0)
+            if (context.Failures.Count > 0)
             {
-                failureMessage = $"Some assemblies could not be decompiled and were skipped: {string.Join("; ", failures)}";
+                failureMessage = $"Some assemblies could not be decompiled and were skipped: {string.Join("; ", context.Failures)}";
 
-                if (skippedTypes > 0)
+                if (context.SkippedTypes > 0)
                 {
-                    failureMessage += $" ({skippedTypes} types skipped during decompilation)";
+                    failureMessage += $" ({context.SkippedTypes} types skipped during decompilation)";
                 }
             }
 
             var committed = CommitIfCurrent(connection, generation, c =>
             {
-                IndexMetaRepository.Set(c, "source_skipped_types", skippedTypes.ToString());
+                IndexMetaRepository.Set(c, "source_skipped_types", context.SkippedTypes.ToString());
                 IndexMetaRepository.Set(c, "source_indexed", failureMessage is null ? "true" : "false");
-                IndexMetaRepository.Set(c, "source_file_count", indexed.ToString());
+                IndexMetaRepository.Set(c, "source_file_count", context.Indexed.ToString());
 
                 if (failureMessage is not null)
                 {
@@ -203,17 +200,17 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
             if (!committed)
             {
-                return Superseded(stopwatch, indexed);
+                return Superseded(stopwatch, context.Indexed);
             }
 
             stopwatch.Stop();
 
             if (failureMessage is not null)
             {
-                return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, failureMessage));
+                return Report(new SourceIndexProgress(false, false, context.Indexed, stopwatch.ElapsedMilliseconds, failureMessage));
             }
 
-            return Report(new SourceIndexProgress(false, true, indexed, stopwatch.ElapsedMilliseconds, null));
+            return Report(new SourceIndexProgress(false, true, context.Indexed, stopwatch.ElapsedMilliseconds, null));
         }
         catch (OperationCanceledException)
         {
@@ -228,16 +225,24 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         }
     }
 
-    private bool TryIndexAssembly(
+    private sealed class IndexingContext(
         Microsoft.Data.Sqlite.SqliteConnection connection,
         MemberDecompiler decompiler,
-        string assembly,
         string? generation,
         Stopwatch stopwatch,
-        ref int indexed,
-        ref int skippedTypes,
-        List<string> failures,
         CancellationToken cancellationToken)
+    {
+        public Microsoft.Data.Sqlite.SqliteConnection Connection => connection;
+        public MemberDecompiler Decompiler => decompiler;
+        public string? Generation => generation;
+        public Stopwatch Stopwatch => stopwatch;
+        public CancellationToken CancellationToken => cancellationToken;
+        public int Indexed;
+        public int SkippedTypes;
+        public List<string> Failures { get; } = [];
+    }
+
+    private bool TryIndexAssembly(IndexingContext context, string assembly)
     {
         var name = Path.GetFileNameWithoutExtension(assembly);
         var stamp = MemberDecompiler.Stamp(assembly);
@@ -245,10 +250,10 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
         // 上一輪被中斷（行程重啟）時已經做完的組件直接沿用：反編譯 Assembly-CSharp
         // 是分鐘級的工作，沒有理由因為 firstpass 之後死掉就整個重來。
-        if (IndexMetaRepository.Get(connection, doneKey) == stamp)
+        if (IndexMetaRepository.Get(context.Connection, doneKey) == stamp)
         {
-            indexed += (int)SourceFileRepository.CountAssembly(connection, name);
-            Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
+            context.Indexed += (int)SourceFileRepository.CountAssembly(context.Connection, name);
+            Report(new SourceIndexProgress(true, false, context.Indexed, context.Stopwatch.ElapsedMilliseconds, null));
             return true;
         }
 
@@ -264,35 +269,35 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         string? assemblyUnavailable = null;
         var localSkipped = 0;
 
-        foreach (var file in decompiler.DecompileAll(
+        foreach (var file in context.Decompiler.DecompileAll(
             assembly,
             onUnavailable: reason => assemblyUnavailable ??= reason,
             onTypeSkipped: _ => localSkipped++,
-            cancellationToken: cancellationToken))
+            cancellationToken: context.CancellationToken))
         {
             batch.Add(file);
 
             if (batch.Count >= BatchSize)
             {
-                var written = Write(connection, name, batch);
-                indexed += written;
-                Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
+                var written = Write(context.Connection, name, batch);
+                context.Indexed += written;
+                Report(new SourceIndexProgress(true, false, context.Indexed, context.Stopwatch.ElapsedMilliseconds, null));
             }
         }
 
-        skippedTypes += localSkipped;
+        context.SkippedTypes += localSkipped;
 
-        var tail = Write(connection, name, batch);
-        indexed += tail;
+        var tail = Write(context.Connection, name, batch);
+        context.Indexed += tail;
 
         if (assemblyUnavailable is not null)
         {
             // 失敗組件不寫完成 stamp，下次仍會重試；累積原因供結尾回報部分完成。
-            failures.Add($"{name}: {assemblyUnavailable}");
+            context.Failures.Add($"{name}: {assemblyUnavailable}");
             return true;
         }
 
-        return CommitIfCurrent(connection, generation, c => IndexMetaRepository.Set(c, doneKey, stamp));
+        return CommitIfCurrent(context.Connection, context.Generation, c => IndexMetaRepository.Set(c, doneKey, stamp));
     }
 
     private static int Write(Microsoft.Data.Sqlite.SqliteConnection connection, string assembly, List<(string Path, string Text)> batch)
