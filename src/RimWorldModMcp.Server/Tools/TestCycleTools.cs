@@ -211,15 +211,28 @@ public sealed class TestCycleTools(
         },
     };
 
+    private static string? FormatDiagnosticText(string text, string firstLine, int maxTextLength)
+    {
+        if (text == firstLine)
+        {
+            return null;
+        }
+
+        if (text.Length > maxTextLength)
+        {
+            return text[..maxTextLength];
+        }
+
+        return text;
+    }
+
     private static DiagnosticSummary ToSummary(DiagnosticRecord record, int maxTextLength) => new()
     {
         Hash = record.Hash,
         Type = record.Type,
         FirstLine = record.FirstLine,
         // 單行診斷的 text 就是 first_line，重複送一次沒有意義。
-        Text = record.Text == record.FirstLine ? null
-            : record.Text.Length > maxTextLength ? record.Text[..maxTextLength]
-            : record.Text,
+        Text = FormatDiagnosticText(record.Text, record.FirstLine, maxTextLength),
         TextTruncated = record.Text != record.FirstLine && record.Text.Length > maxTextLength,
         Source = record.Source,
         RunId = record.RunId,
