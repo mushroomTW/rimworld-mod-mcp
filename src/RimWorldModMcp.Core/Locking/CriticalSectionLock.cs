@@ -99,44 +99,54 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
             }
             catch (IOException) when (File.Exists(path))
             {
-                var (outcome, existing) = ReadClassified(path);
-
-                // 「讀不到」不等於「殘骸」。持有者以 FileShare.None 建檔後、寫完內容前，
-                // 我們的讀取會吃到分享違規——那是一個活得好好的鎖，不能因此刪掉它，
-                // 否則兩個程序會同時認為自己持有臨界區。短暫重試後仍讀不到就當作被持有。
-                for (var attempt = 0; outcome == ReadOutcome.Unreadable && attempt < 5; attempt++)
+                if (TryReclaimStaleLock(path, mayReclaim, out var holderProcessId))
                 {
-                    Thread.Sleep(50);
-                    (outcome, existing) = ReadClassified(path);
+                    continue;
                 }
 
-                var stale = outcome switch
-                {
-                    // 內容壞掉的鎖檔視為殘骸——留著它只會讓工具永遠卡住。
-                    // 但剛建立的不算：Unix 上 FileShare.None 是「建檔後才上 flock」，
-                    // 中間一瞬間讀到的空檔是正在寫入的活鎖。
-                    ReadOutcome.Corrupt => IsPastCorruptGrace(path),
-                    ReadOutcome.Ok => IsStale(existing),
-                    // 檔案在讀取前消失：持有者剛釋放，直接重試建檔。
-                    ReadOutcome.Missing => true,
-                    _ => false,
-                };
-
-                if (mayReclaim && stale)
-                {
-                    // ReclaimStale 回傳 false 代表「搬走的不是當初判定的殘骸」，
-                    // 已嘗試歸還，本輪視為被持有，不重試建檔。
-                    if (ReclaimStale(path, existing, expectFile: outcome != ReadOutcome.Missing))
-                    {
-                        continue;
-                    }
-                }
-
-                throw new LockHeldException(name, existing?.ProcessId);
+                throw new LockHeldException(name, holderProcessId);
             }
         }
 
         throw new LockHeldException(name, null);
+    }
+
+    private bool TryReclaimStaleLock(string path, bool mayReclaim, out int? holderProcessId)
+    {
+        var (outcome, existing) = ReadWithRetry(path);
+        holderProcessId = existing?.ProcessId;
+
+        var stale = outcome switch
+        {
+            // 內容壞掉的鎖檔視為殘骸——留著它只會讓工具永遠卡住。
+            // 但剛建立的不算：Unix 上 FileShare.None 是「建檔後才上 flock」，
+            // 中間一瞬間讀到的空檔是正在寫入的活鎖。
+            ReadOutcome.Corrupt => IsPastCorruptGrace(path),
+            ReadOutcome.Ok => IsStale(existing),
+            // 檔案在讀取前消失：持有者剛釋放，直接重試建檔。
+            ReadOutcome.Missing => true,
+            _ => false,
+        };
+
+        // ReclaimStale 回傳 false 代表「搬走的不是當初判定的殘骸」，
+        // 已嘗試歸還，本輪視為被持有，不重試建檔。
+        return mayReclaim && stale && ReclaimStale(path, existing, expectFile: outcome != ReadOutcome.Missing);
+    }
+
+    private (ReadOutcome outcome, LockRecord? record) ReadWithRetry(string path)
+    {
+        var (outcome, existing) = ReadClassified(path);
+
+        // 「讀不到」不等於「殘骸」。持有者以 FileShare.None 建檔後、寫完內容前，
+        // 我們的讀取會吃到分享違規——那是一個活得好好的鎖，不能因此刪掉它，
+        // 否則兩個程序會同時認為自己持有臨界區。短暫重試後仍讀不到就當作被持有。
+        for (var attempt = 0; outcome == ReadOutcome.Unreadable && attempt < 5; attempt++)
+        {
+            Thread.Sleep(50);
+            (outcome, existing) = ReadClassified(path);
+        }
+
+        return (outcome, existing);
     }
 
     /// <summary>
