@@ -85,7 +85,7 @@ public sealed class ModInspectionService(
         // 依 packageId 分鎖：不同 Mod 的反編譯互不阻塞，大 Mod（Framework 等）
         // 長時間佔用時，小 Mod 的查詢仍可並行；同一個 Mod 的併發仍序列化，
         // 避免同時反編譯並寫入同一組鍵。
-        using var _ = locks.Hold(LockName(packageId), new Dictionary<string, string> { ["package_id"] = packageId });
+        using var packageLock = locks.Hold(LockName(packageId), new Dictionary<string, string> { ["package_id"] = packageId });
 
         var results = new List<ModAssemblyInfo>(assemblies.Count);
         using var connection = database.Open();
@@ -188,7 +188,7 @@ public sealed class ModInspectionService(
         }
 
         // 走到這裡就是成功，不論是背景還是 force 重試；上一次的失敗原因不該再擋搜尋。
-        _indexErrors.TryRemove(packageId, out var previousError);
+        _indexErrors.TryRemove(packageId, out _);
 
         return results;
     }
@@ -297,42 +297,44 @@ public sealed class ModInspectionService(
         // 用 Lazy 把 Task.Run 延後到條目插入之後：直接在 valueFactory 裡 Task.Run 的話，
         // 極快的工作可能在 GetOrAdd 插入前就跑完 finally 的 TryRemove（此時無條目、
         // no-op），之後插入的已完成 Task 就永遠留在字典裡，Mod 更新後再也不會重索引。
-        var work = _indexing.GetOrAdd(packageId, key => new Lazy<Task>(() => Task.Run(() =>
-        {
-            try
-            {
-                Inspect(packageId, modPath);
-            }
-            catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsCorrupt(e))
-            {
-                // 損毀不是這個 Mod 的問題，force 重試也救不回來；要指向真正的出路。
-                _indexErrors[packageId] = $"{e.Message} The index database is corrupt; call rebuild_index, then search again.";
-            }
-            catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsTransientBusy(e))
-            {
-                // 寫鎖衝突是**暫時性**的：rebuild_index 正在寫，或另一個 Mod 正在提交。
-                // 記成永久失敗會讓這個 Mod 從此不再自動重試——TrySearchSource 看到
-                // _indexErrors 有值就直接回報 index_error，使用者只看到「索引失敗」，
-                // 卻不知道再搜一次就好。不記錄，下一次搜尋自然會重試。
-            }
-            catch (LockHeldException)
-            {
-                // 等不到寫鎖（rebuild_index 的寫交易比 WriteLockWait 還久）。
-                // 與 SQLITE_BUSY 同類：暫時性、重試即可，不能記成永久失敗。
-                // 少了這一條，一個特別慢的重建會讓 Mod 索引從此不再自動重試。
-            }
-            catch (Exception e)
-            {
-                _indexErrors[packageId] = e.Message;
-            }
-            finally
-            {
-                _indexing.TryRemove(packageId, out _);
-            }
-        })));
+        var work = _indexing.GetOrAdd(packageId, key => new Lazy<Task>(() => Task.Run(() => RunIndexingTask(key, modPath))));
 
         _ = work.Value;
         return true;
+    }
+
+    private void RunIndexingTask(string packageId, string modPath)
+    {
+        try
+        {
+            Inspect(packageId, modPath);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsCorrupt(e))
+        {
+            // 損毀不是這個 Mod 的問題，force 重試也救不回來；要指向真正的出路。
+            _indexErrors[packageId] = $"{e.Message} The index database is corrupt; call rebuild_index, then search again.";
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsTransientBusy(e))
+        {
+            // 寫鎖衝突是**暫時性**的：rebuild_index 正在寫，或另一個 Mod 正在提交。
+            // 記成永久失敗會讓這個 Mod 從此不再自動重試——TrySearchSource 看到
+            // _indexErrors 有值就直接回報 index_error，使用者只看到「索引失敗」，
+            // 卻不知道再搜一次就好。不記錄，下一次搜尋自然會重試。
+        }
+        catch (LockHeldException)
+        {
+            // 等不到寫鎖（rebuild_index 的寫交易比 WriteLockWait 還久）。
+            // 與 SQLITE_BUSY 同類：暫時性、重試即可，不能記成永久失敗。
+            // 少了這一條，一個特別慢的重建會讓 Mod 索引從此不再自動重試。
+        }
+        catch (Exception e)
+        {
+            _indexErrors[packageId] = e.Message;
+        }
+        finally
+        {
+            _indexing.TryRemove(packageId, out _);
+        }
     }
 
     /// <summary>

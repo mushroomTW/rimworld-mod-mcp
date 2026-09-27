@@ -8,6 +8,42 @@ namespace RimWorldModMcp.Indexing.Storage;
 public static class SymbolRepository
 {
     private const string AssemblyParam = "$assembly";
+    private const string ParentParam = "$parent";
+    private const string LimitParam = "$limit";
+
+    private const string ExactBinaryQuery = """
+        SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
+        FROM symbol
+        WHERE (fqn = $name COLLATE BINARY OR short_name = $name COLLATE BINARY)
+          AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+        ORDER BY (fqn = $name COLLATE BINARY) DESC, (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, (assembly LIKE 'mod:%'), fqn
+        LIMIT $limit;
+        """;
+
+    private const string ExactNocaseQuery = """
+        SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
+        FROM symbol
+        WHERE (fqn = $name COLLATE NOCASE OR short_name = $name COLLATE NOCASE)
+          AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
+        ORDER BY (fqn = $name COLLATE NOCASE) DESC, (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, (assembly LIKE 'mod:%'), fqn
+        LIMIT $limit;
+        """;
+
+    private const string SuggestOneQuery = """
+        SELECT fqn
+        FROM symbol
+        WHERE short_name LIKE $t0 ESCAPE '\'
+        ORDER BY (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, length(fqn), fqn
+        LIMIT $limit;
+        """;
+
+    private const string SuggestTwoQuery = """
+        SELECT fqn
+        FROM symbol
+        WHERE (short_name LIKE $t0 ESCAPE '\' OR short_name LIKE $t1 ESCAPE '\')
+        ORDER BY (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, length(fqn), fqn
+        LIMIT $limit;
+        """;
 
     public static void Clear(SqliteConnection connection)
     {
@@ -31,7 +67,7 @@ public static class SymbolRepository
         var fqn = insert.CreateParameter("$fqn");
         var shortName = insert.CreateParameter("$short");
         var kind = insert.CreateParameter("$kind");
-        var parent = insert.CreateParameter("$parent");
+        var parent = insert.CreateParameter(ParentParam);
         var token = insert.CreateParameter("$token");
         var signature = insert.CreateParameter("$signature");
         var baseChain = insert.CreateParameter("$base");
@@ -77,20 +113,13 @@ public static class SymbolRepository
         // 十萬列約十毫秒）。少了第二步，thingdef 會直接落到 LIKE 子字串比對，
         // 拿到的是 thingDefsToCheck 之類的隨機欄位而不是 Verse.ThingDef——
         // 而 LIKE 本來就不分大小寫，等於大小寫只在「精確」這一層被懲罰。
-        foreach (var collation in (ReadOnlySpan<string>)["BINARY", "NOCASE"])
+        foreach (var query in (ReadOnlySpan<string>)[ExactBinaryQuery, ExactNocaseQuery])
         {
             using var exact = connection.CreateCommand();
-            exact.CommandText = $"""
-                SELECT assembly, fqn, short_name, kind, parent_fqn, metadata_token, signature, base_chain, interfaces, accessibility, is_static, assembly_path
-                FROM symbol
-                WHERE (fqn = $name COLLATE {collation} OR short_name = $name COLLATE {collation})
-                  AND ($assembly IS NULL OR assembly LIKE $assembly ESCAPE '\')
-                ORDER BY (fqn = $name COLLATE {collation}) DESC, (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, (assembly LIKE 'mod:%'), fqn
-                LIMIT $limit;
-                """;
+            exact.CommandText = query;
 
             exact.Parameters.AddWithValue("$name", name);
-            exact.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+            exact.Parameters.AddWithValue(LimitParam, Math.Clamp(limit, 1, 100));
             exact.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
             var hits = ReadHits(exact);
@@ -112,7 +141,7 @@ public static class SymbolRepository
             """;
 
         partial.Parameters.AddWithValue("$like", $"%{FtsQuery.LikeLiteral(name)}%");
-        partial.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        partial.Parameters.AddWithValue(LimitParam, Math.Clamp(limit, 1, 100));
         partial.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
         return ReadHits(partial);
@@ -158,8 +187,8 @@ public static class SymbolRepository
             LIMIT $limit;
             """;
 
-        command.Parameters.AddWithValue("$parent", parentFqn);
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+        command.Parameters.AddWithValue(ParentParam, parentFqn);
+        command.Parameters.AddWithValue(LimitParam, Math.Clamp(limit, 1, 500));
         command.Parameters.AddWithValue("$kind", (object?)kind ?? DBNull.Value);
         command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
@@ -188,7 +217,7 @@ public static class SymbolRepository
             """;
 
         command.Parameters.AddWithValue("$like", FtsQuery.LikeLiteral(prefix) + "%");
-        command.Parameters.AddWithValue("$parent", parentNamespace);
+        command.Parameters.AddWithValue(ParentParam, parentNamespace);
         command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
         var children = new SortedSet<string>(StringComparer.Ordinal);
@@ -266,7 +295,7 @@ public static class SymbolRepository
             """;
 
         command.Parameters.AddWithValue("$needle", $"%|{FtsQuery.LikeLiteral(baseTypeFqn)}|%");
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+        command.Parameters.AddWithValue(LimitParam, Math.Clamp(limit, 1, 500));
 
         return ReadHits(command);
     }
@@ -286,23 +315,21 @@ public static class SymbolRepository
             return [];
         }
 
-        var clauses = new List<string>(tokens.Count);
         using var command = connection.CreateCommand();
 
-        for (var i = 0; i < tokens.Count; i++)
+        if (tokens.Count == 1)
         {
-            clauses.Add($"short_name LIKE $t{i} ESCAPE '\\'");
-            command.Parameters.AddWithValue($"$t{i}", $"%{FtsQuery.LikeLiteral(tokens[i])}%");
+            command.CommandText = SuggestOneQuery;
+            command.Parameters.AddWithValue("$t0", $"%{FtsQuery.LikeLiteral(tokens[0])}%");
+        }
+        else
+        {
+            command.CommandText = SuggestTwoQuery;
+            command.Parameters.AddWithValue("$t0", $"%{FtsQuery.LikeLiteral(tokens[0])}%");
+            command.Parameters.AddWithValue("$t1", $"%{FtsQuery.LikeLiteral(tokens[1])}%");
         }
 
-        command.CommandText = $"""
-            SELECT fqn
-            FROM symbol
-            WHERE {string.Join(" OR ", clauses)}
-            ORDER BY (kind IN ('Class', 'Struct', 'Interface', 'Enum', 'Delegate')) DESC, length(fqn), fqn
-            LIMIT $limit;
-            """;
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 20));
+        command.Parameters.AddWithValue(LimitParam, Math.Clamp(limit, 1, 20));
 
         var results = new List<string>();
         using var reader = command.ExecuteReader();
@@ -357,7 +384,8 @@ public static class SymbolRepository
                 tokens.Add(token);
             }
 
-            start = char.IsLetterOrDigit(last[i == last.Length ? i - 1 : i]) ? i : i + 1;
+            var testChar = last[i == last.Length ? i - 1 : i];
+            start = char.IsLetterOrDigit(testChar) ? i : i + 1;
         }
 
         return [.. tokens.OrderByDescending(t => t.Length).Take(2)];
@@ -404,7 +432,7 @@ public static class SymbolRepository
             LIMIT 1;
             """;
 
-        command.Parameters.AddWithValue("$parent", parent);
+        command.Parameters.AddWithValue(ParentParam, parent);
         command.Parameters.AddWithValue(AssemblyParam, (object?)assemblyLike ?? DBNull.Value);
 
         return command.ExecuteScalar() as string;

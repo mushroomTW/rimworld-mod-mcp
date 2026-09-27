@@ -41,6 +41,9 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
     /// </summary>
     public const string GenerationKey = "build_generation";
 
+    /// <summary>index_meta 鍵：第三層（原始碼）索引的錯誤訊息。</summary>
+    public const string SourceIndexErrorKey = "source_index_error";
+
     /// <summary>
     /// 世代仍是 <paramref name="generation"/> 才執行 <paramref name="write"/> 並提交。
     /// 用 IMMEDIATE 交易：讀世代與寫入之間，重建的寫交易插不進來。
@@ -144,7 +147,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             using var decompiler = new MemberDecompiler(locator);
             using var connection = database.Open();
 
-            IndexMetaRepository.Set(connection, "source_index_error", string.Empty);
+            IndexMetaRepository.Set(connection, SourceIndexErrorKey, string.Empty);
             var generation = IndexMetaRepository.Get(connection, GenerationKey);
             var failures = new List<string>();
             var skippedTypes = 0;
@@ -153,59 +156,9 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var name = Path.GetFileNameWithoutExtension(assembly);
-                var stamp = MemberDecompiler.Stamp(assembly);
-                var doneKey = DoneKeyPrefix + name;
-
-                // 上一輪被中斷（行程重啟）時已經做完的組件直接沿用：反編譯 Assembly-CSharp
-                // 是分鐘級的工作，沒有理由因為 firstpass 之後死掉就整個重來。
-                if (IndexMetaRepository.Get(connection, doneKey) == stamp)
-                {
-                    indexed += (int)SourceFileRepository.CountAssembly(connection, name);
-                    Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
-                    continue;
-                }
-
-                // 反編譯在交易之外做、寫入用短交易分批：一個組件一個交易的話，
-                // 寫鎖會被握住好幾分鐘，這段期間 Mod 的索引寫入會在 busy_timeout（5 秒）
-                // 之後以 SQLITE_BUSY 失敗——而文件建議的流程正是 rebuild_index 之後
-                // 馬上 search_source(package_id)。分批也讓中途失敗時已寫入的檔案得以保留。
-                var batch = new List<(string Path, string Text)>(BatchSize);
-
-                // F12：無法載入的組件不可標記完成，否則壞 DLL 被永久當成成功快取。
-                // 只要 onUnavailable 被觸發就不寫 done stamp——不論有無部分寫入，
-                // 部分成功的快取仍可能缺檔，下次重試才是安全選項。
-                string? assemblyUnavailable = null;
-                var writtenForAssembly = 0;
-
-                foreach (var file in decompiler.DecompileAll(
-                    assembly, cancellationToken,
-                    onUnavailable: reason => assemblyUnavailable ??= reason,
-                    onTypeSkipped: _ => skippedTypes++))
-                {
-                    batch.Add(file);
-
-                    if (batch.Count >= BatchSize)
-                    {
-                        var written = Write(connection, name, batch);
-                        indexed += written;
-                        writtenForAssembly += written;
-                        Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
-                    }
-                }
-
-                var tail = Write(connection, name, batch);
-                indexed += tail;
-                writtenForAssembly += tail;
-
-                if (assemblyUnavailable is not null)
-                {
-                    // 失敗組件不寫完成 stamp，下次仍會重試；累積原因供結尾回報部分完成。
-                    failures.Add($"{name}: {assemblyUnavailable}");
-                    continue;
-                }
-
-                if (!CommitIfCurrent(connection, generation, c => IndexMetaRepository.Set(c, doneKey, stamp)))
+                if (!TryIndexAssembly(
+                    connection, decompiler, assembly, generation, stopwatch,
+                    ref indexed, ref skippedTypes, failures, cancellationToken))
                 {
                     return Superseded(stopwatch, indexed);
                 }
@@ -244,7 +197,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
                 if (failureMessage is not null)
                 {
-                    IndexMetaRepository.Set(c, "source_index_error", failureMessage);
+                    IndexMetaRepository.Set(c, SourceIndexErrorKey, failureMessage);
                 }
             });
 
@@ -273,6 +226,73 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             PersistError(e.Message);
             return Report(new SourceIndexProgress(false, false, indexed, stopwatch.ElapsedMilliseconds, e.Message));
         }
+    }
+
+    private bool TryIndexAssembly(
+        Microsoft.Data.Sqlite.SqliteConnection connection,
+        MemberDecompiler decompiler,
+        string assembly,
+        string? generation,
+        Stopwatch stopwatch,
+        ref int indexed,
+        ref int skippedTypes,
+        List<string> failures,
+        CancellationToken cancellationToken)
+    {
+        var name = Path.GetFileNameWithoutExtension(assembly);
+        var stamp = MemberDecompiler.Stamp(assembly);
+        var doneKey = DoneKeyPrefix + name;
+
+        // 上一輪被中斷（行程重啟）時已經做完的組件直接沿用：反編譯 Assembly-CSharp
+        // 是分鐘級的工作，沒有理由因為 firstpass 之後死掉就整個重來。
+        if (IndexMetaRepository.Get(connection, doneKey) == stamp)
+        {
+            indexed += (int)SourceFileRepository.CountAssembly(connection, name);
+            Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
+            return true;
+        }
+
+        // 反編譯在交易之外做、寫入用短交易分批：一個組件一個交易的話，
+        // 寫鎖會被握住好幾分鐘，這段期間 Mod 的索引寫入會在 busy_timeout（5 秒）
+        // 之後以 SQLITE_BUSY 失敗——而文件建議的流程正是 rebuild_index 之後
+        // 馬上 search_source(package_id)。分批也讓中途失敗時已寫入的檔案得以保留。
+        var batch = new List<(string Path, string Text)>(BatchSize);
+
+        // F12：無法載入的組件不可標記完成，否則壞 DLL 被永久當成成功快取。
+        // 只要 onUnavailable 被觸發就不寫 done stamp——不論有無部分寫入，
+        // 部分成功的快取仍可能缺檔，下次重試才是安全選項。
+        string? assemblyUnavailable = null;
+        var localSkipped = 0;
+
+        foreach (var file in decompiler.DecompileAll(
+            assembly,
+            onUnavailable: reason => assemblyUnavailable ??= reason,
+            onTypeSkipped: _ => localSkipped++,
+            cancellationToken: cancellationToken))
+        {
+            batch.Add(file);
+
+            if (batch.Count >= BatchSize)
+            {
+                var written = Write(connection, name, batch);
+                indexed += written;
+                Report(new SourceIndexProgress(true, false, indexed, stopwatch.ElapsedMilliseconds, null));
+            }
+        }
+
+        skippedTypes += localSkipped;
+
+        var tail = Write(connection, name, batch);
+        indexed += tail;
+
+        if (assemblyUnavailable is not null)
+        {
+            // 失敗組件不寫完成 stamp，下次仍會重試；累積原因供結尾回報部分完成。
+            failures.Add($"{name}: {assemblyUnavailable}");
+            return true;
+        }
+
+        return CommitIfCurrent(connection, generation, c => IndexMetaRepository.Set(c, doneKey, stamp));
     }
 
     private static int Write(Microsoft.Data.Sqlite.SqliteConnection connection, string assembly, List<(string Path, string Text)> batch)
@@ -313,7 +333,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
 
         return IndexMetaRepository.Get(connection, "fingerprint") is { Length: > 0 }
             && IndexMetaRepository.Get(connection, "source_indexed") != "true"
-            && string.IsNullOrEmpty(IndexMetaRepository.Get(connection, "source_index_error"))
+            && string.IsNullOrEmpty(IndexMetaRepository.Get(connection, SourceIndexErrorKey))
             && SourceFileRepository.CountGame(connection) > 0;
     }
 
@@ -326,7 +346,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         try
         {
             using var connection = database.Open();
-            IndexMetaRepository.Set(connection, "source_index_error", message);
+            IndexMetaRepository.Set(connection, SourceIndexErrorKey, message);
         }
         catch (Exception e) when (e is Microsoft.Data.Sqlite.SqliteException or IOException)
         {

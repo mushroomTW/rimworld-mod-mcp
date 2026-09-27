@@ -32,6 +32,7 @@ public static class SourceFileRepository
 {
     private const string PathParam = "$path";
     private const string TextParam = "$text";
+    private const string AssemblyParam = "$assembly";
 
     public static void Clear(SqliteConnection connection)
     {
@@ -50,7 +51,7 @@ public static class SourceFileRepository
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM source_file WHERE assembly = $assembly;";
-        command.Parameters.AddWithValue("$assembly", assembly);
+        command.Parameters.AddWithValue(AssemblyParam, assembly);
         return (long)command.ExecuteScalar()!;
     }
 
@@ -67,7 +68,7 @@ public static class SourceFileRepository
         using (var find = connection.CreateCommand())
         {
             find.CommandText = "SELECT id, text FROM source_file WHERE assembly = $assembly AND path = $path;";
-            find.Parameters.AddWithValue("$assembly", assembly);
+            find.Parameters.AddWithValue(AssemblyParam, assembly);
             find.Parameters.AddWithValue(PathParam, path);
 
             using var reader = find.ExecuteReader();
@@ -103,7 +104,7 @@ public static class SourceFileRepository
                 INSERT INTO source_file (assembly, path, text) VALUES ($assembly, $path, $text)
                 RETURNING id;
                 """;
-            insert.Parameters.AddWithValue("$assembly", assembly);
+            insert.Parameters.AddWithValue(AssemblyParam, assembly);
             insert.Parameters.AddWithValue(PathParam, path);
             insert.Parameters.AddWithValue(TextParam, text);
 
@@ -140,8 +141,8 @@ public static class SourceFileRepository
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT text FROM source_file WHERE assembly = $assembly AND path = $path;";
-        command.Parameters.AddWithValue("$assembly", assembly);
-        command.Parameters.AddWithValue("$path", path);
+        command.Parameters.AddWithValue(AssemblyParam, assembly);
+        command.Parameters.AddWithValue(PathParam, path);
         return command.ExecuteScalar() as string;
     }
 

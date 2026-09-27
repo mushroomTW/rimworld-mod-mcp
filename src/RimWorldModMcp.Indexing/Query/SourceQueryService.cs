@@ -61,6 +61,84 @@ public static class SourceQueryService
     /// </summary>
     private static readonly TimeSpan SearchBudget = TimeSpan.FromSeconds(20);
 
+    private const string MatchParam = "$match";
+    private const string PathParam = "$path";
+    private const string AssemblyParam = "$assembly";
+    private const string LimitParam = "$limit";
+    private const string OffsetParam = "$offset";
+
+    private const string FtsDefaultSql = """
+        SELECT s.assembly, s.path, s.text
+        FROM source_file s
+        JOIN source_fts f ON f.rowid = s.id
+        WHERE source_fts MATCH $match
+          AND s.assembly NOT LIKE 'mod:%'
+        ORDER BY rank
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string FtsCustomAssemblySql = """
+        SELECT s.assembly, s.path, s.text
+        FROM source_file s
+        JOIN source_fts f ON f.rowid = s.id
+        WHERE source_fts MATCH $match
+          AND s.assembly LIKE $assembly ESCAPE '\'
+        ORDER BY rank
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string FtsPathDefaultSql = """
+        SELECT s.assembly, s.path, s.text
+        FROM source_file s
+        JOIN source_fts f ON f.rowid = s.id
+        WHERE source_fts MATCH $match
+          AND s.path LIKE $path ESCAPE '\'
+          AND s.assembly NOT LIKE 'mod:%'
+        ORDER BY rank
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string FtsPathCustomAssemblySql = """
+        SELECT s.assembly, s.path, s.text
+        FROM source_file s
+        JOIN source_fts f ON f.rowid = s.id
+        WHERE source_fts MATCH $match
+          AND s.path LIKE $path ESCAPE '\'
+          AND s.assembly LIKE $assembly ESCAPE '\'
+        ORDER BY rank
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string ScanDefaultSql = """
+        SELECT assembly, path, text
+        FROM source_file s
+        WHERE s.assembly NOT LIKE 'mod:%'
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string ScanCustomAssemblySql = """
+        SELECT assembly, path, text
+        FROM source_file s
+        WHERE s.assembly LIKE $assembly ESCAPE '\'
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string ScanPathDefaultSql = """
+        SELECT assembly, path, text
+        FROM source_file s
+        WHERE s.path LIKE $path ESCAPE '\'
+          AND s.assembly NOT LIKE 'mod:%'
+        LIMIT $limit OFFSET $offset
+        """;
+
+    private const string ScanPathCustomAssemblySql = """
+        SELECT assembly, path, text
+        FROM source_file s
+        WHERE s.path LIKE $path ESCAPE '\'
+          AND s.assembly LIKE $assembly ESCAPE '\'
+        LIMIT $limit OFFSET $offset
+        """;
+
     public static SourceSearchResult Search(
         SqliteConnection connection,
         string pattern,
@@ -89,13 +167,13 @@ public static class SourceQueryService
         // F01：候選查詢分頁，直到命中上限或實際用完時間／容量預算。
         // 固定只看前 limit*4 個檔時，目標在截斷點之後即靜默漏報（零筆＋未超預算）。
         const int pageSize = 500;
-        var baseSql = BuildCandidateSql(pattern, filePattern, assemblyLike);
+        var baseQuery = BuildCandidateQuery(pattern, filePattern, assemblyLike);
         var consumed = 0L;
         var offset = 0;
 
         while (true)
         {
-            var (page, hasMore) = QueryCandidatePage(connection, baseSql, pageSize, offset);
+            var (page, hasMore) = QueryCandidatePage(connection, baseQuery, pageSize, offset);
 
             foreach (var (assembly, path, text) in page)
             {
@@ -111,50 +189,9 @@ public static class SourceQueryService
                     return new SourceSearchResult(results, BudgetExceeded: true, IncompleteReason: IncompleteCandidateBytes);
                 }
 
-                var line = 0;
-
-                foreach (var raw in text.Split('\n'))
+                if (ProcessCandidate(regex, assembly, path, text, results, cap))
                 {
-                    line++;
-
-                    // Windows 上的反編譯輸出是 \r\n；殘留的 \r 會讓 $ 錨點永遠比對不到。
-                    var content = raw.TrimEnd('\r');
-
-                    bool matched;
-
-                    try
-                    {
-                        matched = regex.IsMatch(content);
-                    }
-                    catch (RegexMatchTimeoutException)
-                    {
-                        // 單行超過 MatchTimeout 代表模式有災難性回溯。訊息要說「怎麼改」，
-                        // 而不是只說「逾時」——呼叫端是 LLM，它會照著訊息調整模式。
-                        // （RegexMatchTimeoutException 繼承 TimeoutException，
-                        //   所以 ToolGuard 會把這個訊息原樣送達。）
-                        throw new TimeoutException(
-                            $"The pattern took longer than {MatchTimeout.TotalSeconds:0}s on a single line of {path}. "
-                            + "Simplify it — prefer literal words (e.g. CurTimeSpeed) over nested quantifiers, "
-                            + "or narrow the search with file_pattern.");
-                    }
-
-                    if (!matched)
-                    {
-                        continue;
-                    }
-
-                    // 縮排對呼叫端沒有意義，前導 tab 卻每列都要算 token。
-                    var trimmed = content.Trim();
-                    results.Add(new SourceHit(
-                        assembly,
-                        path,
-                        line,
-                        trimmed.Length > MaxLineLength ? trimmed[..MaxLineLength] : trimmed));
-
-                    if (results.Count >= cap)
-                    {
-                        return new SourceSearchResult(results, BudgetExceeded: false);
-                    }
+                    return new SourceSearchResult(results, BudgetExceeded: false);
                 }
             }
 
@@ -167,6 +204,63 @@ public static class SourceQueryService
         }
     }
 
+    private static bool ProcessCandidate(
+        Regex regex,
+        string assembly,
+        string path,
+        string text,
+        List<SourceHit> results,
+        int cap)
+    {
+        var line = 0;
+
+        foreach (var raw in text.Split('\n'))
+        {
+            line++;
+
+            // Windows 上的反編譯輸出是 \r\n；殘留的 \r 會讓 $ 錨點永遠比對不到。
+            var content = raw.TrimEnd('\r');
+
+            bool matched;
+
+            try
+            {
+                matched = regex.IsMatch(content);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // 單行超過 MatchTimeout 代表模式有災難性回溯。訊息要說「怎麼改」，
+                // 而不是只說「逾時」——呼叫端是 LLM，它會照著訊息調整模式。
+                // （RegexMatchTimeoutException 繼承 TimeoutException，
+                //   所以 ToolGuard 會把這個訊息原樣送達。）
+                throw new TimeoutException(
+                    $"The pattern took longer than {MatchTimeout.TotalSeconds:0}s on a single line of {path}. "
+                    + "Simplify it — prefer literal words (e.g. CurTimeSpeed) over nested quantifiers, "
+                    + "or narrow the search with file_pattern.");
+            }
+
+            if (!matched)
+            {
+                continue;
+            }
+
+            // 縮排對呼叫端沒有意義，前導 tab 卻每列都要算 token。
+            var trimmed = content.Trim();
+            results.Add(new SourceHit(
+                assembly,
+                path,
+                line,
+                trimmed.Length > MaxLineLength ? trimmed[..MaxLineLength] : trimmed));
+
+            if (results.Count >= cap)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// 用 FTS5 先縮小要掃的檔案範圍。
     /// 搜尋模式含有可當關鍵字的字面詞時才用得上；否則退回掃全部（受檔名樣式限制）。
@@ -175,8 +269,20 @@ public static class SourceQueryService
     /// 最壞情況會把數百 MB 的字串一次拉進記憶體。</summary>
     private const long MaxCandidateChars = 32L * 1024 * 1024;
 
+    private enum CandidateQueryKind
+    {
+        FtsDefault,
+        FtsCustomAssembly,
+        FtsPathDefault,
+        FtsPathCustomAssembly,
+        ScanDefault,
+        ScanCustomAssembly,
+        ScanPathDefault,
+        ScanPathCustomAssembly,
+    }
+
     private sealed record CandidateQuery(
-        string Sql,
+        CandidateQueryKind Kind,
         string Match,
         string? PathLike,
         string? AssemblyLike,
@@ -184,48 +290,33 @@ public static class SourceQueryService
         bool HasPath,
         bool HasAssembly);
 
-    private static CandidateQuery BuildCandidateSql(string pattern, string? filePattern, string? assemblyLike)
+    private static CandidateQuery BuildCandidateQuery(string pattern, string? filePattern, string? assemblyLike)
     {
         var match = BuildMatch(pattern);
-
-        var sql = match.Length > 0
-            ? """
-              SELECT s.assembly, s.path, s.text
-              FROM source_file s
-              JOIN source_fts f ON f.rowid = s.id
-              WHERE source_fts MATCH $match
-              """
-            : "SELECT assembly, path, text FROM source_file s WHERE 1=1";
-
+        var hasMatch = match.Length > 0;
         var hasPath = !string.IsNullOrEmpty(filePattern) && filePattern != "*";
+        var hasAssembly = !string.IsNullOrEmpty(assemblyLike);
 
-        if (hasPath)
+        var kind = (hasMatch, hasPath, hasAssembly) switch
         {
-            sql += " AND s.path LIKE $path ESCAPE '\\'";
-        }
-
-        // Mod 搜尋必須把組件前綴推進 SQL：遊戲本體的命中數壓倒性多於任何
-        // 單一 Mod，先截斷再過濾的話，典型情況下過濾後是空的。
-        // 沒有組件樣式就是遊戲搜尋：Mod 的原始碼與遊戲本體共用同一張表，
-        // 不排除的話多版本 Mod 的同一行會在遊戲搜尋裡重複出現好幾次。
-        sql += string.IsNullOrEmpty(assemblyLike)
-            ? " AND s.assembly NOT LIKE 'mod:%'"
-            : " AND s.assembly LIKE $assembly ESCAPE '\\'";
-
-        // FTS 路徑用 bm25 相關性排序，最相關的檔案先掃。
-        if (match.Length > 0)
-        {
-            sql += " ORDER BY rank";
-        }
+            (true, false, false) => CandidateQueryKind.FtsDefault,
+            (true, false, true) => CandidateQueryKind.FtsCustomAssembly,
+            (true, true, false) => CandidateQueryKind.FtsPathDefault,
+            (true, true, true) => CandidateQueryKind.FtsPathCustomAssembly,
+            (false, false, false) => CandidateQueryKind.ScanDefault,
+            (false, false, true) => CandidateQueryKind.ScanCustomAssembly,
+            (false, true, false) => CandidateQueryKind.ScanPathDefault,
+            (false, true, true) => CandidateQueryKind.ScanPathCustomAssembly,
+        };
 
         return new CandidateQuery(
-            sql,
+            kind,
             match,
             hasPath ? GlobToLike(filePattern!) : null,
-            !string.IsNullOrEmpty(assemblyLike) ? assemblyLike : null,
-            match.Length > 0,
+            hasAssembly ? assemblyLike : null,
+            hasMatch,
             hasPath,
-            !string.IsNullOrEmpty(assemblyLike));
+            hasAssembly);
     }
 
     /// <summary>
@@ -239,25 +330,36 @@ public static class SourceQueryService
         int offset)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = baseQuery.Sql + " LIMIT $limit OFFSET $offset";
+        command.CommandText = baseQuery.Kind switch
+        {
+            CandidateQueryKind.FtsDefault => FtsDefaultSql,
+            CandidateQueryKind.FtsCustomAssembly => FtsCustomAssemblySql,
+            CandidateQueryKind.FtsPathDefault => FtsPathDefaultSql,
+            CandidateQueryKind.FtsPathCustomAssembly => FtsPathCustomAssemblySql,
+            CandidateQueryKind.ScanDefault => ScanDefaultSql,
+            CandidateQueryKind.ScanCustomAssembly => ScanCustomAssemblySql,
+            CandidateQueryKind.ScanPathDefault => ScanPathDefaultSql,
+            CandidateQueryKind.ScanPathCustomAssembly => ScanPathCustomAssemblySql,
+            _ => throw new InvalidOperationException($"Unsupported query kind: {baseQuery.Kind}"),
+        };
 
         if (baseQuery.HasMatch)
         {
-            command.Parameters.AddWithValue("$match", baseQuery.Match);
+            command.Parameters.AddWithValue(MatchParam, baseQuery.Match);
         }
 
         if (baseQuery.HasPath)
         {
-            command.Parameters.AddWithValue("$path", baseQuery.PathLike!);
+            command.Parameters.AddWithValue(PathParam, baseQuery.PathLike!);
         }
 
         if (baseQuery.HasAssembly)
         {
-            command.Parameters.AddWithValue("$assembly", baseQuery.AssemblyLike!);
+            command.Parameters.AddWithValue(AssemblyParam, baseQuery.AssemblyLike!);
         }
 
-        command.Parameters.AddWithValue("$limit", pageSize + 1);
-        command.Parameters.AddWithValue("$offset", offset);
+        command.Parameters.AddWithValue(LimitParam, pageSize + 1);
+        command.Parameters.AddWithValue(OffsetParam, offset);
 
         using var reader = command.ExecuteReader();
         var items = new List<(string Assembly, string Path, string Text)>(Math.Min(pageSize, 256));
