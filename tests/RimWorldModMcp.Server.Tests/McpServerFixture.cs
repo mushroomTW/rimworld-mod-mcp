@@ -52,6 +52,7 @@ public sealed class McpServerFixture : IAsyncDisposable
         builder.Services.AddRimWorldCore();
         builder.Services.AddRimWorldIndexing();
         builder.Services.AddRimWorldDiagnostics();
+        builder.Services.AddHostedService<SourceIndexResumer>();
 
         // 後登記的贏：把預設（指向使用者家目錄）的 StoreDirectories 換成暫時目錄。
         builder.Services.AddSingleton(store);
@@ -98,9 +99,18 @@ public sealed class McpServerFixture : IAsyncDisposable
             // 管線關閉後 server 迴圈以 IO 例外或取消收尾，都是正常結束。
         }
 
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
         if (Directory.Exists(_root))
         {
-            Directory.Delete(_root, recursive: true);
+            try
+            {
+                Directory.Delete(_root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // 忽略測試目錄清理被短暫鎖定時的例外
+            }
         }
     }
 }
