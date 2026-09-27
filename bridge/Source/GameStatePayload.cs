@@ -13,7 +13,7 @@ namespace RimWorldModMcp.Bridge
         public bool Paused;
         public string TimeSpeed = string.Empty;
         public bool Loading;
-        public string[] OpenWindows = new string[0];
+        public string[] OpenWindows = System.Array.Empty<string>();
         public int Colonists;
         public string GameVersion = string.Empty;
         public long UptimeMs;
