@@ -58,11 +58,19 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
         }
 
         // 走不了預編譯的原因要留下來：就地建置又失敗時，使用者得知道為什麼會走到這一步。
-        var fallbackReason = !prebuiltUsable
-            ? "no prebuilt Bridge shipped with this tool"
-            : gameVersion is null
-                ? $"the game version could not be read from Version.txt (prebuilt Bridge targets {prebuiltVersion})"
-                : $"the prebuilt Bridge targets RimWorld {prebuiltVersion} but the installed game is {gameVersion}";
+        string fallbackReason;
+        if (!prebuiltUsable)
+        {
+            fallbackReason = "no prebuilt Bridge shipped with this tool";
+        }
+        else if (gameVersion is null)
+        {
+            fallbackReason = $"the game version could not be read from Version.txt (prebuilt Bridge targets {prebuiltVersion})";
+        }
+        else
+        {
+            fallbackReason = $"the prebuilt Bridge targets RimWorld {prebuiltVersion} but the installed game is {gameVersion}";
+        }
 
         var project = Path.Combine(sourceDirectory, SourceDir, "RimWorldModMcp.Bridge.csproj");
 
@@ -79,7 +87,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
             return new BridgeBuild(true, modDirectory, false, null, "built");
         }
 
-        var build = BuildFromSource(sourceDirectory, project, managed, modDirectory, assemblies, stampFile, stamp);
+        var build = BuildFromSource(sourceDirectory, managed, modDirectory, assemblies, stampFile, stamp);
 
         return build.Success
             ? build
@@ -118,7 +126,6 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 
     private static BridgeBuild BuildFromSource(
         string sourceDirectory,
-        string project,
         string managed,
         string modDirectory,
         string assemblies,

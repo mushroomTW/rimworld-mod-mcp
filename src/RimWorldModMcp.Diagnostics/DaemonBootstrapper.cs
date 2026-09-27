@@ -25,30 +25,10 @@ public sealed class DaemonBootstrapper(
     public (DaemonState State, int? OwnedPid) Ensure()
     {
         var port = locator.BridgePort();
-        var existing = records.Read();
-
-        // 已經有一個活著的、綁在同一個埠上的 daemon：直接沿用。
-        // OwnedPid 回傳 null——不是我們啟動的，停止測試時不可以殺它。
-        //
-        // 啟動時間也要對得上：只比 PID 的話，作業系統重用 PID 時會把一個
-        // 不相干的程序認作自家 daemon，遊戲的診斷從此石沉大海而狀態顯示正常。
-        if (existing is not null
-            && existing.Port == port
-            && processes.IsAlive(existing.Pid)
-            && StartTimeMatches(existing))
+        var reused = TryReuseExisting(port);
+        if (reused is not null)
         {
-            // 沿用既有 daemon：若它是 log_only 降級模式，把實際可用來源如實回報。
-            var reusedReason = existing.Mode == DaemonRecord.ModeLogOnly
-                ? existing.Reason ?? $"Port {port} is held by a non-service process; the Bridge cannot report diagnostics. Player.log tailing remains active."
-                : null;
-
-            return (new DaemonState
-            {
-                State = "reused",
-                Port = port,
-                OwnerPid = existing.Pid,
-                Reason = reusedReason,
-            }, null);
+            return reused.Value;
         }
 
         using var process = Spawn();
@@ -102,6 +82,37 @@ public sealed class DaemonBootstrapper(
         }
 
         return (Unavailable(port, $"Diagnostics daemon did not report ready within {StartupTimeout.TotalSeconds} seconds."), null);
+    }
+
+    private (DaemonState State, int? OwnedPid)? TryReuseExisting(int port)
+    {
+        var existing = records.Read();
+
+        // 已經有一個活著的、綁在同一個埠上的 daemon：直接沿用。
+        // OwnedPid 回傳 null——不是我們啟動的，停止測試時不可以殺它。
+        //
+        // 啟動時間也要對得上：只比 PID 的話，作業系統重用 PID 時會把一個
+        // 不相干的程序認作自家 daemon，遊戲的診斷從此石沉大海而狀態顯示正常。
+        if (existing is not null
+            && existing.Port == port
+            && processes.IsAlive(existing.Pid)
+            && StartTimeMatches(existing))
+        {
+            // 沿用既有 daemon：若它是 log_only 降級模式，把實際可用來源如實回報。
+            var reusedReason = existing.Mode == DaemonRecord.ModeLogOnly
+                ? existing.Reason ?? $"Port {port} is held by a non-service process; the Bridge cannot report diagnostics. Player.log tailing remains active."
+                : null;
+
+            return (new DaemonState
+            {
+                State = "reused",
+                Port = port,
+                OwnerPid = existing.Pid,
+                Reason = reusedReason,
+            }, null);
+        }
+
+        return null;
     }
 
     /// <summary>自述檔記錄的啟動時間與實際程序是否吻合（容忍一秒的檔案往返精度差）。</summary>

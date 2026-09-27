@@ -209,55 +209,15 @@ public sealed class TestCycleService(
             return session;
         }
 
-        // 順序很重要：必須先讓遊戲退出，才能移除連結。
-        // RimWorld 執行中會透過這些連結載入 Mod 組件，此時刪除 reparse point
-        // 會因為檔案被佔用而失敗，留下工具自己建立的孤兒連結。
-        //
-        // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
-        // 那個行程的 PID 根本不會被記錄。啟動時間一併比對，防 PID 重用。
-        var gameStopped = terminateGame
-            && session.GamePid is { } gamePid
-            && processes.Terminate(gamePid, session.GameStartUtc);
+        var (daemonStopped, gameStopped) = TerminateProcesses(session, terminateGame);
 
-        if (gameStopped && session.GamePid is { } stoppedPid)
-        {
-            launcher.WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
-        }
-
-        var daemonStopped = session.DaemonPid is { } daemonPid
-            && processes.Terminate(daemonPid, session.DaemonStartUtc);
-
-        var remaining = new List<TestLink>();
-
-        foreach (var link in session.Links)
-        {
-            // Removed 以外的結果都要留在狀態裡：Failed 是還被佔用（下次可補清），
-            // NotOurs 是路徑被別的東西佔著——使用者需要知道 Mods 目錄有殘留。
-            if (environment.RemoveLink(link) != LinkRemoval.Removed)
-            {
-                remaining.Add(link);
-            }
-        }
+        var remaining = RemoveSessionLinks(session.Links);
 
         environment.DeleteBridgeToken();
 
         var gameStillAlive = session.GamePid is { } alivePid && processes.IsAlive(alivePid);
 
-        if (session.SaveData is not null && Directory.Exists(session.SaveData) && !gameStillAlive)
-        {
-            // 遊戲還活著就跳過刪除。Windows 上檔案鎖會擋下來，但 POSIX 允許
-            // 刪除開啟中的檔案——terminate_game=false（預設）時在 Linux/macOS
-            // 會把執行中遊戲的存檔整個刪掉。
-            try
-            {
-                Directory.Delete(session.SaveData, recursive: true);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // 檔案仍被鎖住或是唯讀；下次啟動的清理會處理掉。漏接 UnauthorizedAccessException
-                // 會讓 Stop 在連結已拆、daemon 已殺之後中斷，場次狀態停在 running。
-            }
-        }
+        TryDeleteSaveData(session.SaveData, gameStillAlive);
 
         // 寫回前驗證 run_id：若期間有新場次寫入（例如另一個 Start 在我們等待鎖後搶先），
         // 不可用舊工作覆蓋新場次。
@@ -369,6 +329,65 @@ public sealed class TestCycleService(
         return new TestModSet(order.Active, order.SkippedLoadAfter);
     }
 
+    private (bool daemonStopped, bool gameStopped) TerminateProcesses(TestSession session, bool terminateGame)
+    {
+        // 順序很重要：必須先讓遊戲退出，才能移除連結。
+        // RimWorld 執行中會透過這些連結載入 Mod 組件，此時刪除 reparse point
+        // 會因為檔案被佔用而失敗，留下工具自己建立的孤兒連結。
+        //
+        // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
+        // 那個行程的 PID 根本不會被記錄。啟動時間一併比對，防 PID 重用。
+        var gameStopped = terminateGame
+            && session.GamePid is { } gamePid
+            && processes.Terminate(gamePid, session.GameStartUtc);
+
+        if (gameStopped && session.GamePid is { } stoppedPid)
+        {
+            launcher.WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
+        }
+
+        var daemonStopped = session.DaemonPid is { } daemonPid
+            && processes.Terminate(daemonPid, session.DaemonStartUtc);
+
+        return (daemonStopped, gameStopped);
+    }
+
+    private List<TestLink> RemoveSessionLinks(IEnumerable<TestLink> links)
+    {
+        var remaining = new List<TestLink>();
+
+        foreach (var link in links)
+        {
+            // Removed 以外的結果都要留在狀態裡：Failed 是還被佔用（下次可補清），
+            // NotOurs 是路徑被別的東西佔著——使用者需要知道 Mods 目錄有殘留。
+            if (TestEnvironmentPreparer.RemoveLink(link) != LinkRemoval.Removed)
+            {
+                remaining.Add(link);
+            }
+        }
+
+        return remaining;
+    }
+
+    private static void TryDeleteSaveData(string? saveData, bool gameStillAlive)
+    {
+        if (saveData is not null && Directory.Exists(saveData) && !gameStillAlive)
+        {
+            // 遊戲還活著就跳過刪除。Windows 上檔案鎖會擋下來，但 POSIX 允許
+            // 刪除開啟中的檔案——terminate_game=false（預設）時在 Linux/macOS
+            // 會把執行中遊戲的存檔整個刪掉。
+            try
+            {
+                Directory.Delete(saveData, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // 檔案仍被鎖住或是唯讀；下次啟動的清理會處理掉。漏接 UnauthorizedAccessException
+                // 會讓 Stop 在連結已拆、daemon 已殺之後中斷，場次狀態停在 running。
+            }
+        }
+    }
+
     /// <summary>
     /// Mods/ 底下與受測 Mod 同 packageId 的其他本機副本。RimWorld 對同 packageId 只載入一份
     /// 並記 Log.Error（ModLister.TryAddMod），測到的可能是舊副本。Workshop 副本不算——
@@ -405,7 +424,7 @@ public sealed class TestCycleService(
         var libraries = Directory
             .EnumerateFiles(modPath, "*.dll", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
             .Where(path => !Path.GetRelativePath(modPath, path)
-                .Split(['/', '\\'])
+                .Split('/', '\\')
                 .SkipLast(1)
                 .Any(segment => segment.Equals("Source", StringComparison.OrdinalIgnoreCase)
                     || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)

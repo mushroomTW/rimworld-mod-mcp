@@ -112,7 +112,7 @@ public sealed class TestEnvironmentPreparer(
     }
 
     /// <summary>移除一條連結。語意見 <see cref="DirectoryLink.RemoveLink"/>。</summary>
-    public LinkRemoval RemoveLink(TestLink link) => DirectoryLink.RemoveLink(link.Link, link.Target);
+    public static LinkRemoval RemoveLink(TestLink link) => DirectoryLink.RemoveLink(link.Link, link.Target);
 
     /// <summary>
     /// 逐一移除，回傳**沒能移除**的連結。
