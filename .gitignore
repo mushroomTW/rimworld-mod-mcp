@@ -18,6 +18,7 @@ publish/
 nupkg/
 *.nupkg
 
-# SonarQube 分析暫存目錄
+# SonarQube 分析與測試暫存目錄
 .sonarqube/
 .scannerwork/
+TestResults/
