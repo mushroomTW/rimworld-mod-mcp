@@ -14,6 +14,14 @@ public sealed record PreparedEnvironment(
     BridgeState Bridge);
 
 /// <summary>
+/// 要帶進隔離環境的設定檔，以及其他啟用中 Mod 的資料夾名
+/// （它們的 ModSettings 不改名，見 <see cref="TestEnvironmentPreparer.SeedFileName"/>）。
+/// </summary>
+public sealed record SeedConfigFiles(
+    IReadOnlyList<string> Files,
+    IReadOnlyCollection<string> OtherModFolders);
+
+/// <summary>
 /// 隔離環境的準備與清理：暫存存檔目錄、Mods 目錄下的臨時連結、
 /// 自產的 ModsConfig.xml、Prefs 複製、Bridge 建置與連結、bridge token。
 ///
@@ -40,7 +48,7 @@ public sealed class TestEnvironmentPreparer(
         RimWorldPaths paths,
         IReadOnlyList<string> orderedActiveMods,
         string token,
-        IReadOnlyList<string> seedConfigFiles)
+        SeedConfigFiles seedConfig)
     {
         var createdLinks = new List<TestLink>();
 
@@ -96,7 +104,7 @@ public sealed class TestEnvironmentPreparer(
 
             WriteModsConfig(configDirectory, paths.ModsConfig, activeMods, GameVersion.ReadMajorMinor(paths.InstallRoot));
             CopyPrefs(configDirectory, paths.PrefsXml);
-            SeedConfig(configDirectory, seedConfigFiles, testFolderName);
+            SeedConfig(configDirectory, seedConfig, testFolderName);
             ApplyFullscreen(configDirectory);
             WriteBridgeToken(token);
 
@@ -271,11 +279,11 @@ public sealed class TestEnvironmentPreparer(
     /// 只寫 ModsConfig.xml 的話，每場測試都是「全新安裝」的設定值，
     /// 依賴特定設定才會觸發的路徑永遠測不到。
     /// </summary>
-    private static void SeedConfig(string configDirectory, IReadOnlyList<string> files, string testFolderName)
+    private static void SeedConfig(string configDirectory, SeedConfigFiles seedConfig, string testFolderName)
     {
-        foreach (var source in files)
+        foreach (var source in seedConfig.Files)
         {
-            var target = SeedFileName(Path.GetFileName(source), testFolderName);
+            var target = SeedFileName(Path.GetFileName(source), testFolderName, seedConfig.OtherModFolders);
 
             if (string.Equals(target, "ModsConfig.xml", StringComparison.OrdinalIgnoreCase))
             {
@@ -332,8 +340,10 @@ public sealed class TestEnvironmentPreparer(
     /// RimWorld 以 Mod_＜Mod 資料夾名＞_＜Mod 類別名＞.xml 讀取 ModSettings，
     /// 而測試場次裡受測 Mod 的資料夾名是臨時連結名——從使用者正式環境複製來的
     /// 設定檔若不改名，遊戲會當作沒有設定。類別名取最後一個底線之後的部分。
+    /// 資料夾段落是其他啟用中 Mod（附屬 Mod、相依）的資料夾名時保持原名——
+    /// 它們在測試場次裡沿用原本的資料夾，改名反而讓它們讀不到設定。
     /// </summary>
-    public static string SeedFileName(string fileName, string testFolderName)
+    public static string SeedFileName(string fileName, string testFolderName, IReadOnlyCollection<string> otherModFolders)
     {
         const string prefix = "Mod_";
 
@@ -347,6 +357,13 @@ public sealed class TestEnvironmentPreparer(
         var split = stem.LastIndexOf('_');
 
         if (split <= 0 || split == stem.Length - 1)
+        {
+            return fileName;
+        }
+
+        var folder = stem[..split];
+
+        if (otherModFolders.Any(other => string.Equals(other, folder, PathText.Comparison)))
         {
             return fileName;
         }

@@ -10,7 +10,8 @@ namespace RimWorldModMcp.Diagnostics;
 /// <summary>解析完成的測試選集。</summary>
 public sealed record TestModSet(
     IReadOnlyList<string> ActiveMods,
-    IReadOnlyList<string> SkippedLoadAfter);
+    IReadOnlyList<string> SkippedLoadAfter,
+    IReadOnlyList<string> OtherModFolders);
 
 /// <summary>
 /// 在隔離環境中啟動 RimWorld 測試開發中的 Mod。
@@ -92,7 +93,7 @@ public sealed class TestCycleService(
                 throw new InvalidOperationException("RimWorld is running. Close the game before starting a test.");
             }
 
-            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles);
+            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, new SeedConfigFiles(seedFiles, modSet.OtherModFolders));
 
             diagnostics.Clear();
             gameState.Clear();
@@ -326,7 +327,14 @@ public sealed class TestCycleService(
             throw new InvalidOperationException($"Missing required mod dependencies: {string.Join(", ", order.Missing)}");
         }
 
-        return new TestModSet(order.Active, order.SkippedLoadAfter);
+        // 受測 Mod 以外的 Mod 在測試場次裡沿用原本的資料夾名，seed_config 帶進來的
+        // 它們的 ModSettings 不能跟著改名。
+        var otherFolders = order.Active
+            .Where(id => id != mod.PackageId)
+            .Select(id => Path.GetFileName(Path.TrimEndingDirectorySeparator(available[id].Path)))
+            .ToList();
+
+        return new TestModSet(order.Active, order.SkippedLoadAfter, otherFolders);
     }
 
     private (bool daemonStopped, bool gameStopped) TerminateProcesses(TestSession session, bool terminateGame)
