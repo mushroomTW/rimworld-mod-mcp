@@ -213,19 +213,16 @@ public sealed class IndexDatabase(StoreDirectories store)
         {
             var version = ReadUserVersion(connection);
 
-            if (version != IndexSchema.Version)
+            // user_version 為 0 只代表「從沒寫過版本戳記」，不代表結構正確。
+            // 只有**完全空白的庫**才放行——那會由後續的 IndexSchema.Apply 建起來。
+            //
+            // 有表卻沒有版本戳記的舊庫若放行，CREATE TABLE IF NOT EXISTS 不會修正
+            // 既有的表，WriteUserVersion 卻會把它蓋成現行版本，之後才在執行期以
+            // "no such column" 失敗——而那個錯誤既不指向損毀也不指向忙碌，
+            // 呼叫端只會看到「An error occurred」。
+            if (version != IndexSchema.Version && (version != 0 || HasAnyTable(connection)))
             {
-                // user_version 為 0 只代表「從沒寫過版本戳記」，不代表結構正確。
-                // 只有**完全空白的庫**才放行——那會由後續的 IndexSchema.Apply 建起來。
-                //
-                // 有表卻沒有版本戳記的舊庫若放行，CREATE TABLE IF NOT EXISTS 不會修正
-                // 既有的表，WriteUserVersion 卻會把它蓋成現行版本，之後才在執行期以
-                // "no such column" 失敗——而那個錯誤既不指向損毀也不指向忙碌，
-                // 呼叫端只會看到「An error occurred」。
-                if (version != 0 || HasAnyTable(connection))
-                {
-                    return Usability.Unusable;
-                }
+                return Usability.Unusable;
             }
 
             using var command = connection.CreateCommand();

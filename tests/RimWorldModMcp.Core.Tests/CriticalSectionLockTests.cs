@@ -54,9 +54,9 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(2), "逾時為零時不該等待");
 
         // 持有者放掉之後，等待中的呼叫就取得得到。
-        var released = Task.Run(() =>
+        var released = Task.Run(async () =>
         {
-            Thread.Sleep(300);
+            await Task.Delay(300);
             locks.Release("index", token);
         });
 

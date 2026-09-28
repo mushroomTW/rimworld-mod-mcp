@@ -108,9 +108,9 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
     /// <param name="onTypeSkipped">個別型別反編譯失敗被跳過時呼叫一次，參數是型別全名（F12 的略過統計用）。</param>
     public IEnumerable<(string Path, string Text)> DecompileAll(
         string assemblyPath,
-        CancellationToken cancellationToken = default,
         Action<string>? onUnavailable = null,
-        Action<string>? onTypeSkipped = null)
+        Action<string>? onTypeSkipped = null,
+        CancellationToken cancellationToken = default)
     {
         var attempt = TryHandle(assemblyPath);
 
@@ -245,14 +245,12 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
             // 釘選中（DecompileAll 物化中）不處置舊映像：列舉仍拿著它的 reader，
             // 處置會讓列舉拋 ObjectDisposedException。只從字典移除，舊映像由
             // 列舉的參考維持，GC 會回收；漏一個舊映像比整個索引失敗便宜。
-            if (_handles.TryRemove(new KeyValuePair<string, Lazy<Attempt>>(assemblyPath, lazy)))
+            if (_handles.TryRemove(new KeyValuePair<string, Lazy<Attempt>>(assemblyPath, lazy))
+                && Volatile.Read(ref result.Handle.PinCount) == 0)
             {
-                if (Volatile.Read(ref result.Handle.PinCount) == 0)
+                lock (result.Handle.Gate)
                 {
-                    lock (result.Handle.Gate)
-                    {
-                        result.Handle.Dispose();
-                    }
+                    result.Handle.Dispose();
                 }
             }
         }
@@ -275,7 +273,7 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
             var victim = _handles
                 .Where(entry => entry.Value.IsValueCreated
                     && entry.Value.Value.Handle is not null
-                    && Volatile.Read(ref entry.Value.Value.Handle!.PinCount) == 0)
+                    && Volatile.Read(ref entry.Value.Value.Handle.PinCount) == 0)
                 .OrderBy(entry => Volatile.Read(ref entry.Value.Value.Handle!.LastUsedTicks))
                 .FirstOrDefault();
 

@@ -291,19 +291,28 @@ public sealed class DaemonListener(
 
         if (typeText == GameStateType)
         {
-            try
-            {
-                gameState.Write(ToGameState(payload, runId));
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Windows 上 server 正在讀這個檔時置換會失敗。丟掉這一筆就好——
-                // 下一筆一秒內就到；讓例外逸出會被當成連線死亡而切斷整條 Bridge 連線。
-            }
-
+            HandleGameState(payload, runId);
             return;
         }
 
+        HandleDiagnostic(payload, typeText, runId);
+    }
+
+    private void HandleGameState(JsonElement payload, string? runId)
+    {
+        try
+        {
+            gameState.Write(ToGameState(payload, runId));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Windows 上 server 正在讀這個檔時置換會失敗。丟掉這一筆就好——
+            // 下一筆一秒內就到；讓例外逸出會被當成連線死亡而切斷整條 Bridge 連線。
+        }
+    }
+
+    private void HandleDiagnostic(JsonElement payload, string typeText, string? runId)
+    {
         if (!AcceptedTypes.Contains(typeText))
         {
             return;

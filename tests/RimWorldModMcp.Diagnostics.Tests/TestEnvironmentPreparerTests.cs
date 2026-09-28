@@ -14,7 +14,18 @@ public sealed class TestEnvironmentPreparerTests
     [InlineData("Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
     public void SeedFileName_rewrites_mod_settings_folder_segment(string input, string expected)
     {
-        Assert.Equal(expected, TestEnvironmentPreparer.SeedFileName(input, Folder));
+        Assert.Equal(expected, TestEnvironmentPreparer.SeedFileName(input, Folder, []));
+    }
+
+    [Theory]
+    [InlineData("Mod_2009463077_FGLSettings.xml")]
+    [InlineData("Mod_my_companion_CompanionSettings.xml")]
+    public void SeedFileName_keeps_settings_of_other_active_mods(string input)
+    {
+        // 附屬 Mod 在測試場次裡沿用原本的資料夾名，改名反而讓它讀不到設定。
+        string[] otherFolders = ["2009463077", "my_companion"];
+
+        Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder, otherFolders));
     }
 
     [Theory]
@@ -25,7 +36,7 @@ public sealed class TestEnvironmentPreparerTests
     [InlineData("Mod_MyMod_MyMod.txt")]
     public void SeedFileName_leaves_other_files_alone(string input)
     {
-        Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder));
+        Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder, []));
     }
 
     private const string Prefs = """
@@ -131,7 +142,7 @@ public sealed class TestEnvironmentPreparerTests
             var intruder = Path.Combine(root, "RimWorldModMcp-Test-intruder");
             Directory.CreateDirectory(intruder);
 
-            var remaining = preparer.RemoveLinks([new TestLink(intruder, Path.Combine(root, "target"))]);
+            var remaining = TestEnvironmentPreparer.RemoveLinks([new TestLink(intruder, Path.Combine(root, "target"))]);
 
             var link = Assert.Single(remaining);
 
@@ -164,7 +175,7 @@ public sealed class TestEnvironmentPreparerTests
 
             var missing = Path.Combine(root, "RimWorldModMcp-Test-missing");
 
-            Assert.Empty(preparer.RemoveLinks([new TestLink(missing, Path.Combine(root, "target"))]));
+            Assert.Empty(TestEnvironmentPreparer.RemoveLinks([new TestLink(missing, Path.Combine(root, "target"))]));
         }
         finally
         {

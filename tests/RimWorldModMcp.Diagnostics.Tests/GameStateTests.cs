@@ -7,6 +7,8 @@ namespace RimWorldModMcp.Diagnostics.Tests;
 /// <summary>game_state 訊息的接收：走獨立的儲存，不混進診斷清單。</summary>
 public sealed class GameStateTests : IDisposable
 {
+    private static readonly string[] TestWindows = ["MainTabWindow_Inspect", "Dialog_MessageBox"];
+
     private const string Token = "the-real-token";
 
     private readonly string _root;
@@ -58,7 +60,7 @@ public sealed class GameStateTests : IDisposable
             paused = true,
             time_speed = "Paused",
             loading = false,
-            open_windows = new[] { "MainTabWindow_Inspect", "Dialog_MessageBox" },
+            open_windows = TestWindows,
             colonists = 3,
             game_version = "1.6.4871",
             uptime_ms = 45000L,

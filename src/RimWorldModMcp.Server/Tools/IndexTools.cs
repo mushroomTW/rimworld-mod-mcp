@@ -192,6 +192,13 @@ public sealed class IndexTools(
         }
 
         var managed = locator.Detect().ManagedDir;
+        var results = AttachBodies(hits, managed, max_bytes);
+
+        return new ReadSymbolResult { Results = results, Count = results.Count, PartialCount = partialCount };
+    });
+
+    private List<SymbolSummary> AttachBodies(IReadOnlyList<SymbolHit> hits, string? managed, int maxBytes)
+    {
         var results = new List<SymbolSummary>(hits.Count);
 
         foreach (var hit in hits)
@@ -211,7 +218,7 @@ public sealed class IndexTools(
 
                 if (source is not null)
                 {
-                    body = Utf8Text.Truncate(source, Math.Clamp(max_bytes, 256, 262144), out var wasTruncated);
+                    body = Utf8Text.Truncate(source, Math.Clamp(maxBytes, 256, 262144), out var wasTruncated);
                     truncated = wasTruncated;
                 }
             }
@@ -219,8 +226,8 @@ public sealed class IndexTools(
             results.Add(ToSummary(hit) with { Body = body, BodyTruncated = truncated });
         }
 
-        return new ReadSymbolResult { Results = results, Count = results.Count, PartialCount = partialCount };
-    });
+        return results;
+    }
 
     [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true)]
     [Description("Browse the symbol tree without knowing a name: a namespace lists its top-level types and child namespaces; a type lists its members and nested types. With assembly=mod:<packageId> and an empty parent it lists an indexed mod's namespaces.")]
@@ -241,7 +248,7 @@ public sealed class IndexTools(
             {
                 if (!Enum.TryParse<RimWorldModMcp.Indexing.Model.SymbolKind>(kind, ignoreCase: true, out var parsed))
                 {
-                    throw new ArgumentException($"Unknown symbol kind: {kind}", nameof(kind));
+                    throw new ArgumentException($"Unknown symbol kind: {kind}");
                 }
 
                 kindName = parsed.ToString();
@@ -378,12 +385,12 @@ public sealed class IndexTools(
         // 「已知但在此模式無效」的參數不能靜默吞掉：呼叫端會以為結果已經過濾。
         if (modSearch && !string.IsNullOrEmpty(file_pattern))
         {
-            throw new ArgumentException("file_pattern only applies to game searches; omit it when package_id is set.", nameof(file_pattern));
+            throw new ArgumentException("file_pattern only applies to game searches; omit it when package_id is set.");
         }
 
         if (!modSearch && !string.IsNullOrEmpty(assembly))
         {
-            throw new ArgumentException("assembly only applies to mod searches; set package_id as well.", nameof(assembly));
+            throw new ArgumentException("assembly only applies to mod searches; set package_id as well.");
         }
 
         if (modSearch)
@@ -462,20 +469,46 @@ public sealed class IndexTools(
     /// <summary>search_defs 的描述字元上限。ThingDef 的描述動輒兩三百字，25 筆清單裡大半 token 都花在這。</summary>
     private const int SearchDescriptionChars = 200;
 
+    private static string? FormatDescription(string description, int maxChars)
+    {
+        if (description.Length == 0)
+        {
+            return null;
+        }
+
+        if (description.Length > maxChars)
+        {
+            return description[..maxChars] + "…";
+        }
+
+        return description;
+    }
+
     private static DefSummary ToSummary(RimWorldModMcp.Indexing.Model.DefHit hit, int descriptionChars) => new()
     {
         DefName = hit.DefName,
         DefType = hit.DefType,
         Label = hit.Label,
-        Description = hit.Description.Length == 0 ? null
-            : hit.Description.Length > descriptionChars ? hit.Description[..descriptionChars] + "…"
-            : hit.Description,
+        Description = FormatDescription(hit.Description, descriptionChars),
         FilePath = hit.FilePath,
         Abstract = hit.Abstract ? true : null,
         InheritName = hit.InheritName,
         ParentName = hit.ParentName,
         Xml = hit.Xml,
         XmlTruncated = hit.XmlTruncated,
+    };
+
+    private static SymbolSummary ToSummary(SymbolHit hit) => new()
+    {
+        Fqn = hit.Fqn,
+        Kind = hit.Kind,
+        Assembly = hit.Assembly,
+        ParentFqn = hit.ParentFqn,
+        Signature = hit.Signature,
+        BaseChain = hit.BaseChain.Count > 0 ? hit.BaseChain : null,
+        Interfaces = hit.Interfaces.Count > 0 ? hit.Interfaces : null,
+        Accessibility = hit.Accessibility,
+        IsStatic = hit.IsStatic,
     };
 
     /// <summary>
@@ -513,17 +546,4 @@ public sealed class IndexTools(
             _ => hit.Fqn,
         };
     }
-
-    private static SymbolSummary ToSummary(SymbolHit hit) => new()
-    {
-        Fqn = hit.Fqn,
-        Kind = hit.Kind,
-        Assembly = hit.Assembly,
-        ParentFqn = hit.ParentFqn,
-        Signature = hit.Signature,
-        BaseChain = hit.BaseChain.Count > 0 ? hit.BaseChain : null,
-        Interfaces = hit.Interfaces.Count > 0 ? hit.Interfaces : null,
-        Accessibility = hit.Accessibility,
-        IsStatic = hit.IsStatic,
-    };
 }

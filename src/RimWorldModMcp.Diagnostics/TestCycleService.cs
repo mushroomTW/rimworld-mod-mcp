@@ -10,7 +10,8 @@ namespace RimWorldModMcp.Diagnostics;
 /// <summary>解析完成的測試選集。</summary>
 public sealed record TestModSet(
     IReadOnlyList<string> ActiveMods,
-    IReadOnlyList<string> SkippedLoadAfter);
+    IReadOnlyList<string> SkippedLoadAfter,
+    IReadOnlyList<string> OtherModFolders);
 
 /// <summary>
 /// 在隔離環境中啟動 RimWorld 測試開發中的 Mod。
@@ -84,7 +85,7 @@ public sealed class TestCycleService(
             //
             // 清不掉的必須帶進新場次（見下面的 Links）：丟掉結果的話，那個連結
             // 從此沒人追蹤，會永久留在使用者的 Mods 目錄，stop_test 也不會再補清。
-            var orphanedLinks = environment.RemoveLinks(active.Links);
+            var orphanedLinks = TestEnvironmentPreparer.RemoveLinks(active.Links);
 
             // 使用者自己開著遊戲時不能動 Mods 目錄——連結會被鎖住，而且會干擾他的存檔。
             if (launcher.IsGameRunning(paths.Executable))
@@ -92,7 +93,7 @@ public sealed class TestCycleService(
                 throw new InvalidOperationException("RimWorld is running. Close the game before starting a test.");
             }
 
-            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, seedFiles);
+            prepared = environment.Prepare(runId, mod, info.PackageId, paths, modSet.ActiveMods, token, new SeedConfigFiles(seedFiles, modSet.OtherModFolders));
 
             diagnostics.Clear();
             gameState.Clear();
@@ -150,7 +151,7 @@ public sealed class TestCycleService(
             // 會留下指向工作區的孤兒連結。（Prepare 內部的失敗由它自己回滾。）
             if (prepared is not null)
             {
-                environment.RemoveLinks(prepared.Links);
+                TestEnvironmentPreparer.RemoveLinks(prepared.Links);
                 environment.DeleteBridgeToken();
             }
 
@@ -209,55 +210,15 @@ public sealed class TestCycleService(
             return session;
         }
 
-        // 順序很重要：必須先讓遊戲退出，才能移除連結。
-        // RimWorld 執行中會透過這些連結載入 Mod 組件，此時刪除 reparse point
-        // 會因為檔案被佔用而失敗，留下工具自己建立的孤兒連結。
-        //
-        // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
-        // 那個行程的 PID 根本不會被記錄。啟動時間一併比對，防 PID 重用。
-        var gameStopped = terminateGame
-            && session.GamePid is { } gamePid
-            && processes.Terminate(gamePid, session.GameStartUtc);
+        var (daemonStopped, gameStopped) = TerminateProcesses(session, terminateGame);
 
-        if (gameStopped && session.GamePid is { } stoppedPid)
-        {
-            launcher.WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
-        }
-
-        var daemonStopped = session.DaemonPid is { } daemonPid
-            && processes.Terminate(daemonPid, session.DaemonStartUtc);
-
-        var remaining = new List<TestLink>();
-
-        foreach (var link in session.Links)
-        {
-            // Removed 以外的結果都要留在狀態裡：Failed 是還被佔用（下次可補清），
-            // NotOurs 是路徑被別的東西佔著——使用者需要知道 Mods 目錄有殘留。
-            if (environment.RemoveLink(link) != LinkRemoval.Removed)
-            {
-                remaining.Add(link);
-            }
-        }
+        var remaining = RemoveSessionLinks(session.Links);
 
         environment.DeleteBridgeToken();
 
         var gameStillAlive = session.GamePid is { } alivePid && processes.IsAlive(alivePid);
 
-        if (session.SaveData is not null && Directory.Exists(session.SaveData) && !gameStillAlive)
-        {
-            // 遊戲還活著就跳過刪除。Windows 上檔案鎖會擋下來，但 POSIX 允許
-            // 刪除開啟中的檔案——terminate_game=false（預設）時在 Linux/macOS
-            // 會把執行中遊戲的存檔整個刪掉。
-            try
-            {
-                Directory.Delete(session.SaveData, recursive: true);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // 檔案仍被鎖住或是唯讀；下次啟動的清理會處理掉。漏接 UnauthorizedAccessException
-                // 會讓 Stop 在連結已拆、daemon 已殺之後中斷，場次狀態停在 running。
-            }
-        }
+        TryDeleteSaveData(session.SaveData, gameStillAlive);
 
         // 寫回前驗證 run_id：若期間有新場次寫入（例如另一個 Start 在我們等待鎖後搶先），
         // 不可用舊工作覆蓋新場次。
@@ -366,7 +327,73 @@ public sealed class TestCycleService(
             throw new InvalidOperationException($"Missing required mod dependencies: {string.Join(", ", order.Missing)}");
         }
 
-        return new TestModSet(order.Active, order.SkippedLoadAfter);
+        // 受測 Mod 以外的 Mod 在測試場次裡沿用原本的資料夾名，seed_config 帶進來的
+        // 它們的 ModSettings 不能跟著改名。
+        var otherFolders = order.Active
+            .Where(id => id != mod.PackageId)
+            .Select(id => Path.GetFileName(Path.TrimEndingDirectorySeparator(available[id].Path)))
+            .ToList();
+
+        return new TestModSet(order.Active, order.SkippedLoadAfter, otherFolders);
+    }
+
+    private (bool daemonStopped, bool gameStopped) TerminateProcesses(TestSession session, bool terminateGame)
+    {
+        // 順序很重要：必須先讓遊戲退出，才能移除連結。
+        // RimWorld 執行中會透過這些連結載入 Mod 組件，此時刪除 reparse point
+        // 會因為檔案被佔用而失敗，留下工具自己建立的孤兒連結。
+        //
+        // 只有明確要求時才終止遊戲。使用者自行啟動的 RimWorld 從不在此範圍內——
+        // 那個行程的 PID 根本不會被記錄。啟動時間一併比對，防 PID 重用。
+        var gameStopped = terminateGame
+            && session.GamePid is { } gamePid
+            && processes.Terminate(gamePid, session.GameStartUtc);
+
+        if (gameStopped && session.GamePid is { } stoppedPid)
+        {
+            launcher.WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
+        }
+
+        var daemonStopped = session.DaemonPid is { } daemonPid
+            && processes.Terminate(daemonPid, session.DaemonStartUtc);
+
+        return (daemonStopped, gameStopped);
+    }
+
+    private static List<TestLink> RemoveSessionLinks(IEnumerable<TestLink> links)
+    {
+        var remaining = new List<TestLink>();
+
+        foreach (var link in links)
+        {
+            // Removed 以外的結果都要留在狀態裡：Failed 是還被佔用（下次可補清），
+            // NotOurs 是路徑被別的東西佔著——使用者需要知道 Mods 目錄有殘留。
+            if (TestEnvironmentPreparer.RemoveLink(link) != LinkRemoval.Removed)
+            {
+                remaining.Add(link);
+            }
+        }
+
+        return remaining;
+    }
+
+    private static void TryDeleteSaveData(string? saveData, bool gameStillAlive)
+    {
+        if (saveData is not null && Directory.Exists(saveData) && !gameStillAlive)
+        {
+            // 遊戲還活著就跳過刪除。Windows 上檔案鎖會擋下來，但 POSIX 允許
+            // 刪除開啟中的檔案——terminate_game=false（預設）時在 Linux/macOS
+            // 會把執行中遊戲的存檔整個刪掉。
+            try
+            {
+                Directory.Delete(saveData, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // 檔案仍被鎖住或是唯讀；下次啟動的清理會處理掉。漏接 UnauthorizedAccessException
+                // 會讓 Stop 在連結已拆、daemon 已殺之後中斷，場次狀態停在 running。
+            }
+        }
     }
 
     /// <summary>
@@ -386,6 +413,7 @@ public sealed class TestCycleService(
     }
 
     private const string HarmonyPackageId = "brrainz.harmony";
+    private static readonly char[] PathSeparators = ['/', '\\'];
 
     /// <summary>
     /// 受測 Mod 的組件參考了 0Harmony、自己卻沒帶 0Harmony.dll，而選集裡也沒有 Harmony Mod 時的警告。
@@ -405,7 +433,7 @@ public sealed class TestCycleService(
         var libraries = Directory
             .EnumerateFiles(modPath, "*.dll", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
             .Where(path => !Path.GetRelativePath(modPath, path)
-                .Split(['/', '\\'])
+                .Split(PathSeparators)
                 .SkipLast(1)
                 .Any(segment => segment.Equals("Source", StringComparison.OrdinalIgnoreCase)
                     || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)

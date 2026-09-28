@@ -23,7 +23,7 @@ public sealed class TestCycleTools(
         string[]? companion_mods = null,
         [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
         bool quicktest = true,
-        [Description("Config files to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up. ModsConfig.xml is rejected.")]
+        [Description("Config files to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up, unless <folder> belongs to another active mod (a companion or dependency), whose settings keep their name. ModsConfig.xml is rejected.")]
         string[]? seed_config = null) => ToolGuard.Run(() =>
         ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config), game: null));
 
@@ -211,15 +211,28 @@ public sealed class TestCycleTools(
         },
     };
 
+    private static string? FormatDiagnosticText(string text, string firstLine, int maxTextLength)
+    {
+        if (text == firstLine)
+        {
+            return null;
+        }
+
+        if (text.Length > maxTextLength)
+        {
+            return text[..maxTextLength];
+        }
+
+        return text;
+    }
+
     private static DiagnosticSummary ToSummary(DiagnosticRecord record, int maxTextLength) => new()
     {
         Hash = record.Hash,
         Type = record.Type,
         FirstLine = record.FirstLine,
         // 單行診斷的 text 就是 first_line，重複送一次沒有意義。
-        Text = record.Text == record.FirstLine ? null
-            : record.Text.Length > maxTextLength ? record.Text[..maxTextLength]
-            : record.Text,
+        Text = FormatDiagnosticText(record.Text, record.FirstLine, maxTextLength),
         TextTruncated = record.Text != record.FirstLine && record.Text.Length > maxTextLength,
         Source = record.Source,
         RunId = record.RunId,

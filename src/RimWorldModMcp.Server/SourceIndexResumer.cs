@@ -33,7 +33,7 @@ internal sealed class SourceIndexResumer(
                 }
 
                 logger.LogInformation("Resuming the interrupted source index in the background.");
-                indexer.StartInBackground();
+                indexer.StartInBackground(cancellationToken);
             }
             catch (Exception e)
             {
