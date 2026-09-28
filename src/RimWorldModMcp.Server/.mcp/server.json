@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "description": "Local RimWorld mod development MCP server: indexes game Defs and the C# API, builds mods, tests in an isolated session.",
   "name": "rimworld-mod-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packages": [
     {
       "registryType": "nuget",
       "identifier": "RimWorldModMcp",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "transport": {
         "type": "stdio"
       },
