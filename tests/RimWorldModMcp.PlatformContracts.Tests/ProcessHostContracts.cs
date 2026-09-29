@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using RimWorldModMcp.Core.Platform;
+using RimWorldModMcp.Tests.Shared;
 
 namespace RimWorldModMcp.PlatformContracts.Tests;
 
@@ -73,6 +74,29 @@ public sealed class ProcessHostContracts
         Assert.NotNull(mine);
         Assert.True(mine!.Value <= DateTime.UtcNow.AddSeconds(1));
         Assert.Null(_processes.StartTimeUtc(-1));
+    }
+
+    /// <summary>
+    /// 契約：讀得到自己啟動的程序的命令列，對無效 PID 回傳 null。
+    /// stop_test 靠它認出遊戲自己重開後的新行程（命令列帶著同一個 -savedatafolder）。
+    /// </summary>
+    [Fact]
+    public void CommandLineOfAProcessWeStartedIsReadable()
+    {
+        var marker = "-savedatafolder=" + Path.Combine(Path.GetTempPath(), "cmdline contract " + Guid.NewGuid().ToString("N"));
+
+        using var process = SleeperProcess.Start(marker);
+
+        try
+        {
+            Assert.Contains(marker, ProcessCommandLine.Read(process.Id));
+        }
+        finally
+        {
+            SleeperProcess.Stop(process);
+        }
+
+        Assert.Null(ProcessCommandLine.Read(-1));
     }
 
     private static Process StartShortLivedProcess() => Start("--version");

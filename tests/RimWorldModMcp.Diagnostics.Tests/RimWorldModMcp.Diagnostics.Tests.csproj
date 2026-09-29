@@ -34,4 +34,9 @@
     <ProjectReference Include="..\..\src\RimWorldModMcp.Diagnostics\RimWorldModMcp.Diagnostics.csproj" />
   </ItemGroup>
 
+  <!-- 與 PlatformContracts 共用的測試用程序啟動器，見 tests/Shared。 -->
+  <ItemGroup>
+    <Compile Include="..\Shared\SleeperProcess.cs" Link="Shared\SleeperProcess.cs" />
+  </ItemGroup>
+
 </Project>

@@ -4,6 +4,9 @@ using RimWorldModMcp.Core.Platform;
 
 namespace RimWorldModMcp.Diagnostics;
 
+/// <summary>測試場次的一個遊戲行程與其啟動時間（取不到時為 null）。</summary>
+public sealed record SessionGame(int Pid, DateTime? StartUtc);
+
 /// <summary>
 /// RimWorld 行程的生命週期：啟動、偵測、等待退出。
 ///
@@ -69,6 +72,73 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 屬於這個測試場次的 RimWorld 行程：同名、且命令列帶著本場次的 -savedatafolder。
+    ///
+    /// <para>
+    /// 遊戲會自己重開（GenCommandLine.Restart，例如 HugsLib 在切換語言後呼叫），
+    /// 新行程沿用相同參數但 PID 不同，只記 PID 的話 stop_test 就找不到它。
+    /// 暫存目錄名含 run id，不會對到使用者自己開的遊戲。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<SessionGame> FindSessionGames(string executable, string saveData)
+    {
+        var name = Path.GetFileNameWithoutExtension(executable);
+        var found = new List<SessionGame>();
+
+        try
+        {
+            foreach (var process in Process.GetProcessesByName(name))
+            {
+                using (process)
+                {
+                    if (IsSessionCommandLine(ProcessCommandLine.Read(process.Id), saveData))
+                    {
+                        // 記下啟動時間，終止前比對以防 PID 在掃描與終止之間被重用。
+                        found.Add(new SessionGame(process.Id, processes.StartTimeUtc(process.Id)));
+                    }
+                }
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // 列舉失敗就當作找不到；呼叫端仍會處理記錄下來的 PID。
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// 命令列是否帶著指向 <paramref name="saveData"/> 的 -savedatafolder。
+    /// GenCommandLine.Restart 會把每個參數包上引號，所以只比對子字串。
+    /// 目錄名後面必須緊接結尾、引號（Restart 的引號）、空白（Linux 的 /proc 以空白串接參數）
+    /// 或路徑分隔符（允許尾斜線），避免 run id 前綴相同的目錄互相誤認。
+    /// </summary>
+    public static bool IsSessionCommandLine(string? commandLine, string saveData)
+    {
+        if (commandLine is null)
+        {
+            return false;
+        }
+
+        var argument = "-savedatafolder=" + Path.TrimEndingDirectorySeparator(saveData);
+        var index = commandLine.IndexOf(argument, PathText.Comparison);
+
+        while (index >= 0)
+        {
+            var end = index + argument.Length;
+
+            if (end == commandLine.Length || commandLine[end] is '"' or ' ' or '\\' or '/')
+            {
+                return true;
+            }
+
+            index = commandLine.IndexOf(argument, end, PathText.Comparison);
+        }
+
+        return false;
     }
 
     /// <summary>等待行程真正退出。Kill 是非同步的，立刻去刪檔案會撞上檔案佔用。</summary>
