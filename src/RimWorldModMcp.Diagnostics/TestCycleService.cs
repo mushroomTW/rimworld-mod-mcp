@@ -216,9 +216,19 @@ public sealed class TestCycleService(
         var (daemonStopped, gameStopped, survivors) = TerminateProcesses(session, terminateGame, executable);
 
         // 記錄的 PID 死了不代表遊戲結束了：遊戲自己重開後換了新 PID。
-        var aliveGame = session.GamePid is { } alivePid && processes.IsAlive(alivePid)
-            ? new SessionGame(alivePid, session.GameStartUtc)
-            : (survivors ?? FindRestartedGames(session, executable)).FirstOrDefault();
+        SessionGame? aliveGame = null;
+        if (session.GamePid is { } alivePid && processes.IsAlive(alivePid))
+        {
+            aliveGame = new SessionGame(alivePid, session.GameStartUtc);
+        }
+        else
+        {
+            var remainingGames = survivors ?? FindRestartedGames(session, executable);
+            if (remainingGames.Count > 0)
+            {
+                aliveGame = remainingGames[0];
+            }
+        }
         var gameStillAlive = aliveGame is not null;
 
         // 遊戲還活著就不拆連結：它仍透過這些連結載入 Mod（例如切換語言後的重載）。

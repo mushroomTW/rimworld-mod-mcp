@@ -197,7 +197,7 @@ public sealed class IndexTools(
         return new ReadSymbolResult { Results = results, Count = results.Count, PartialCount = partialCount };
     });
 
-    private List<SymbolSummary> AttachBodies(IReadOnlyList<SymbolHit> hits, string? managed, int maxBytes)
+    private List<SymbolSummary> AttachBodies(List<SymbolHit> hits, string? managed, int maxBytes)
     {
         var results = new List<SymbolSummary>(hits.Count);
 
