@@ -23,7 +23,7 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         int limit = 50,
         [Description("Skip the first N matches.")]
         int offset = 0,
-        [Description("Include path, dependencies, load_after, incompatible_with, and supported_versions per mod.")]
+        [Description("Include path, dependencies, load_after, force_load_after, force_load_before, incompatible_with, and supported_versions per mod.")]
         bool include_details = false) => ToolGuard.Run(() =>
     {
         var mods = catalog.Installed().ToList();
@@ -101,6 +101,8 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         Source = mod.Source,
         Dependencies = mod.Dependencies,
         LoadAfter = mod.LoadAfter,
+        ForceLoadAfter = mod.ForceLoadAfter,
+        ForceLoadBefore = mod.ForceLoadBefore,
         IncompatibleWith = mod.IncompatibleWith,
         SupportedVersions = mod.SupportedVersions,
     };
@@ -143,7 +145,7 @@ public sealed record ModSummary
     [JsonPropertyName("source")]
     public required string Source { get; init; }
 
-    /// <summary>The four fields below are likewise omitted unless include_details is set.</summary>
+    /// <summary>The six fields below are likewise omitted unless include_details is set.</summary>
     [JsonPropertyName("dependencies")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Dependencies { get; init; }
@@ -151,6 +153,15 @@ public sealed record ModSummary
     [JsonPropertyName("load_after")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? LoadAfter { get; init; }
+
+    /// <summary>Hard ordering the game sorts by like load_after; official DLCs order themselves only through these.</summary>
+    [JsonPropertyName("force_load_after")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? ForceLoadAfter { get; init; }
+
+    [JsonPropertyName("force_load_before")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? ForceLoadBefore { get; init; }
 
     [JsonPropertyName("incompatible_with")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

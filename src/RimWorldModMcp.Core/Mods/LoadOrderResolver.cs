@@ -98,7 +98,13 @@ public static class LoadOrderResolver
         ordered.Add(CorePackageId);
         visited.Add(CorePackageId);
 
-        foreach (var id in wanted.Order(StringComparer.Ordinal))
+        // 官方 DLC 先走訪，緊接在 Core 之後——Mod 常不宣告 loadAfter 就 patch DLC 的 Def。
+        // DLC 彼此的順序由它們的 forceLoadAfter／forceLoadBefore 決定，不是字母序。
+        var roots = wanted
+            .OrderBy(id => index.TryGetValue(id, out var mod) && mod.Source == ModInfo.ExpansionSource ? 0 : 1)
+            .ThenBy(id => id, StringComparer.Ordinal);
+
+        foreach (var id in roots)
         {
             Visit(id);
         }
@@ -142,7 +148,7 @@ public static class LoadOrderResolver
                 continue;
             }
 
-            foreach (var before in mod.LoadBefore)
+            foreach (var before in mod.LoadBefore.Concat(mod.ForceLoadBefore))
             {
                 if (!wanted.Contains(before))
                 {
@@ -185,6 +191,12 @@ public static class LoadOrderResolver
                 // （Core 永遠排第一、永遠啟用；幾乎每個 Mod 都宣告 loadAfter Core，不列入 skippedLoadAfter）
                 skippedLoadAfter.Add(after);
             }
+        }
+
+        // 遊戲把 forceLoadAfter 當 loadAfter 排序；目標沒啟用（例如只開 Odyssey）是正常組合，不回報。
+        foreach (var after in mod.ForceLoadAfter.Where(wanted.Contains))
+        {
+            visit(after);
         }
 
         // 別的 Mod 宣告了 loadBefore 我們：那些 Mod 必須排在前面。

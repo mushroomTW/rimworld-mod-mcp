@@ -52,7 +52,7 @@ public sealed class ModCatalog(RimWorldLocator locator)
 
         foreach (var directory in directories.Order(StringComparer.Ordinal))
         {
-            var info = AboutXml.Parse(directory, IsCore(directory) ? "core" : "expansion", version);
+            var info = AboutXml.Parse(directory, IsCore(directory) ? "core" : ModInfo.ExpansionSource, version);
 
             if (info is not null)
             {
