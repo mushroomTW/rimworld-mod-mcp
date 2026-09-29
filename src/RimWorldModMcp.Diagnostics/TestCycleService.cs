@@ -74,7 +74,9 @@ public sealed class TestCycleService(
             // 其中一個的 PID 從此遺失成為孤兒。
             var active = sessions.Read();
 
-            if (active.State == "running" && active.GamePid is { } pid && processes.IsAlive(pid))
+            // 遊戲自己重開過的話記錄的 PID 已經死了，必須連重開後的行程一起看——
+            // 否則下面會拆掉那個仍在執行的遊戲正在用的連結。
+            if (IsSessionGameAlive(active, paths.Executable))
             {
                 throw new InvalidOperationException(
                     $"A test session is already running (run_id={active.RunId}). Call stop_test(confirm=true) first.");
@@ -210,13 +212,20 @@ public sealed class TestCycleService(
             return session;
         }
 
-        var (daemonStopped, gameStopped) = TerminateProcesses(session, terminateGame);
+        var executable = locator.Detect().Executable;
+        var (daemonStopped, gameStopped, survivors) = TerminateProcesses(session, terminateGame, executable);
 
-        var remaining = RemoveSessionLinks(session.Links);
+        // 記錄的 PID 死了不代表遊戲結束了：遊戲自己重開後換了新 PID。
+        var aliveGame = session.GamePid is { } alivePid && processes.IsAlive(alivePid)
+            ? new SessionGame(alivePid, session.GameStartUtc)
+            : (survivors ?? FindRestartedGames(session, executable)).FirstOrDefault();
+        var gameStillAlive = aliveGame is not null;
+
+        // 遊戲還活著就不拆連結：它仍透過這些連結載入 Mod（例如切換語言後的重載）。
+        // 連結留在 needs_cleanup 狀態裡，由之後的 stop_test(terminate_game=true) 清掉。
+        var remaining = gameStillAlive ? [.. session.Links] : RemoveSessionLinks(session.Links);
 
         environment.DeleteBridgeToken();
-
-        var gameStillAlive = session.GamePid is { } alivePid && processes.IsAlive(alivePid);
 
         TryDeleteSaveData(session.SaveData, gameStillAlive);
 
@@ -255,8 +264,8 @@ public sealed class TestCycleService(
                 Daemon = session.Daemon,
                 DaemonPid = session.DaemonPid,
                 DaemonStartUtc = session.DaemonStartUtc,
-                GamePid = gameStillAlive ? session.GamePid : null,
-                GameStartUtc = gameStillAlive ? session.GameStartUtc : null,
+                GamePid = aliveGame?.Pid,
+                GameStartUtc = aliveGame?.StartUtc,
                 PreviousRun = session.RunId,
                 Terminated = new TerminationResult { Daemon = daemonStopped, Game = gameStopped },
             };
@@ -337,7 +346,15 @@ public sealed class TestCycleService(
         return new TestModSet(order.Active, order.SkippedLoadAfter, otherFolders);
     }
 
-    private (bool daemonStopped, bool gameStopped) TerminateProcesses(TestSession session, bool terminateGame)
+    /// <summary>重開循環中終止一代可能正好生出下一代，重掃的上限輪數。</summary>
+    private const int MaxRestartScans = 3;
+
+    /// <summary>
+    /// 終止遊戲與 daemon。<c>survivors</c> 是最後一輪掃描到、卻沒能終止的本場次遊戲行程；
+    /// 沒掃描（未要求終止遊戲）或輪數用完時為 null，呼叫端要自己再掃一次。
+    /// </summary>
+    private (bool daemonStopped, bool gameStopped, IReadOnlyList<SessionGame>? survivors) TerminateProcesses(
+        TestSession session, bool terminateGame, string? executable)
     {
         // 順序很重要：必須先讓遊戲退出，才能移除連結。
         // RimWorld 執行中會透過這些連結載入 Mod 組件，此時刪除 reparse point
@@ -354,11 +371,49 @@ public sealed class TestCycleService(
             launcher.WaitForExit(stoppedPid, TimeSpan.FromSeconds(20));
         }
 
+        IReadOnlyList<SessionGame>? survivors = null;
+
+        if (terminateGame)
+        {
+            // 遊戲自己重開過的話，記錄的 PID 早已結束，真正在跑的是命令列相同的新行程。
+            // 放在上面之後再找：終止舊行程的瞬間它可能正好把新行程生出來；
+            // 同理終止這一代時也可能再生出下一代，所以重掃到沒有可終止的為止。
+            for (var pass = 0; pass < MaxRestartScans && survivors is null; pass++)
+            {
+                var found = FindRestartedGames(session, executable);
+                var restarted = found.Where(game => processes.Terminate(game.Pid, game.StartUtc)).ToList();
+
+                foreach (var game in restarted)
+                {
+                    launcher.WaitForExit(game.Pid, TimeSpan.FromSeconds(20));
+                }
+
+                gameStopped |= restarted.Count > 0;
+
+                if (restarted.Count == 0)
+                {
+                    survivors = found;
+                }
+            }
+        }
+
         var daemonStopped = session.DaemonPid is { } daemonPid
             && processes.Terminate(daemonPid, session.DaemonStartUtc);
 
-        return (daemonStopped, gameStopped);
+        return (daemonStopped, gameStopped, survivors);
     }
+
+    /// <summary>進行中（或待清理）的場次，其記錄的遊戲行程或重開後的行程是否還在執行。</summary>
+    private bool IsSessionGameAlive(TestSession session, string? executable)
+        => session.State is "running" or "needs_cleanup"
+           && ((session.GamePid is { } pid && processes.IsAlive(pid))
+               || FindRestartedGames(session, executable).Count > 0);
+
+    /// <summary>本場次重開後的遊戲行程，見 <see cref="GameLauncher.FindSessionGames"/>。</summary>
+    private IReadOnlyList<SessionGame> FindRestartedGames(TestSession session, string? executable)
+        => executable is null || session.SaveData is null
+            ? []
+            : launcher.FindSessionGames(executable, session.SaveData);
 
     private static List<TestLink> RemoveSessionLinks(IEnumerable<TestLink> links)
     {

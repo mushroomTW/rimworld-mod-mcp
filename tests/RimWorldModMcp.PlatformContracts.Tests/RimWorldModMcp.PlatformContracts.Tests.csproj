@@ -36,6 +36,7 @@
   <ItemGroup>
     <Compile Include="..\..\bridge\Source\DiagnosticPayload.cs" Link="DiagnosticPayload.cs" />
     <Compile Include="..\..\bridge\Source\GameStatePayload.cs" Link="GameStatePayload.cs" />
+    <Compile Include="..\Shared\SleeperProcess.cs" Link="Shared\SleeperProcess.cs" />
   </ItemGroup>
 
 </Project>
