@@ -35,7 +35,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.Equal("index", error.LockName);
 
         // ToolGuard.IsExpected 只認得 InvalidOperationException，繼承關係是契約的一部分。
-        Assert.IsAssignableFrom<InvalidOperationException>(error);
+        Assert.IsType<InvalidOperationException>(error, exactMatch: false);
     }
 
     /// <summary>
