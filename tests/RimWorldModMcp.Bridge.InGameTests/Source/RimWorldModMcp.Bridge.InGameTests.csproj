@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bridge 的遊戲內整合測試（RimTest Redux）。只供開發使用：不在 .slnx 裡、不隨工具發佈，
+    也刻意放在 bridge/ 之外——Server 會把 bridge/** 整個內嵌進執行檔。
+    Bridge 的型別幾乎都是 internal，測試一律以反射與 Harmony probe 存取，因此不參考 Bridge DLL，
+    建置測試也不會重建 Bridge。
+  -->
+  <PropertyGroup>
+    <!-- RimTest Redux 以 net481 編譯；RimWorld 的 Unity Mono 可以載入。 -->
+    <TargetFramework>net481</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>RimWorldModMcp.Bridge.InGameTests</AssemblyName>
+    <RootNamespace>RimWorldModMcp.Bridge.InGameTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <OutputPath>..\Mod\Assemblies\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- 不在預設 Steam 路徑時以 -p:RimWorldWorkshopDir=... 覆寫。 -->
+    <RimWorldWorkshopDir Condition="'$(RimWorldWorkshopDir)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\294100</RimWorldWorkshopDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 執行期由 brrainz.harmony、ilyvion.Laboratory、ilyvion.rimtestredux 提供，一律不複製。 -->
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.*" PrivateAssets="all" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net481" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="RimTestRedux">
+      <HintPath>$(RimWorldWorkshopDir)\3762405308\1.6\Assemblies\RimTestRedux.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

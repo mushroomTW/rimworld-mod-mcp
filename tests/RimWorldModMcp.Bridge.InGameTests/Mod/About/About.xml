@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimWorld MCP Bridge - In-Game Tests</name>
+  <author>RimWorld MCP contributors</author>
+  <packageId>rimworldmodmcp.bridge.ingametests</packageId>
+  <supportedVersions>
+    <li>1.6</li>
+  </supportedVersions>
+  <description>Development-only RimTest Redux suite for the RimWorld MCP Bridge. Not for distribution.</description>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>ilyvion.Laboratory</packageId>
+      <displayName>ilyvion's Laboratory</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3296362231</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>ilyvion.rimtestredux</packageId>
+      <displayName>RimTest Redux</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3762405308</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>ilyvion.Laboratory</li>
+    <li>ilyvion.rimtestredux</li>
+  </loadAfter>
+  <!-- probe 必須在 Bridge 建構式執行前就位，才錄得到它的啟動訊息。 -->
+  <loadBefore>
+    <li>rimworldmodmcp.bridge</li>
+  </loadBefore>
+</ModMetaData>
