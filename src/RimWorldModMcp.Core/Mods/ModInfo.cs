@@ -6,6 +6,9 @@ namespace RimWorldModMcp.Core.Mods;
 /// <summary>一個已安裝或工作區中的 Mod。</summary>
 public sealed record ModInfo
 {
+    /// <summary>官方 DLC 的 <see cref="Source"/>；載入順序據此把 DLC 排在 Core 之後、其他 Mod 之前。</summary>
+    public const string ExpansionSource = "expansion";
+
     public required string PackageId { get; init; }
 
     public required string Name { get; init; }
@@ -20,6 +23,15 @@ public sealed record ModInfo
     public IReadOnlyList<string> LoadAfter { get; init; } = [];
 
     public IReadOnlyList<string> LoadBefore { get; init; } = [];
+
+    /// <summary>
+    /// 遊戲排序時與 loadAfter 同等對待；官方 DLC 之間的順序只寫在這裡。
+    /// 與 <see cref="LoadAfter"/> 分開存，目標沒啟用時才不會被當成略過的軟排序回報。
+    /// </summary>
+    public IReadOnlyList<string> ForceLoadAfter { get; init; } = [];
+
+    /// <summary>見 <see cref="ForceLoadAfter"/>。</summary>
+    public IReadOnlyList<string> ForceLoadBefore { get; init; } = [];
 
     public IReadOnlyList<string> IncompatibleWith { get; init; } = [];
 
@@ -76,6 +88,8 @@ public static class AboutXml
             Dependencies = PackageIds(Versioned(root, "modDependencies", gameVersion)),
             LoadAfter = PackageIds(Versioned(root, "loadAfter", gameVersion)),
             LoadBefore = PackageIds(Versioned(root, "loadBefore", gameVersion)),
+            ForceLoadAfter = PackageIds(root.Element("forceLoadAfter")),
+            ForceLoadBefore = PackageIds(root.Element("forceLoadBefore")),
             IncompatibleWith = PackageIds(Versioned(root, "incompatibleWith", gameVersion)),
             SupportedVersions = [.. (root.Element("supportedVersions")?.Elements("li") ?? []).Select(e => e.Value.Trim())],
         };

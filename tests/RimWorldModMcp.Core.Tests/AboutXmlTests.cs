@@ -28,6 +28,12 @@ public sealed class AboutXmlTests : IDisposable
                   <li>after.one</li>
                 </v1.6>
               </loadAfterByVersion>
+              <forceLoadAfter>
+                <li>Ludeon.RimWorld.Royalty</li>
+              </forceLoadAfter>
+              <forceLoadBefore>
+                <li>Ludeon.RimWorld.Odyssey</li>
+              </forceLoadBefore>
             </ModMetaData>
             """);
     }
@@ -54,5 +60,15 @@ public sealed class AboutXmlTests : IDisposable
 
         Assert.Equal(["base.dep"], info.Dependencies);
         Assert.Empty(info.LoadAfter);
+    }
+
+    /// <summary>DLC 之間的順序只寫在 forceLoadAfter／forceLoadBefore；沒讀到就只能照字母序排。</summary>
+    [Fact]
+    public void ForceLoadListsAreParsed()
+    {
+        var info = AboutXml.Parse(_mod, "local", "1.6")!;
+
+        Assert.Equal(["ludeon.rimworld.royalty"], info.ForceLoadAfter);
+        Assert.Equal(["ludeon.rimworld.odyssey"], info.ForceLoadBefore);
     }
 }
