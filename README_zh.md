@@ -1,5 +1,9 @@
 # rimworld-mod-mcp
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/mushroomtw/rimworld-mod-mcp)](https://m8ven.ai/mcp/mushroomtw/rimworld-mod-mcp)
+[![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-blue)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 完全在本機執行的 [Model Context Protocol](https://modelcontextprotocol.io/) server，讓 Claude Code、Codex 等 MCP client 能研究 RimWorld 的 API 與 Def、建立與建置 Mod、驗證資產，並在隔離環境中測試。
 
 本專案的設計靈感來自 [Modmixer](https://github.com/lebek/modmixer)，但屬獨立實作：不含 Modmixer 的原始碼、不相依於 Modmixer，也不會與 Modmixer 或任何其他外部服務通訊。

@@ -26,7 +26,7 @@ public sealed class IndexTools(
     ModCatalog catalog,
     ModInspectionService inspection)
 {
-    [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.busy=true another writer holds the database, so retry shortly; if index.healthy=false and busy=false, call rebuild_index (the index database is corrupt); if index.fresh=false, call rebuild_index.")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
@@ -59,7 +59,8 @@ public sealed class IndexTools(
         };
     });
 
-    [McpServerTool(Name = "rebuild_index", UseStructuredContent = true)]
+    // 全量重建會清除既有索引並產生新世代；重複呼叫會再次重設背景索引進度。
+    [McpServerTool(Name = "rebuild_index", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
     [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background. Pass only_source=true to skip the Def/symbol layer and only (re)start the background source index — use it when the source index is missing or failed but the first layer is fine. only_source implies index_source; pass index_source=false together with only_source=true to only report current counts without starting anything.")]
     public RebuildIndexResult RebuildIndex(
         [Description("Also build the source full-text index in the background (required by search_source). When only_source=true, false means do not start it and only report current counts.")]
@@ -113,7 +114,7 @@ public sealed class IndexTools(
         };
     });
 
-    [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Search Core and DLC Defs by name, label, or description; returns summaries. Use read_def for the full XML. Installed mods' Defs are not indexed; read their XML from the mod path.")]
     public SearchDefsResult SearchDefs(
         [Description("Search term. A trailing * means prefix search, e.g. Gun*.")]
@@ -137,7 +138,7 @@ public sealed class IndexTools(
         };
     });
 
-    [McpServerTool(Name = "read_def", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "read_def", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Read the full XML of a single Def.")]
     public ReadDefResult ReadDef(
         [Description("The defName, or the Name attribute of an abstract Def.")]
@@ -157,7 +158,7 @@ public sealed class IndexTools(
         };
     });
 
-    [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "read_symbol", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Look up a C# symbol in the game or an indexed mod: signature, full inheritance chain, and implemented interfaces, optionally with decompiled source. Exact name matches only whenever any exist (partial_count tells how many substring matches were skipped); substring matches otherwise. On zero hits, suggestions lists similar names. For the whole decompiled file use read_source_file.")]
     public ReadSymbolResult ReadSymbol(
         [Description("Short name or full name, e.g. ThingDef or Verse.ThingDef; a fragment such as ThingDefO matches by substring.")]
@@ -229,7 +230,7 @@ public sealed class IndexTools(
         return results;
     }
 
-    [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Browse the symbol tree without knowing a name: a namespace lists its top-level types and child namespaces; a type lists its members and nested types. With assembly=mod:<packageId> and an empty parent it lists an indexed mod's namespaces.")]
     public ListSymbolsResult ListSymbols(
         [Description("A namespace (e.g. Verse.AI) or a type's full name (e.g. Verse.ThingDef). Empty string lists the root namespaces.")]
@@ -282,7 +283,7 @@ public sealed class IndexTools(
             };
         });
 
-    [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source or list_symbols. Page with start_line = previous end_line + 1.")]
     public ReadSourceFileResult ReadSourceFile(
         [Description("Assembly key exactly as returned by a search, e.g. Assembly-CSharp or mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll.")]
@@ -316,7 +317,7 @@ public sealed class IndexTools(
     private static string? AssemblyLike(string? assembly)
         => string.IsNullOrEmpty(assembly) ? null : $"%{FtsQuery.LikeLiteral(assembly)}%";
 
-    [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "find_descendants", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("List every class deriving from the given type, including indirect descendants within the same assembly; indexed mod types are found only when the given type is their direct base. On zero hits, suggestions lists similar type names.")]
     public FindDescendantsResult FindDescendants(
         [Description("Base type: full name (Verse.ThingComp) or short name (ThingComp) when unambiguous.")]
@@ -365,7 +366,8 @@ public sealed class IndexTools(
         };
     }
 
-    [McpServerTool(Name = "search_source", UseStructuredContent = true)]
+    // Mod 搜尋按需寫入索引並清除過期組件；快取有效時重複搜尋不再觸發索引。
+    [McpServerTool(Name = "search_source", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
     [Description("Regex search (.NET syntax, case-insensitive) over decompiled source: the game by default, or one installed mod with package_id (e.g. pattern=HarmonyPatch lists its patches). Simple literals work best (e.g. CurTimeSpeed); a|b matches either branch. indexing=true means the index is building in the background; retry in a while. budget_exceeded=true means the search ran out of time with candidate files left unscanned, so the result is incomplete — narrow it with file_pattern and run it again. Read a hit with read_source_file.")]
     public SearchSourceResult SearchSource(
         [Description("Regular expression (.NET syntax), always case-insensitive.")]
@@ -436,7 +438,7 @@ public sealed class IndexTools(
         Text = h.Text,
     };
 
-    [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Find where a Def is referenced: cross-references in Def XML and DefOf static fields in C#.")]
     public FindDefUsagesResult FindDefUsages(
         [Description("The defName to look up.")]

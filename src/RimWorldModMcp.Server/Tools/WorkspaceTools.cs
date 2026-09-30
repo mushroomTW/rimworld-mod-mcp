@@ -14,7 +14,7 @@ public sealed class WorkspaceTools(
     ModScaffolder scaffolder,
     BuildService builds)
 {
-    [McpServerTool(Name = "create_mod", UseStructuredContent = true, Idempotent = false)]
+    [McpServerTool(Name = "create_mod", UseStructuredContent = true, ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Create a new mod skeleton with About.xml and the standard folders. Always start C# mods with with_code=true: the generated csproj is wired to the game assembly references that build_mod injects.")]
     public CreateModResult CreateMod(
         [Description("Existing directory in which to create the mod folder.")]
@@ -36,7 +36,8 @@ public sealed class WorkspaceTools(
         };
     });
 
-    [McpServerTool(Name = "build_mod", UseStructuredContent = true, Idempotent = true)]
+    // 建置會覆寫 DLL；dotnet build 可還原外部套件並執行自訂 targets，無法保證冪等。
+    [McpServerTool(Name = "build_mod", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = true)]
     [Description("Validate an XML mod, or build a C# mod and deploy the DLL to Assemblies. Failures return structured compiler diagnostics.")]
     public BuildResult BuildMod(
         [Description("Path to the mod directory.")]

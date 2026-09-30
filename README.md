@@ -1,5 +1,9 @@
 # rimworld-mod-mcp
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/mushroomtw/rimworld-mod-mcp)](https://m8ven.ai/mcp/mushroomtw/rimworld-mod-mcp)
+[![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-blue)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A local-only [Model Context Protocol](https://modelcontextprotocol.io/) server that lets Claude Code, Codex, and other MCP clients research RimWorld's API and Defs, create and build mods, validate assets, and test them in an isolated game session.
 
 This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is an independent implementation: it contains no Modmixer source code, does not depend on Modmixer, and never communicates with Modmixer or any other external service.

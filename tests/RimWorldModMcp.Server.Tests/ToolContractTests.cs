@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using ModelContextProtocol;
 
 namespace RimWorldModMcp.Server.Tests;
 
@@ -97,15 +99,51 @@ public sealed partial class ToolContractTests : IAsyncLifetime
         Assert.Contains("wait_seconds", error.Message);
     }
 
-    /// <summary>破壞性工具的旗標要正確，client 才能據此決定要不要先問使用者。</summary>
+    /// <summary>驗證經 MCP 傳輸後的四個旗標及 JSON 型別，避免 SDK 預設值掩蓋缺漏。</summary>
     [Fact]
-    public async Task AnnotationsMarkDestructiveAndReadOnlyTools()
+    public async Task EveryToolDeclaresAllFourBooleanHintsMatchingItsBehavior()
     {
-        var tools = (await _server.Client.ListToolsAsync()).ToDictionary(t => t.Name);
+        var tools = await _server.Client.ListToolsAsync();
+        var expected = new Dictionary<string, (bool ReadOnly, bool Destructive, bool Idempotent, bool OpenWorld)>
+        {
+            ["rimworld_status"] = (true, false, true, false),
+            ["rebuild_index"] = (false, true, false, false),
+            ["search_defs"] = (true, false, true, false),
+            ["read_def"] = (true, false, true, false),
+            ["read_symbol"] = (true, false, true, false),
+            ["list_symbols"] = (true, false, true, false),
+            ["find_descendants"] = (true, false, true, false),
+            ["search_source"] = (false, true, true, false),
+            ["read_source_file"] = (true, false, true, false),
+            ["find_def_usages"] = (true, false, true, false),
+            ["list_installed_mods"] = (true, false, true, false),
+            ["inspect_installed_mod"] = (false, true, true, false),
+            ["create_mod"] = (false, false, false, false),
+            ["build_mod"] = (false, true, false, true),
+            ["run_test_cycle"] = (false, true, false, true),
+            ["test_status"] = (true, false, true, false),
+            ["stop_test"] = (false, true, true, false),
+            ["list_test_diagnostics"] = (true, false, true, false),
+            ["get_test_diagnostic"] = (true, false, true, false),
+        };
 
-        Assert.True(tools["stop_test"].ProtocolTool.Annotations?.DestructiveHint);
-        Assert.True(tools["test_status"].ProtocolTool.Annotations?.ReadOnlyHint);
-        Assert.True(tools["read_def"].ProtocolTool.Annotations?.ReadOnlyHint);
-        Assert.NotEqual(true, tools["run_test_cycle"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.Equal(expected.Keys.Order(), tools.Select(t => t.Name).Order());
+
+        foreach (var tool in tools)
+        {
+            var json = JsonSerializer.SerializeToElement(tool.ProtocolTool, McpJsonUtilities.DefaultOptions);
+            Assert.True(json.TryGetProperty("annotations", out var annotations), tool.Name);
+            var hints = expected[tool.Name];
+            AssertHint("readOnlyHint", hints.ReadOnly);
+            AssertHint("destructiveHint", hints.Destructive);
+            AssertHint("idempotentHint", hints.Idempotent);
+            AssertHint("openWorldHint", hints.OpenWorld);
+
+            void AssertHint(string name, bool value)
+            {
+                Assert.True(annotations.TryGetProperty(name, out var hint), $"{tool.Name}.{name}");
+                Assert.Equal(value ? JsonValueKind.True : JsonValueKind.False, hint.ValueKind);
+            }
+        }
     }
 }

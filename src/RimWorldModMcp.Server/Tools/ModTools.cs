@@ -12,7 +12,7 @@ namespace RimWorldModMcp.Server.Tools;
 [McpServerToolType]
 public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection)
 {
-    [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Find installed mods (local and Workshop; Core/DLC only with include_builtin): package_id matches a packageId or name fragment, so resolve a mod name here instead of paging the full list. Path, dependencies and versions only with include_details.")]
     public ListModsResult ListInstalledMods(
         [Description("Also list Core and installed DLCs.")]
@@ -56,7 +56,8 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
         };
     });
 
-    [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true)]
+    // 檢視會覆寫組件索引並刪除過期資料；相同組件重複索引的結果相同。
+    [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
     [Description("Make an installed mod's C# queryable: decompiles and indexes every DLL synchronously on first use (minutes for large mods, which can exceed your tool-call timeout; search_source with package_id does the same in the background), then lists its assemblies with index keys and counts. Afterwards read_symbol, list_symbols, find_descendants, search_source and read_source_file cover the mod; pass an assembly key fragment such as 1.6/ to scope to one version.")]
     public InspectModResult InspectInstalledMod(
         [Description("The mod's packageId.")]

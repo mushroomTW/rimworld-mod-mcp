@@ -14,7 +14,8 @@ public sealed class TestCycleTools(
     DiagnosticStore diagnostics,
     GameStateStore gameState)
 {
-    [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, Idempotent = false)]
+    // 新場次會清除舊診斷與殘留連結，且執行的 Mod 與橋接建置可能存取外部服務。
+    [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = true)]
     [Description("Launch RimWorld with the given mod in an isolated save directory; the user's saves and settings stay untouched. Run build_mod first for C# mods; after launch, read errors with list_test_diagnostics. Requires the game to not be running.")]
     public TestSessionResult RunTestCycle(
         [Description("Directory of the mod to test.")]
@@ -27,7 +28,7 @@ public sealed class TestCycleTools(
         string[]? seed_config = null) => ToolGuard.Run(() =>
         ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config), game: null));
 
-    [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Report the current test session state: whether the bridge and diagnostics daemon are healthy, and game (the in-game state the bridge last reported: program_state Entry/MapInitializing/Playing, map_loaded, tick, paused, loading, open_windows, age_ms). game is null until the bridge reports. Pass wait_for_state to block until program_state reaches it, e.g. wait_for_state=Playing before checking for errors.")]
     public Task<TestSessionResult> TestStatus(
         [Description("Long-poll until game.program_state equals this value (Entry, MapInitializing, or Playing; case-insensitive). Returns the current state when wait_seconds elapses first.")]
@@ -58,7 +59,7 @@ public sealed class TestCycleTools(
     private static bool Reached(GameStateRecord? state, string target)
         => state is not null && string.Equals(state.ProgramState, target, StringComparison.OrdinalIgnoreCase);
 
-    [McpServerTool(Name = "stop_test", UseStructuredContent = true, Destructive = true, Idempotent = true)]
+    [McpServerTool(Name = "stop_test", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
     [Description("Stop the test session: remove temporary links, terminate the diagnostics daemon, and clean up the temporary save data.")]
     public TestSessionResult StopTest(
         [Description("Must be explicitly true to proceed.")]
@@ -75,7 +76,7 @@ public sealed class TestCycleTools(
         return ToResult(testCycle.Stop(terminate_game), game: null);
     });
 
-    [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "list_test_diagnostics", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("List errors and warnings collected in this test session. Identical entries are merged with an occurrence count. To poll: pass the previous result's latest_at (and latest_sequence) as since_at (and since_sequence) and a wait_seconds so the call blocks until something new arrives instead of re-reading the whole list.")]
     public Task<ListDiagnosticsResult> ListTestDiagnostics(
         [Description("Return only this type: error, warning, diagnostic, loaded_mods, or performance.")]
@@ -162,7 +163,7 @@ public sealed class TestCycleTools(
             ? records
             : [.. records.Where(r => string.Equals(r.Type, type, StringComparison.OrdinalIgnoreCase))];
 
-    [McpServerTool(Name = "get_test_diagnostic", UseStructuredContent = true, ReadOnly = true)]
+    [McpServerTool(Name = "get_test_diagnostic", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Fetch one diagnostic in full by hash, including the untruncated stack trace.")]
     public DiagnosticSummary GetTestDiagnostic(
         [Description("The diagnostic hash from list_test_diagnostics.")]
