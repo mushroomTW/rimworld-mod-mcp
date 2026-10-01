@@ -24,7 +24,7 @@ public sealed class TestCycleTools(
         string[]? companion_mods = null,
         [Description("Launch with -quicktest to skip the main menu and load a test map directly.")]
         bool quicktest = true,
-        [Description("Config files to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up, unless <folder> belongs to another active mod (a companion or dependency), whose settings keep their name. ModsConfig.xml is rejected.")]
+        [Description("Array of config file paths (not a folder; a bare string or directory is rejected) to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up, unless <folder> belongs to another active mod (a companion or dependency), whose settings keep their name. ModsConfig.xml is rejected.")]
         string[]? seed_config = null) => ToolGuard.Run(() =>
         ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config), game: null));
 

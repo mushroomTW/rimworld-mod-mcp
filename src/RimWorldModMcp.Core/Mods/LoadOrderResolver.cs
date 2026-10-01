@@ -5,7 +5,8 @@ public sealed record LoadOrder(
     IReadOnlyList<string> Active,
     IReadOnlyList<string> Missing,
     IReadOnlyList<string> SkippedLoadAfter,
-    IReadOnlyList<string> LoadBeforeCoreConflicts);
+    IReadOnlyList<string> LoadBeforeCoreConflicts,
+    IReadOnlyList<string> DroppedDependencyOrder);
 
 /// <summary>
 /// 依相依關係決定 Mod 的載入順序。
@@ -15,6 +16,12 @@ public sealed record LoadOrder(
 /// 由呼叫端決定要不要中止；軟排序（loadAfter、loadBefore）缺少時只記錄不影響結果。
 /// incompatibleWith 雙方都在選集內則直接拒絕。
 /// 模組間的排序規則形成循環時，回報循環路徑並拒絕產生載入順序。
+/// </para>
+///
+/// <para>
+/// 遊戲本身只按 loadAfter／loadBefore／forceLoad* 排序，modDependencies 只要求啟用、不要求順序。
+/// 這裡把硬相依當最低優先的軟邊（沒有明確規則時相依者排前面）：
+/// 與明確規則矛盾時捨棄該邊並列進 <see cref="LoadOrder.DroppedDependencyOrder"/>，不拋錯。
 /// </para>
 ///
 /// <para>
@@ -34,6 +41,7 @@ public static class LoadOrderResolver
         var missing = new List<string>();
         var skippedLoadAfter = new List<string>();
         var loadBeforeCoreConflicts = new List<string>();
+        var droppedDependencyOrder = new List<string>();
 
         // 先把硬相依遞迴展開進選集。
         var frontier = new Queue<string>(wanted);
@@ -68,9 +76,9 @@ public static class LoadOrderResolver
 
         CheckIncompatibilities(wanted, index);
 
-        var ordered = TopologicalSort(wanted, index, skippedLoadAfter, loadBeforeCoreConflicts);
+        var ordered = TopologicalSort(wanted, index, skippedLoadAfter, loadBeforeCoreConflicts, droppedDependencyOrder);
 
-        return new LoadOrder(ordered, missing, skippedLoadAfter, loadBeforeCoreConflicts);
+        return new LoadOrder(ordered, missing, skippedLoadAfter, loadBeforeCoreConflicts, droppedDependencyOrder);
     }
 
     private static void CheckIncompatibilities(HashSet<string> wanted, Dictionary<string, ModInfo> index)
@@ -94,7 +102,8 @@ public static class LoadOrderResolver
         HashSet<string> wanted,
         Dictionary<string, ModInfo> index,
         List<string> skippedLoadAfter,
-        List<string> loadBeforeCoreConflicts)
+        List<string> loadBeforeCoreConflicts,
+        List<string> droppedDependencyOrder)
     {
         var ordered = new List<string>();
         var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -102,6 +111,7 @@ public static class LoadOrderResolver
         var visitPath = new List<string>();
 
         var afterEdgesFromBefore = BuildReverseLoadBeforeEdges(wanted, index);
+        var dependencyEdges = BuildDependencyEdges(wanted, index, afterEdgesFromBefore, droppedDependencyOrder);
 
         // 官方 DLC 先走訪，緊接在 Core 之後——Mod 常不宣告 loadAfter 就 patch DLC 的 Def。
         // DLC 彼此的順序由它們的 forceLoadAfter／forceLoadBefore 決定，不是字母序。
@@ -112,7 +122,7 @@ public static class LoadOrderResolver
 
         // 宣告 loadBefore／forceLoadBefore Core 的 Mod（例如 Harmony）連同它們的硬相依先走訪，排在 Core 前面。
         // Core 不在 wanted 裡，BuildReverseLoadBeforeEdges 不會替它建反向邊，必須在這裡處理。
-        var mustFollowCore = ModsThatMustFollowCore(wanted, index, afterEdgesFromBefore);
+        var mustFollowCore = ModsThatMustFollowCore(wanted, index, afterEdgesFromBefore, dependencyEdges);
 
         foreach (var id in roots)
         {
@@ -166,7 +176,7 @@ public static class LoadOrderResolver
             }
 
             visitPath.Add(id);
-            VisitDependencies(mod, wanted, skippedLoadAfter, afterEdgesFromBefore, Visit);
+            VisitDependencies(mod, wanted, skippedLoadAfter, afterEdgesFromBefore, dependencyEdges, Visit);
 
             visitPath.RemoveAt(visitPath.Count - 1);
             visiting.Remove(id);
@@ -211,13 +221,96 @@ public static class LoadOrderResolver
     }
 
     /// <summary>
-    /// 沿排序用的同一組邊（硬相依、loadAfter、forceLoadAfter、別人對它的 loadBefore）
+    /// 硬相依當軟邊：依賴目標若按明確規則（loadAfter、forceLoadAfter、loadBefore 反向邊，含間接）
+    /// 本來就必須排在依賴者之後，這條邊與明確規則矛盾，捨棄並記錄。
+    /// </summary>
+    private static Dictionary<string, List<string>> BuildDependencyEdges(
+        HashSet<string> wanted,
+        Dictionary<string, ModInfo> index,
+        Dictionary<string, List<string>> afterEdgesFromBefore,
+        List<string> droppedDependencyOrder)
+    {
+        var edges = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        foreach (var id in wanted.Order(StringComparer.Ordinal))
+        {
+            if (!index.TryGetValue(id, out var mod))
+            {
+                continue;
+            }
+
+            var kept = new List<string>();
+
+            foreach (var dependency in mod.Dependencies.Where(wanted.Contains))
+            {
+                if (MustFollowByExplicitRules(dependency, id, wanted, index, afterEdgesFromBefore))
+                {
+                    droppedDependencyOrder.Add($"{id} -> {dependency}");
+                }
+                else
+                {
+                    kept.Add(dependency);
+                }
+            }
+
+            edges[id] = kept;
+        }
+
+        return edges;
+    }
+
+    /// <summary>沿明確的排序規則，<paramref name="mod"/> 是否（直接或間接）必須排在 <paramref name="other"/> 之前。</summary>
+    private static bool MustFollowByExplicitRules(
+        string mod,
+        string other,
+        HashSet<string> wanted,
+        Dictionary<string, ModInfo> index,
+        Dictionary<string, List<string>> afterEdgesFromBefore)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal) { mod };
+        var stack = new Stack<string>();
+        stack.Push(mod);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+
+            if (!index.TryGetValue(current, out var info))
+            {
+                continue;
+            }
+
+            var predecessors = info.LoadAfter
+                .Concat(info.ForceLoadAfter)
+                .Concat(afterEdgesFromBefore.GetValueOrDefault(current) ?? [])
+                .Where(wanted.Contains);
+
+            foreach (var predecessor in predecessors)
+            {
+                if (predecessor == other)
+                {
+                    return true;
+                }
+
+                if (seen.Add(predecessor))
+                {
+                    stack.Push(predecessor);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 沿排序用的同一組邊（保留下來的硬相依、loadAfter、forceLoadAfter、別人對它的 loadBefore）
     /// 找出直接或間接必須排在 Core 之後的 Mod。
     /// </summary>
     private static HashSet<string> ModsThatMustFollowCore(
         HashSet<string> wanted,
         Dictionary<string, ModInfo> index,
-        Dictionary<string, List<string>> afterEdgesFromBefore)
+        Dictionary<string, List<string>> afterEdgesFromBefore,
+        Dictionary<string, List<string>> dependencyEdges)
     {
         var mustFollow = new HashSet<string>(StringComparer.Ordinal) { CorePackageId };
         bool changed;
@@ -233,7 +326,7 @@ public static class LoadOrderResolver
                     continue;
                 }
 
-                var predecessors = mod.Dependencies
+                var predecessors = (dependencyEdges.GetValueOrDefault(id) ?? [])
                     .Concat(mod.LoadAfter)
                     .Concat(mod.ForceLoadAfter)
                     .Concat(afterEdgesFromBefore.GetValueOrDefault(id) ?? []);
@@ -255,9 +348,10 @@ public static class LoadOrderResolver
         HashSet<string> wanted,
         List<string> skippedLoadAfter,
         Dictionary<string, List<string>> afterEdgesFromBefore,
+        Dictionary<string, List<string>> dependencyEdges,
         Action<string> visit)
     {
-        foreach (var dependency in mod.Dependencies)
+        foreach (var dependency in dependencyEdges.GetValueOrDefault(mod.PackageId) ?? [])
         {
             visit(dependency);
         }

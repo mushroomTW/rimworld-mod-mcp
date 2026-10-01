@@ -235,7 +235,7 @@ public sealed class LoadOrderResolverTests
     {
         ModInfo[] mods =
         [
-            Mod("a.mod", dependencies: ["b.mod"], loadBefore: ["ludeon.rimworld"]),
+            Mod("a.mod", loadAfter: ["b.mod"], loadBefore: ["ludeon.rimworld"]),
             Mod("b.mod", loadAfter: ["c.mod"]),
             Mod("c.mod", forceLoadAfter: ["a.mod"]),
         ];
@@ -243,6 +243,25 @@ public sealed class LoadOrderResolverTests
         var error = Assert.Throws<InvalidOperationException>(() => LoadOrderResolver.Resolve(mods, mods));
 
         Assert.Contains("a.mod -> b.mod -> c.mod -> a.mod", error.Message);
+    }
+
+    /// <summary>
+    /// 回報的 bug：A 硬相依 B 且 A loadBefore B，遊戲允許這種組合（modDependencies 不要求順序），
+    /// 不能被誤判成循環。明確的 loadBefore 勝出，相依順序被捨棄並回報。
+    /// </summary>
+    [Fact]
+    public void DependencyOrderConflictingWithLoadBeforeIsDroppedNotRejected()
+    {
+        ModInfo[] mods =
+        [
+            Mod("a.tests", dependencies: ["b.target"], loadBefore: ["b.target"]),
+            Mod("b.target"),
+        ];
+
+        var order = LoadOrderResolver.Resolve([mods[0], mods[1]], mods);
+
+        Assert.Equal(["ludeon.rimworld", "a.tests", "b.target"], order.Active);
+        Assert.Equal(["a.tests -> b.target"], order.DroppedDependencyOrder);
     }
 
     [Fact]

@@ -12,6 +12,7 @@ public sealed record TestModSet(
     IReadOnlyList<string> ActiveMods,
     IReadOnlyList<string> SkippedLoadAfter,
     IReadOnlyList<string> LoadBeforeCoreConflicts,
+    IReadOnlyList<string> DroppedDependencyOrder,
     IReadOnlyList<string> OtherModFolders);
 
 /// <summary>
@@ -63,6 +64,9 @@ public sealed class TestCycleService(
             .. modSet.LoadBeforeCoreConflicts.Select(id =>
                 $"{id} declares loadBefore Ludeon.RimWorld, but its dependencies or load-after rules require it to load after Core, "
                 + "so it was kept after Core. RimWorld will flag its position in the mod list."),
+            .. modSet.DroppedDependencyOrder.Select(edge =>
+                $"Dependency load order dropped ({edge}): explicit loadAfter/loadBefore rules already require the dependency to load after the mod. "
+                + "modDependencies only requires the dependency to be enabled, so the launch is unaffected."),
         ];
 
         if (harmonyWarning is not null)
@@ -366,7 +370,7 @@ public sealed class TestCycleService(
             .Select(id => Path.GetFileName(Path.TrimEndingDirectorySeparator(available[id].Path)))
             .ToList();
 
-        return new TestModSet(order.Active, order.SkippedLoadAfter, order.LoadBeforeCoreConflicts, otherFolders);
+        return new TestModSet(order.Active, order.SkippedLoadAfter, order.LoadBeforeCoreConflicts, order.DroppedDependencyOrder, otherFolders);
     }
 
     /// <summary>重開循環中終止一代可能正好生出下一代，重掃的上限輪數。</summary>
