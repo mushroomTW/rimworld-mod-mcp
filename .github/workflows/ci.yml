@@ -66,7 +66,11 @@ jobs:
               sys.exit("prebuilt bridge is not built for net472")
           EOF
         shell: bash
-      - run: dotnet tool install -g RimWorldModMcp --add-source ./nupkg --version 0.1.6
+      # 版本號讀自 csproj，升版時不必同步改這裡。
+      - run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/RimWorldModMcp.Server/RimWorldModMcp.Server.csproj | head -n1)
+          dotnet tool install -g RimWorldModMcp --add-source ./nupkg --version "$version"
+        shell: bash
       # detect 在沒有安裝 RimWorld 的 runner 上會回傳非零，這是預期的；
       # 這裡要驗的是工具能啟動、相依能解析。
       - run: rimworld-mod-mcp detect || true
