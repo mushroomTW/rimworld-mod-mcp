@@ -11,6 +11,7 @@ namespace RimWorldModMcp.Diagnostics;
 public sealed record TestModSet(
     IReadOnlyList<string> ActiveMods,
     IReadOnlyList<string> SkippedLoadAfter,
+    IReadOnlyList<string> LoadBeforeCoreConflicts,
     IReadOnlyList<string> OtherModFolders);
 
 /// <summary>
@@ -56,6 +57,18 @@ public sealed class TestCycleService(
         var runId = $"{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
         var modSet = ResolveModSet(info, companionMods);
         var harmonyWarning = HarmonyDependencyWarning(mod, modSet.ActiveMods);
+
+        // 遊戲模組清單會把這些 Mod 標成順序錯誤；排序器無法同時滿足，只能回報。
+        List<string> warnings = [
+            .. modSet.LoadBeforeCoreConflicts.Select(id =>
+                $"{id} declares loadBefore Ludeon.RimWorld, but its dependencies or load-after rules require it to load after Core, "
+                + "so it was kept after Core. RimWorld will flag its position in the mod list."),
+        ];
+
+        if (harmonyWarning is not null)
+        {
+            warnings.Add(harmonyWarning);
+        }
 
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(24));
 
@@ -118,7 +131,7 @@ public sealed class TestCycleService(
                 SaveData = prepared.SaveData,
                 ActiveMods = prepared.ActiveMods,
                 SkippedLoadAfter = modSet.SkippedLoadAfter,
-                Warnings = harmonyWarning is null ? [] : [harmonyWarning],
+                Warnings = warnings,
                 // 上一場次清不掉的孤兒連結也納入追蹤，stop_test 才有機會補清並回報。
                 Links = [.. prepared.Links, .. orphanedLinks],
                 PlayerLog = paths.PlayerLog,
@@ -353,7 +366,7 @@ public sealed class TestCycleService(
             .Select(id => Path.GetFileName(Path.TrimEndingDirectorySeparator(available[id].Path)))
             .ToList();
 
-        return new TestModSet(order.Active, order.SkippedLoadAfter, otherFolders);
+        return new TestModSet(order.Active, order.SkippedLoadAfter, order.LoadBeforeCoreConflicts, otherFolders);
     }
 
     /// <summary>重開循環中終止一代可能正好生出下一代，重掃的上限輪數。</summary>

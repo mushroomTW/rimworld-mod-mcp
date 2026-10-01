@@ -127,6 +127,64 @@ public sealed class LoadOrderResolverTests
         Assert.Equal("ludeon.rimworld", order.Active[0]);
     }
 
+    /// <summary>
+    /// 回報的 bug：Harmony 宣告 loadBefore Core，卻被排在 Core 之後，
+    /// 遊戲模組清單以紅字標示順序錯誤，組件搜尋順序也和玩家實際的清單不同。
+    /// </summary>
+    [Fact]
+    public void LoadBeforeCorePlacesTheModBeforeCore()
+    {
+        var harmony = Mod("brrainz.harmony", loadBefore: ["ludeon.rimworld"]);
+        var mod = Mod("a.mod", dependencies: ["brrainz.harmony"]);
+        ModInfo[] available = [mod, harmony, .. Expansions()];
+
+        var order = LoadOrderResolver.Resolve(available, available);
+
+        Assert.Equal(
+            ["brrainz.harmony", "ludeon.rimworld", "ludeon.rimworld.royalty", "ludeon.rimworld.ideology",
+             "ludeon.rimworld.biotech", "ludeon.rimworld.anomaly", "ludeon.rimworld.odyssey", "a.mod"],
+            order.Active);
+        Assert.Empty(order.LoadBeforeCoreConflicts);
+    }
+
+    [Fact]
+    public void ForceLoadBeforeCorePlacesTheModBeforeCore()
+    {
+        var early = Mod("z.early", forceLoadBefore: ["ludeon.rimworld"]);
+
+        var order = LoadOrderResolver.Resolve([early], [early]);
+
+        Assert.Equal(["z.early", "ludeon.rimworld"], order.Active);
+    }
+
+    /// <summary>排在 Core 前面的 Mod，它的硬相依也必須跟著排在前面。</summary>
+    [Fact]
+    public void HardDependenciesOfAModBeforeCoreAlsoComeBeforeCore()
+    {
+        var early = Mod("a.early", loadBefore: ["ludeon.rimworld"], dependencies: ["z.lib"]);
+        var lib = Mod("z.lib");
+
+        var order = LoadOrderResolver.Resolve([early], [early, lib]);
+
+        Assert.Equal(["z.lib", "a.early", "ludeon.rimworld"], order.Active);
+    }
+
+    /// <summary>
+    /// 宣告 loadBefore Core，卻硬相依於 loadAfter Core 的 Mod：兩個條件無法同時滿足。
+    /// 維持排在 Core 之後，並回報出來讓使用者知道，而不是默默挑一邊。
+    /// </summary>
+    [Fact]
+    public void LoadBeforeCoreThatMustFollowCoreIsReportedAsConflict()
+    {
+        var early = Mod("a.early", loadBefore: ["ludeon.rimworld"], dependencies: ["z.lib"]);
+        var lib = Mod("z.lib", loadAfter: ["ludeon.rimworld"]);
+
+        var order = LoadOrderResolver.Resolve([early], [early, lib]);
+
+        Assert.Equal(["ludeon.rimworld", "z.lib", "a.early"], order.Active);
+        Assert.Equal(["a.early"], order.LoadBeforeCoreConflicts);
+    }
+
     /// <summary>幾乎每個 Mod 都 loadAfter Core；Core 永遠啟用，不是「被略過的軟排序」。</summary>
     [Fact]
     public void LoadAfterCoreIsNotReportedAsSkipped()
@@ -144,5 +202,73 @@ public sealed class LoadOrderResolverTests
         var order = LoadOrderResolver.Resolve([mod], [mod]);
 
         Assert.Contains("b.absent", order.Missing);
+    }
+
+    /// <summary>互相矛盾的排序規則不能默默產生違反規則的順序。</summary>
+    [Theory]
+    [InlineData("dependencies")]
+    [InlineData("loadAfter")]
+    [InlineData("loadBefore")]
+    [InlineData("forceLoadAfter")]
+    [InlineData("forceLoadBefore")]
+    public void CyclicOrderingRulesAreRejected(string rule)
+    {
+        ModInfo WithRule(string id, string target) => rule switch
+        {
+            "dependencies" => Mod(id, dependencies: [target]),
+            "loadAfter" => Mod(id, loadAfter: [target]),
+            "loadBefore" => Mod(id, loadBefore: [target]),
+            "forceLoadAfter" => Mod(id, forceLoadAfter: [target]),
+            "forceLoadBefore" => Mod(id, forceLoadBefore: [target]),
+            _ => throw new ArgumentOutOfRangeException(nameof(rule)),
+        };
+        ModInfo[] mods = [WithRule("a.mod", "b.mod"), WithRule("b.mod", "a.mod")];
+
+        var error = Assert.Throws<InvalidOperationException>(() => LoadOrderResolver.Resolve(mods, mods));
+
+        Assert.Contains("a.mod -> b.mod -> a.mod", error.Message);
+    }
+
+    /// <summary>混合硬相依與軟排序形成的間接循環也必須回報。</summary>
+    [Fact]
+    public void MixedIndirectCycleBeforeCoreIsRejected()
+    {
+        ModInfo[] mods =
+        [
+            Mod("a.mod", dependencies: ["b.mod"], loadBefore: ["ludeon.rimworld"]),
+            Mod("b.mod", loadAfter: ["c.mod"]),
+            Mod("c.mod", forceLoadAfter: ["a.mod"]),
+        ];
+
+        var error = Assert.Throws<InvalidOperationException>(() => LoadOrderResolver.Resolve(mods, mods));
+
+        Assert.Contains("a.mod -> b.mod -> c.mod -> a.mod", error.Message);
+    }
+
+    [Fact]
+    public void SelfDependencyIsRejected()
+    {
+        var mod = Mod("a.mod", dependencies: ["a.mod"]);
+
+        var error = Assert.Throws<InvalidOperationException>(() => LoadOrderResolver.Resolve([mod], [mod]));
+
+        Assert.Contains("a.mod -> a.mod", error.Message);
+    }
+
+    /// <summary>多條路徑共用前驅不構成循環，且仍須維持全部排序關係。</summary>
+    [Fact]
+    public void SharedPredecessorIsNotACycle()
+    {
+        ModInfo[] mods =
+        [
+            Mod("a.mod", dependencies: ["b.mod", "c.mod"]),
+            Mod("b.mod", dependencies: ["d.mod"]),
+            Mod("c.mod", loadAfter: ["d.mod"]),
+            Mod("d.mod"),
+        ];
+
+        var order = LoadOrderResolver.Resolve(mods, mods);
+
+        Assert.Equal(["ludeon.rimworld", "d.mod", "b.mod", "c.mod", "a.mod"], order.Active);
     }
 }
