@@ -5,6 +5,8 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # CI 用 GITHUB_TOKEN 推的標籤不會觸發其他工作流程，改由 CI 以 --ref <標籤> 手動派送。
+  workflow_dispatch:
 
 jobs:
   publish:

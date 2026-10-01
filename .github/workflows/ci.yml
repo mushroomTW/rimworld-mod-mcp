@@ -71,3 +71,28 @@ jobs:
       # 這裡要驗的是工具能啟動、相依能解析。
       - run: rimworld-mod-mcp detect || true
         shell: bash
+
+  # main 上的測試全數通過後，若 csproj 的版本號還沒有對應標籤就建立標籤並派送 Release。
+  # 版本號沒變就什麼都不做，所以一般的 push 不會重複發版。
+  tag:
+    needs: [platform-contracts, test, pack]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/RimWorldModMcp.Server/RimWorldModMcp.Server.csproj | head -n1)
+          [ -n "$version" ] || { echo "找不到 <Version>"; exit 1; }
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag 已存在，略過"
+            exit 0
+          fi
+          git tag "$tag"
+          git push origin "$tag"
+          gh workflow run release.yml --ref "$tag"
+        env:
+          GH_TOKEN: ${{ github.token }}
