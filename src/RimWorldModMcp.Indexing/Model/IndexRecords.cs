@@ -58,6 +58,15 @@ public enum SymbolKind
     Event,
 }
 
+/// <summary><see cref="SymbolKind"/> 的分類，與列舉放在一起，新增種類時才不會漏改呼叫端。</summary>
+public static class SymbolKinds
+{
+    /// <summary>是否為型別而非成員。<paramref name="kind"/> 是索引裡存的 <see cref="SymbolKind"/> 名稱。</summary>
+    public static bool IsType(string kind)
+        => Enum.TryParse<SymbolKind>(kind, out var parsed)
+            && parsed is SymbolKind.Class or SymbolKind.Struct or SymbolKind.Interface or SymbolKind.Enum or SymbolKind.Delegate;
+}
+
 /// <summary>
 /// 從 IL metadata 讀出的一個符號。
 ///

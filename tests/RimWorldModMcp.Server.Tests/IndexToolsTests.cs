@@ -57,7 +57,18 @@ public sealed class IndexToolsTests : IAsyncLifetime
                 "base apparel",
                 "Base apparel description.",
                 "Core/Defs/ApparelBase.xml",
-                "<ThingDef Name=\"ApparelBase\" Abstract=\"True\"></ThingDef>")
+                "<ThingDef Name=\"ApparelBase\" Abstract=\"True\"></ThingDef>"),
+            new DefRecord(
+                "Core",
+                "ThingDef",
+                "Plasteel",
+                null,
+                null,
+                false,
+                "plasteel",
+                new string('p', 300),
+                "Core/Defs/Plasteel.xml",
+                "<ThingDef><defName>Plasteel</defName></ThingDef>")
         ]);
         DefRepository.RebuildFts(connection);
 
@@ -110,6 +121,15 @@ public sealed class IndexToolsTests : IAsyncLifetime
         SourceFileRepository.Insert(connection, "Assembly-CSharp", "Verse/ThingDef.cs",
             "using System;\nnamespace Verse;\npublic class ThingDef : Def\n{\n    public string defName;\n    public void ResolveReferences() {}\n}\n");
 
+        // 多版本 Mod 以外，命中橫跨多個組件的情境：驗證各檔案群組自帶 assembly。
+        SourceFileRepository.Insert(connection, "Assembly-CSharp", "Verse/Shared.cs", "class A { int sharedToken; }\n");
+        SourceFileRepository.Insert(connection, "Assembly-CSharp-firstpass", "Verse/Shared.cs", "class B { int sharedToken; }\n");
+
+        DefReferenceRepository.Insert(connection,
+        [
+            new DefReference("Gun_AssaultRifle", "Core/Defs/Guns.xml", 7, DefReferenceSource.DefXml, "ThingDef/comps", DefReferenceConfidence.Heuristic),
+        ]);
+
         using (var candidates = new DefReferenceCandidateWriter(connection))
         {
             candidates.Write(new DefReferenceCandidate("Apparel_ShieldBelt", "Core/Defs/Recipe.xml", 45, "xml"));
@@ -151,6 +171,24 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.True(readResult.TryGetProperty("count", out var readCount) && readCount.GetInt32() > 0);
     }
 
+    /// <summary>
+    /// 預設 encoder 會把 XML 的 &lt; &gt; " 跳脫成 \uXXXX 形式，回傳膨脹三到四成。
+    /// 檢查的是 client 實際拿到的 text，不是 structuredContent。
+    /// </summary>
+    [Fact]
+    public async Task ReadDefTextDoesNotUnicodeEscapeXml()
+    {
+        var result = await _server.Client.CallToolAsync("read_def", new Dictionary<string, object?>
+        {
+            ["def_name"] = "Apparel_ShieldBelt",
+        });
+
+        var text = Assert.Single(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>()).Text;
+
+        Assert.Contains("<defName>Apparel_ShieldBelt</defName>", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u003C", text, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task ReadSymbolAndSuggestions()
     {
@@ -170,24 +208,6 @@ public sealed class IndexToolsTests : IAsyncLifetime
 
         Assert.True(missResult.TryGetProperty("count", out var missCount) && missCount.GetInt32() == 0);
         Assert.True(missResult.TryGetProperty("suggestions", out _));
-    }
-
-    /// <summary>
-    /// 預設 encoder 會把 XML 的 &lt; &gt; " 跳脫成 \uXXXX 形式，回傳膨脹三到四成。
-    /// 檢查的是 client 實際拿到的 text，不是 structuredContent。
-    /// </summary>
-    [Fact]
-    public async Task ReadDefTextDoesNotUnicodeEscapeXml()
-    {
-        var result = await _server.Client.CallToolAsync("read_def", new Dictionary<string, object?>
-        {
-            ["def_name"] = "Apparel_ShieldBelt",
-        });
-
-        var text = Assert.Single(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>()).Text;
-
-        Assert.Contains("<defName>Apparel_ShieldBelt</defName>", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("\\u003C", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -216,6 +236,109 @@ public sealed class IndexToolsTests : IAsyncLifetime
         });
 
         Assert.True(descendants.TryGetProperty("count", out var dCount) && dCount.GetInt32() >= 1);
+    }
+
+    /// <summary>
+    /// 型別的 signature 已含 kind 與完整名稱，name／kind 再列一次只是重複付 token；
+    /// 成員的 kind 從 signature 的形狀（括號、get/set、event）就看得出來。
+    /// </summary>
+    [Fact]
+    public async Task SymbolBriefsCarryNoFieldsRedundantWithSignature()
+    {
+        var descendants = await _server.CallAsync("find_descendants", new Dictionary<string, object?>
+        {
+            ["base_type"] = "Verse.ThingDef",
+        });
+
+        var type = Assert.Single(descendants.GetProperty("results").EnumerateArray());
+        Assert.Equal("public class ShieldBelt : ThingDef", type.GetProperty("signature").GetString());
+        Assert.False(type.TryGetProperty("name", out _));
+        Assert.False(type.TryGetProperty("kind", out _));
+
+        var members = await _server.CallAsync("list_symbols", new Dictionary<string, object?>
+        {
+            ["parent"] = "Verse.ThingDef",
+        });
+
+        var member = Assert.Single(members.GetProperty("results").EnumerateArray());
+        Assert.Equal("ResolveReferences()", member.GetProperty("name").GetString());
+        Assert.False(member.TryGetProperty("kind", out _));
+    }
+
+    /// <summary>組件全部相同時提到結果層，命中依檔案分組：每列重複 assembly 與 file 是最大宗的浪費。</summary>
+    [Fact]
+    public async Task SearchSourceGroupsHitsByFile()
+    {
+        var result = await _server.CallAsync("search_source", new Dictionary<string, object?>
+        {
+            ["pattern"] = "defName|ResolveReferences",
+        });
+
+        Assert.Equal(2, result.GetProperty("count").GetInt32());
+        Assert.Equal("Assembly-CSharp", result.GetProperty("assembly").GetString());
+
+        var file = Assert.Single(result.GetProperty("results").EnumerateArray());
+        Assert.Equal("Verse/ThingDef.cs", file.GetProperty("file").GetString());
+        Assert.False(file.TryGetProperty("assembly", out _));
+        Assert.Equal([5, 6], file.GetProperty("hits").EnumerateArray().Select(h => h.GetProperty("line").GetInt32()));
+    }
+
+    /// <summary>依檔案分組；confidence 只在不是 exact 時出現。</summary>
+    [Fact]
+    public async Task FindDefUsagesGroupsHitsByFile()
+    {
+        var result = await _server.CallAsync("find_def_usages", new Dictionary<string, object?>
+        {
+            ["def_name"] = "Apparel_ShieldBelt",
+        });
+
+        var file = Assert.Single(result.GetProperty("results").EnumerateArray());
+        Assert.Equal("Core/Defs/Recipe.xml", file.GetProperty("file_path").GetString());
+        Assert.Equal("def_xml", file.GetProperty("source_kind").GetString());
+
+        var hit = Assert.Single(file.GetProperty("hits").EnumerateArray());
+        Assert.Equal(45, hit.GetProperty("line").GetInt32());
+        Assert.False(hit.TryGetProperty("confidence", out _));
+    }
+
+    /// <summary>命中橫跨多個組件時結果層 assembly 為 null，各檔案群組必須自帶，否則無法接 read_source_file。</summary>
+    [Fact]
+    public async Task SearchSourceGroupsCarryAssemblyWhenHitsSpanAssemblies()
+    {
+        var result = await _server.CallAsync("search_source", new Dictionary<string, object?>
+        {
+            ["pattern"] = "sharedToken",
+        });
+
+        Assert.True(!result.TryGetProperty("assembly", out var shared) || shared.ValueKind == JsonValueKind.Null);
+        Assert.Equal(
+            ["Assembly-CSharp", "Assembly-CSharp-firstpass"],
+            result.GetProperty("results").EnumerateArray().Select(f => f.GetProperty("assembly").GetString()).Order());
+    }
+
+    [Fact]
+    public async Task FindDefUsagesKeepsHeuristicConfidence()
+    {
+        var result = await _server.CallAsync("find_def_usages", new Dictionary<string, object?>
+        {
+            ["def_name"] = "Gun_AssaultRifle",
+        });
+
+        var file = Assert.Single(result.GetProperty("results").EnumerateArray());
+        var hit = Assert.Single(file.GetProperty("hits").EnumerateArray());
+        Assert.Equal("heuristic", hit.GetProperty("confidence").GetString());
+    }
+
+    [Fact]
+    public async Task SearchDefsTruncatesDescriptionTo80Chars()
+    {
+        var result = await _server.CallAsync("search_defs", new Dictionary<string, object?>
+        {
+            ["query"] = "Plasteel",
+        });
+
+        var def = Assert.Single(result.GetProperty("results").EnumerateArray());
+        Assert.Equal(new string('p', 80) + "…", def.GetProperty("description").GetString());
     }
 
     [Fact]

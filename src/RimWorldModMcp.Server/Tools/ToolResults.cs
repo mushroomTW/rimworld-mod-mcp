@@ -196,15 +196,17 @@ public sealed record ReadSymbolResult
     public int? PartialCount { get; init; }
 }
 
-/// <summary>A symbol as listed by browse tools: enough to pick one and read it, nothing more.</summary>
+/// <summary>
+/// A symbol as listed by browse tools: enough to pick one and read it, nothing more.
+/// Kind is not listed separately: a type's signature starts with it (class, struct, interface, enum, delegate),
+/// and a member's shape shows it (parentheses for methods and constructors, { get; } for properties, event for events).
+/// </summary>
 public sealed record SymbolBrief
 {
-    /// <summary>Name relative to the listed parent (list_symbols) or the full name (find_descendants).</summary>
+    /// <summary>Members only: name relative to the listed parent. Omitted for types, whose signature carries the full name.</summary>
     [JsonPropertyName("name")]
-    public required string Name { get; init; }
-
-    [JsonPropertyName("kind")]
-    public required string Kind { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Name { get; init; }
 
     /// <summary>Only present when the result's rows span several assemblies; otherwise see the result-level assembly.</summary>
     [JsonPropertyName("assembly")]
@@ -333,9 +335,15 @@ public sealed record ReadSourceFileResult
 /// <summary>Source search result.</summary>
 public sealed record SearchSourceResult
 {
-    [JsonPropertyName("results")]
-    public required IReadOnlyList<SourceMatch> Results { get; init; }
+    /// <summary>The assembly shared by every hit; null when hits span several assemblies (each file group then carries its own).</summary>
+    [JsonPropertyName("assembly")]
+    public string? Assembly { get; init; }
 
+    /// <summary>Hits grouped by file, in search order.</summary>
+    [JsonPropertyName("results")]
+    public required IReadOnlyList<SourceFileMatches> Results { get; init; }
+
+    /// <summary>Total matching lines across all files.</summary>
     [JsonPropertyName("count")]
     public required int Count { get; init; }
 
@@ -369,15 +377,24 @@ public sealed record SearchSourceResult
     public string? IncompleteReason { get; init; }
 }
 
-/// <summary>One matching line in source.</summary>
-public sealed record SourceMatch
+/// <summary>Matching lines in one source file.</summary>
+public sealed record SourceFileMatches
 {
+    /// <summary>Only present when the result-level assembly is null (hits span several assemblies).</summary>
     [JsonPropertyName("assembly")]
-    public required string Assembly { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Assembly { get; init; }
 
     [JsonPropertyName("file")]
     public required string File { get; init; }
 
+    [JsonPropertyName("hits")]
+    public required IReadOnlyList<SourceLine> Hits { get; init; }
+}
+
+/// <summary>One matching line in source.</summary>
+public sealed record SourceLine
+{
     [JsonPropertyName("line")]
     public required int Line { get; init; }
 
@@ -391,31 +408,41 @@ public sealed record FindDefUsagesResult
     [JsonPropertyName("def_name")]
     public required string DefName { get; init; }
 
+    /// <summary>References grouped by file.</summary>
     [JsonPropertyName("results")]
-    public required IReadOnlyList<DefUsageSummary> Results { get; init; }
+    public required IReadOnlyList<DefUsageFile> Results { get; init; }
 
+    /// <summary>Total references across all files.</summary>
     [JsonPropertyName("count")]
     public required int Count { get; init; }
 }
 
-/// <summary>One place a Def is referenced.</summary>
-public sealed record DefUsageSummary
+/// <summary>References to a Def within one file.</summary>
+public sealed record DefUsageFile
 {
     [JsonPropertyName("file_path")]
     public required string FilePath { get; init; }
-
-    [JsonPropertyName("line")]
-    public required int Line { get; init; }
 
     /// <summary>def_xml or game_source.</summary>
     [JsonPropertyName("source_kind")]
     public required string SourceKind { get; init; }
 
+    [JsonPropertyName("hits")]
+    public required IReadOnlyList<DefUsageHit> Hits { get; init; }
+}
+
+/// <summary>One place a Def is referenced.</summary>
+public sealed record DefUsageHit
+{
+    [JsonPropertyName("line")]
+    public required int Line { get; init; }
+
     /// <summary>Context where the reference appears, e.g. ThingDef/costList/Steel or RimWorld.ThingDefOf.Steel.</summary>
     [JsonPropertyName("context")]
     public string? Context { get; init; }
 
-    /// <summary>exact (structured source) or heuristic (string-match guess).</summary>
+    /// <summary>Only present as heuristic (string-match guess); absent means exact (structured source).</summary>
     [JsonPropertyName("confidence")]
-    public required string Confidence { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Confidence { get; init; }
 }

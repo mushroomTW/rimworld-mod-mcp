@@ -399,10 +399,12 @@ public sealed class IndexTools(
         {
             var mod = catalog.Find(package_id!);
             var result = inspection.TrySearchSource(mod.PackageId, mod.Path, pattern, limit, assembly);
+            var (modAssembly, modFiles) = GroupByFile(result.Hits);
 
             return new SearchSourceResult
             {
-                Results = [.. result.Hits.Select(ToMatch)],
+                Assembly = modAssembly,
+                Results = modFiles,
                 Count = result.Hits.Count,
                 LimitReached = result.Hits.Count >= effectiveLimit,
                 SourceIndexed = result.SourceIndexed,
@@ -416,10 +418,12 @@ public sealed class IndexTools(
         using var connection = database.Open();
         var search = SourceQueryService.Search(connection, pattern, file_pattern, limit);
         var progress = sourceIndexer.Progress;
+        var (sharedAssembly, files) = GroupByFile(search.Hits);
 
         return new SearchSourceResult
         {
-            Results = [.. search.Hits.Select(ToMatch)],
+            Assembly = sharedAssembly,
+            Results = files,
             Count = search.Hits.Count,
             LimitReached = search.Hits.Count >= effectiveLimit,
             SourceIndexed = IndexMetaRepository.Get(connection, "source_indexed") == "true",
@@ -430,13 +434,21 @@ public sealed class IndexTools(
         };
     });
 
-    private static SourceMatch ToMatch(SourceHit h) => new()
+    /// <summary>
+    /// 命中依檔案分組，組件全部相同時提到結果層（同 <see cref="ToBriefs"/>）。
+    /// 50 筆命中逐列重複 "Assembly-CSharp" 與檔案路徑，佔了回傳的三到四成。
+    /// </summary>
+    private static (string? Shared, IReadOnlyList<SourceFileMatches> Files) GroupByFile(IReadOnlyList<SourceHit> hits)
     {
-        Assembly = h.Assembly,
-        File = h.File,
-        Line = h.Line,
-        Text = h.Text,
-    };
+        var shared = hits.Count > 0 && hits.All(h => h.Assembly == hits[0].Assembly) ? hits[0].Assembly : null;
+
+        return (shared, [.. hits.GroupBy(h => (h.Assembly, h.File)).Select(g => new SourceFileMatches
+        {
+            Assembly = shared is null ? g.Key.Assembly : null,
+            File = g.Key.File,
+            Hits = [.. g.Select(h => new SourceLine { Line = h.Line, Text = h.Text })],
+        })]);
+    }
 
     [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Find where a Def is referenced: cross-references in Def XML and DefOf static fields in C#.")]
@@ -456,20 +468,27 @@ public sealed class IndexTools(
         return new FindDefUsagesResult
         {
             DefName = def_name,
-            Results = [.. usages.Select(u => new DefUsageSummary
+            // 一個 Def 常在同一檔案被引用十幾次；逐列重複檔案路徑與幾乎恆為 exact 的 confidence 佔了一半篇幅。
+            Results = [.. usages.GroupBy(u => (u.FilePath, u.SourceKind)).Select(g => new DefUsageFile
             {
-                FilePath = u.FilePath,
-                Line = u.Line,
-                SourceKind = u.SourceKind,
-                Context = u.Context,
-                Confidence = u.Confidence,
+                FilePath = g.Key.FilePath,
+                SourceKind = g.Key.SourceKind,
+                Hits = [.. g.Select(u => new DefUsageHit
+                {
+                    Line = u.Line,
+                    Context = u.Context,
+                    Confidence = u.Confidence == "exact" ? null : u.Confidence,
+                })],
             })],
             Count = usages.Count,
         };
     });
 
-    /// <summary>search_defs 的描述字元上限。ThingDef 的描述動輒兩三百字，25 筆清單裡大半 token 都花在這。</summary>
-    private const int SearchDescriptionChars = 200;
+    /// <summary>
+    /// search_defs 的描述字元上限。ThingDef 的描述動輒兩三百字，25 筆清單裡大半 token 都花在這；
+    /// 80 字足以辨認是哪個 Def，要細節就 read_def。
+    /// </summary>
+    private const int SearchDescriptionChars = 80;
 
     private static string? FormatDescription(string description, int maxChars)
     {
@@ -516,6 +535,7 @@ public sealed class IndexTools(
     /// <summary>
     /// 瀏覽列表的組件欄位：所有列同一組件就提到結果層、列上省略；
     /// 混雜時（多版本 Mod）結果層為 null、各列自帶。100 列重複同一個 "Assembly-CSharp" 純屬浪費。
+    /// 型別的 signature 已含 kind 與完整名稱，只留 signature；成員保留 name，kind 一律不列。
     /// </summary>
     private static (string? Shared, IReadOnlyList<SymbolBrief> Rows) ToBriefs(List<SymbolHit> hits, Func<SymbolHit, string> name)
     {
@@ -523,8 +543,7 @@ public sealed class IndexTools(
 
         return (shared, [.. hits.Select(h => new SymbolBrief
         {
-            Name = name(h),
-            Kind = h.Kind,
+            Name = RimWorldModMcp.Indexing.Model.SymbolKinds.IsType(h.Kind) ? null : name(h),
             Assembly = shared is null ? h.Assembly : null,
             Signature = h.Signature,
         })]);
