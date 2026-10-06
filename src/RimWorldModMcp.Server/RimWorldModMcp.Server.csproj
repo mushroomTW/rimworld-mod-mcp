@@ -12,7 +12,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>rimworld-mod-mcp</ToolCommandName>
     <PackageId>RimWorldModMcp</PackageId>
-    <Version>0.1.7</Version>
+    <Version>0.2.0</Version>
     <Authors>mushroomTW</Authors>
     <Description>本機執行的 RimWorld Mod 開發 MCP server：索引遊戲的 Def 與 C# API、建置 Mod、在隔離環境測試。</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
