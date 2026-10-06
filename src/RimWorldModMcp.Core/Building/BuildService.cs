@@ -150,15 +150,16 @@ public sealed partial class BuildService(RimWorldLocator locator)
             warnings.Add("RimWorld Managed directory not detected; game assembly references may not resolve.");
         }
 
-        // 失敗但一筆診斷都沒解析到（MSBuild 崩潰、SDK 版本問題等非標準輸出）時，
+        // 失敗但一筆錯誤都沒解析到（MSBuild 崩潰、SDK 版本問題等非標準輸出）時，
         // 附上截斷過的輸出尾段——否則呼叫端拿到的是零資訊的 success:false。
+        // 只看錯誤而不是全部診斷：解析到警告、錯誤卻是非標準格式時，同樣只剩 success:false。
         string? message = null;
 
-        if (!success && diagnostics.Count == 0)
+        if (!success && !diagnostics.Exists(d => d.Severity == "error"))
         {
             var combined = (stdout + Environment.NewLine + stderr).Trim();
             var tail = combined.Length > 4000 ? combined[^4000..] : combined;
-            message = "Build failed with no parsable structured diagnostics; tail of raw output: " + Utf8Text.Truncate(tail, 4000, out _);
+            message = "Build failed with no parsable error diagnostics; tail of raw output: " + Utf8Text.Truncate(tail, 4000, out _);
         }
 
         return new BuildResult
@@ -353,7 +354,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
     }
 
     /// <summary>從 MSBuild 輸出解析出結構化診斷。</summary>
-    private static List<BuildDiagnostic> ParseDiagnostics(string output)
+    internal static List<BuildDiagnostic> ParseDiagnostics(string output)
     {
         var diagnostics = new List<BuildDiagnostic>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -385,9 +386,14 @@ public sealed partial class BuildService(RimWorldLocator locator)
         return diagnostics;
     }
 
-    // MSBuild 的標準診斷格式：file(line,col): severity CODE: message [project]
+    // MSBuild 的標準診斷格式：origin(line,col): severity CODE: message [project]
+    // origin 可以沒有行號：專案層級（x.csproj : error NETSDK1045）與工具層級（CSC : error CS2012）的錯誤都是這樣，
+    // 此時 file 是專案路徑或工具名稱。
+    // file 必須允許「(」：Steam 預設路徑 C:\Program Files (x86)\... 帶括號。惰性比對會一路延伸到
+    // 真正接著 (line,col): 或 : severity 的位置，(x86) 不是數字行號，不會被誤當成行號。
+    // 結尾的 \r? 不可省：Windows 輸出是 CRLF，而 Multiline 的 $ 只認 \n 之前的位置。
     [GeneratedRegex(
-        @"^(?:(?<file>[^(\r\n]+?)\((?<line>\d+)(?:,(?<column>\d+))?\)\s*:\s*)?(?<severity>error|warning)\s+(?<code>[A-Za-z]+\d+)\s*:\s*(?<message>[^\r\n]*?)(?:\s*\[[^\]\r\n]*\])?$",
+        @"^(?:(?<file>[^\r\n]+?)(?:\((?<line>\d+)(?:,(?<column>\d+))?\))?\s*:\s*)?(?<severity>error|warning)\s+(?<code>[A-Za-z]+\d+)\s*:\s*(?<message>[^\r\n]*?)(?:\s*\[[^\]\r\n]*\])?\r?$",
         RegexOptions.Multiline)]
     private static partial Regex DiagnosticRegex();
 }

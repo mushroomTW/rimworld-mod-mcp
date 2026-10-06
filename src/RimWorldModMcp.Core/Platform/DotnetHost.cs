@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace RimWorldModMcp.Core.Platform;
 
@@ -72,7 +73,13 @@ public static class DotnetHost
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // dotnet build 一律輸出 UTF-8；不指定的話會用主控台字碼頁解碼（如 cp950），中文全變亂碼。
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
+
+        // 診斷訊息是給 agent 讀的，固定用英文，不隨系統語系變動。
+        startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
 
         if (workingDirectory is not null)
         {
