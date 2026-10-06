@@ -284,7 +284,7 @@ public sealed class IndexTools(
         });
 
     [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Read a whole decompiled source file (game or installed mod) by the assembly and file values returned from search_source or list_symbols. Page with start_line = previous end_line + 1.")]
+    [Description("Read a decompiled source file (game or installed mod) one page at a time, by the assembly and file values returned from search_source or list_symbols. A page is max_bytes (16 KB by default, about 400 lines); truncated=true means more follows, so page with start_line = previous end_line + 1.")]
     public ReadSourceFileResult ReadSourceFile(
         [Description("Assembly key exactly as returned by a search, e.g. Assembly-CSharp or mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll.")]
         string assembly,
@@ -293,7 +293,7 @@ public sealed class IndexTools(
         [Description("First line to return, 1-based.")]
         int start_line = 1,
         [Description("Byte limit for the excerpt, 1024-262144.")]
-        int max_bytes = 65536) => ToolGuard.Run(() =>
+        int max_bytes = 16384) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
         var text = SourceFileRepository.Read(connection, assembly, file)

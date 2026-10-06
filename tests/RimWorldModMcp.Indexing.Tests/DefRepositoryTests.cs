@@ -93,6 +93,19 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Null(hits[0].XmlTruncated);
     }
 
+    /// <summary>原檔多為 CRLF；回傳時統一成 \n，\r 每行都要多付一個跳脫字元的 token。</summary>
+    [Fact]
+    public void ReadNormalizesCrLfInXml()
+    {
+        DefRepository.Insert(_connection, [
+            new DefRecord("Core", "ThingDef", "Plasteel", null, null, false, "plasteel", string.Empty, "Core/Defs/Things.xml", "<ThingDef>\r\n  <defName>Plasteel</defName>\r\n</ThingDef>"),
+        ]);
+
+        var hit = Assert.Single(DefRepository.Read(_connection, "Plasteel", null, 65536));
+
+        Assert.Equal("<ThingDef>\n  <defName>Plasteel</defName>\n</ThingDef>", hit.Xml);
+    }
+
     [Fact]
     public void SearchTruncatesXmlWhenRequested()
     {

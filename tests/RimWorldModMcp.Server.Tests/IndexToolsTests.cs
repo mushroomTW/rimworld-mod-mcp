@@ -172,6 +172,24 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.True(missResult.TryGetProperty("suggestions", out _));
     }
 
+    /// <summary>
+    /// 預設 encoder 會把 XML 的 &lt; &gt; " 跳脫成 \uXXXX 形式，回傳膨脹三到四成。
+    /// 檢查的是 client 實際拿到的 text，不是 structuredContent。
+    /// </summary>
+    [Fact]
+    public async Task ReadDefTextDoesNotUnicodeEscapeXml()
+    {
+        var result = await _server.Client.CallToolAsync("read_def", new Dictionary<string, object?>
+        {
+            ["def_name"] = "Apparel_ShieldBelt",
+        });
+
+        var text = Assert.Single(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>()).Text;
+
+        Assert.Contains("<defName>Apparel_ShieldBelt</defName>", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u003C", text, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task ListSymbolsAndFindDescendants()
     {

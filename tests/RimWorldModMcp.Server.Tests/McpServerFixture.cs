@@ -122,7 +122,7 @@ public sealed class McpServerFixture : IAsyncDisposable
         builder.Services
             .AddMcpServer()
             .WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream())
-            .WithToolsFromAssembly(typeof(TestCycleTools).Assembly)
+            .WithToolsFromAssembly(typeof(TestCycleTools).Assembly, ToolJson.Options)
             .WithRequestFilters(filters => filters.AddCallToolFilter(UnknownArgumentFilter.Reject));
 
         var fixture = new McpServerFixture(root, builder.Build(), store, logs);

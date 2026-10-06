@@ -46,6 +46,20 @@ public sealed class MemberDecompilerTests : IDisposable
         }
     }
 
+    /// <summary>反編譯器在 Windows 產出 CRLF；read_symbol 的 body 一律只回 \n。</summary>
+    [Fact]
+    public void DecompileMemberReturnsLfLineEndings()
+    {
+        var lib = SyntheticAssembly.Emit(LibSource, "Lib", _root);
+        var type = new RimWorldModMcp.Indexing.Metadata.AssemblySymbolReader().Read(lib).Single(s => s.Fqn == "Lib.Base");
+
+        var source = _decompiler.DecompileMember(lib, type.MetadataToken);
+
+        Assert.NotNull(source);
+        Assert.Contains("\n", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", source, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void DecompileAll_DoesNotKeepReferencedAssemblyLocked()
     {

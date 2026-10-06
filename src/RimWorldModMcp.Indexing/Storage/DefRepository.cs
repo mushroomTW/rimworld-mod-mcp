@@ -223,7 +223,9 @@ public static class DefRepository
 
             if (includeXml)
             {
-                xml = Utf8Text.Truncate(reader.GetString(10), xmlBytes, out var wasTruncated);
+                // 原檔多為 CRLF；\r 對讀者沒有資訊量，回傳時每行還要多付一個跳脫字元。
+                // 只換 CRLF：ReplaceLineEndings 連 U+2028、U+0085 等字元也會換掉，等於竄改內容。
+                xml = Utf8Text.Truncate(reader.GetString(10).Replace("\r\n", "\n", StringComparison.Ordinal), xmlBytes, out var wasTruncated);
                 truncated = wasTruncated;
             }
 

@@ -70,7 +70,7 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
         {
             try
             {
-                return handle.Kind switch
+                var source = handle.Kind switch
                 {
                     HandleKind.TypeDefinition
                         or HandleKind.MethodDefinition
@@ -79,6 +79,9 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
                         or HandleKind.EventDefinition => entry.Decompiler.DecompileAsString(handle),
                     _ => null,
                 };
+
+                // 反編譯器在 Windows 產出 CRLF；只回 \n，與 read_source_file 一致，也省下每行一個跳脫字元。
+                return source?.Replace("\r\n", "\n", StringComparison.Ordinal);
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {
