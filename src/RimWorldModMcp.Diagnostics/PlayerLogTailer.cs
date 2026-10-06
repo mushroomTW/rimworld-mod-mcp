@@ -462,6 +462,13 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             return null;
         }
 
+        // 效能標記是 Mod 作者明確的選擇，優先於關鍵字：效能行常含 error 以外的字樣，
+        // 但萬一含了也不該被當成錯誤。
+        if (PerformanceMarkers.Matches(text))
+        {
+            return ("performance", text, text);
+        }
+
         // Player.log 沒有層級標記，只能靠關鍵字；已知會被關鍵字誤判的 RimWorld 訊息先按真實層級處理。
         if (KnownWarnings.Any(marker => text.Contains(marker, StringComparison.Ordinal)))
         {

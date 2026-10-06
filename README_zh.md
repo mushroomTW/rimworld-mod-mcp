@@ -228,6 +228,7 @@ RimWorld 的 AI 輔助 modding 工具有好幾個，各自占據不同的位置�
 | `RIMWORLD_MOD_MCP_GAME_PATH` | 覆寫 RimWorld 安裝路徑的偵測結果。 |
 | `RIMWORLD_MOD_MCP_PLAYER_LOG` | 覆寫 `Player.log` 的位置。 |
 | `RIMWORLD_MOD_MCP_BRIDGE_PORT` | 診斷 daemon 的 loopback 埠，預設 49460。 |
+| `RIMWORLD_MOD_MCP_PERF_MARKERS` | 額外的效能標記，以 `\|` 分隔。內容含 `[perf]` 或任一額外標記的 `Log.Message` 會被收成 `performance` 診斷（用 `list_test_diagnostics(type=performance)` 查詢）。 |
 | `RIMWORLD_MANAGED_DIR` | 建置時傳給 MSBuild 用於解析遊戲組件，由本工具自動注入。 |
 
 ## 開發

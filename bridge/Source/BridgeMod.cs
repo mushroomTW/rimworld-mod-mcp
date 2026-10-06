@@ -64,6 +64,62 @@ namespace RimWorldModMcp.Bridge
     }
 
     /// <summary>
+    /// 只轉送帶效能標記的 Log.Message，其餘一律不處理：Log.Message 呼叫頻率高，
+    /// 且一般訊息不是診斷。預設標記與 server 端 PerformanceMarkers 一致，
+    /// 環境變數名稱與 EnvironmentVariables.PerfMarkers 一致——改任一邊都要同步另一邊。
+    /// </summary>
+    [HarmonyPatch]
+    internal static class VerseLogMessagePatch
+    {
+        private static readonly string[] markers = LoadMarkers();
+
+        private static string[] LoadMarkers()
+        {
+            var list = new List<string> { "[perf]" };
+            var extra = Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_PERF_MARKERS");
+            if (!string.IsNullOrWhiteSpace(extra))
+            {
+                list.AddRange(extra.Split('|').Select(marker => marker.Trim()).Where(marker => marker.Length > 0));
+            }
+
+            return list.ToArray();
+        }
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S1144:Unused private types or members should be removed", Justification = "Invoked by Harmony via reflection")]
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            return typeof(Log).GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(method => method.Name == "Message");
+        }
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S1144:Unused private types or members should be removed", Justification = "Invoked by Harmony via reflection")]
+        private static void Postfix(object[] __args)
+        {
+            try
+            {
+                if (__args == null || __args.Length == 0) return;
+
+                var text = __args[0] == null ? string.Empty : __args[0].ToString();
+                var matched = false;
+                for (var i = 0; i < markers.Length; i++)
+                {
+                    if (text.IndexOf(markers[i], StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if (!matched) return;
+
+                var firstLine = text.Split('\n')[0].TrimEnd('\r');
+                Diagnostics.Send("performance", firstLine, text);
+            }
+            catch { /* 診斷絕不能影響遊戲。 */ }
+        }
+    }
+
+    /// <summary>
     /// 每一幀在主執行緒上執行；狀態取樣必須在主執行緒，Current.Game 與 WindowStack
     /// 都不是執行緒安全的。Root_Entry 與 Root_Play 的 Update 都會呼叫 base.Update，
     /// 所以主選單與遊戲中都會回報。

@@ -238,6 +238,31 @@ public sealed class PlayerLogTailerTests : IDisposable
         Assert.Equal(expected, entry.Type);
     }
 
+    /// <summary>帶效能標記的 Log.Message 要被收成 performance，且標記優先於 error 關鍵字；沒標記的一般訊息仍被忽略。</summary>
+    [Fact]
+    public void PerformanceMarkedLinesAreClassifiedAsPerformance()
+    {
+        var batch = PlayerLogTailer.ClassifyBatch([
+            "[perf] Round 1 timing: mainThreadReadAllBytes=41ms",
+            "[PERF] startup with 0 errors",
+            "Round 2 timing: plain message without marker",
+        ]);
+
+        Assert.Equal(2, batch.Count);
+        Assert.All(batch, entry => Assert.Equal("performance", entry.Type));
+    }
+
+    /// <summary>環境變數追加的標記以 | 分隔，空白與空項目會被忽略；預設標記永遠存在。</summary>
+    [Fact]
+    public void ExtraPerformanceMarkersAreAppendedToTheDefault()
+    {
+        var markers = PerformanceMarkers.Load(" [FGL InGameTests] | |timing]");
+
+        Assert.Equal(["[perf]", "[FGL InGameTests]", "timing]"], markers);
+        Assert.True(PerformanceMarkers.Matches("[FGL InGameTests] Round 1 timing", markers));
+        Assert.False(PerformanceMarkers.Matches("[FGL InGameTests] Round 1 timing", PerformanceMarkers.Load(null)));
+    }
+
     /// <summary>兩個例外各自成筆，堆疊不會跨過空行或中斷行混在一起。</summary>
     [Fact]
     public void TwoSeparateExceptionsStaySeparate()

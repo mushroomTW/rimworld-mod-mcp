@@ -36,6 +36,9 @@ public static class EnvironmentVariables
 
     public static string? BridgePort => Read("BRIDGE_PORT");
 
+    /// <summary>額外的效能標記（以 | 分隔）。Bridge 端直接讀同名環境變數，改名要兩邊同步。</summary>
+    public static string? PerfMarkers => Read("PERF_MARKERS");
+
     /// <summary>設定注入子行程時要用的變數名。</summary>
     public static string Name(string suffix) => Prefix + suffix;
 

@@ -353,16 +353,17 @@ public sealed class DiagnosticStore(StoreDirectories store)
     /// 超出容量時淘汰「最久沒有更新」的紀錄。不能按 list 位置淘汰——
     /// 既有紀錄更新時留在原位，按位置砍會把出現最頻繁的錯誤最先丟掉。
     /// 以複合鍵 (At, Sequence) 比大小：同毫秒的多筆按序號分先後。
+    /// performance 紀錄先於其他類型淘汰，避免大量效能行把較舊的錯誤擠掉。
     /// </summary>
     private static void Evict(List<DiagnosticRecord> records)
     {
         while (records.Count > Capacity)
         {
-            var oldestIndex = 0;
+            var oldestIndex = -1;
 
-            for (var i = 1; i < records.Count; i++)
+            for (var i = 0; i < records.Count; i++)
             {
-                if ((records[i].At, records[i].Sequence).CompareTo((records[oldestIndex].At, records[oldestIndex].Sequence)) < 0)
+                if (oldestIndex < 0 || IsOlderForEviction(records[i], records[oldestIndex]))
                 {
                     oldestIndex = i;
                 }
@@ -370,6 +371,18 @@ public sealed class DiagnosticStore(StoreDirectories store)
 
             records.RemoveAt(oldestIndex);
         }
+    }
+
+    private static bool IsOlderForEviction(DiagnosticRecord candidate, DiagnosticRecord current)
+    {
+        var candidateIsPerformance = candidate.Type == "performance";
+
+        if (candidateIsPerformance != (current.Type == "performance"))
+        {
+            return candidateIsPerformance;
+        }
+
+        return (candidate.At, candidate.Sequence).CompareTo((current.At, current.Sequence)) < 0;
     }
 
     /// <summary>

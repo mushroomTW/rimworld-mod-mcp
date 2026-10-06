@@ -227,6 +227,7 @@ Where this project fits:
 | `RIMWORLD_MOD_MCP_GAME_PATH` | Override RimWorld installation detection. |
 | `RIMWORLD_MOD_MCP_PLAYER_LOG` | Override the `Player.log` location. |
 | `RIMWORLD_MOD_MCP_BRIDGE_PORT` | Loopback port for the diagnostics daemon; defaults to 49460. |
+| `RIMWORLD_MOD_MCP_PERF_MARKERS` | Extra markers, separated by `\|`. A `Log.Message` containing `[perf]` or any extra marker is recorded as a `performance` diagnostic (query with `list_test_diagnostics(type=performance)`). |
 | `RIMWORLD_MANAGED_DIR` | Passed to MSBuild to resolve game assemblies; injected automatically. |
 
 ## Development
