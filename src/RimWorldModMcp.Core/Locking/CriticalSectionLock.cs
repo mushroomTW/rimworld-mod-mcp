@@ -106,6 +106,15 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 
                 throw new LockHeldException(name, holderProcessId);
             }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && mayReclaim)
+            {
+                // 建檔失敗但鎖檔已不在（上面的 File.Exists 為 false）：持有者剛好釋放。
+                // Windows 上刪除中的檔案在最後一個 handle 關閉前，CreateNew 拿到的是 UnauthorizedAccessException。
+                // 不能讓它漏出去——有界等待只重試 LockHeldException。稍等一下重試建檔，只重試一次：
+                // 第二輪仍失敗就是真正的 I/O 或權限錯誤，原樣拋出而不是誤報成鎖被持有。
+                Thread.Sleep(20);
+                continue;
+            }
         }
 
         throw new LockHeldException(name, null);
@@ -185,7 +194,34 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
 
         if (existing is not null && string.Equals(existing.Token, token, StringComparison.Ordinal))
         {
-            TryDelete(path);
+            DeleteOwnLock(path);
+        }
+    }
+
+    /// <summary>
+    /// 刪除自己持有的鎖檔。等待者正好在讀鎖檔時，Windows 上的刪除會撞上分享違規；
+    /// 直接吞掉的話鎖就永遠不會釋放——持有者還活著，不會被當成殘骸回收，之後每個等待者都只能等到逾時。
+    /// 讀取只佔用幾毫秒，短暫重試即可。只在刪除本身失敗時重試：刪除成功後檔案若又出現，
+    /// 那是別人剛建立的新鎖，不能碰。
+    /// </summary>
+    private static void DeleteOwnLock(string path)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Delete(path);
+                return;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && attempt < 10)
+            {
+                Thread.Sleep(20);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // 重試仍失敗：盡力而為，不阻礙主流程（與原本的行為相同）。
+                return;
+            }
         }
     }
 

@@ -66,6 +66,27 @@ public sealed class CriticalSectionLockTests : IDisposable
         await released;
     }
 
+    /// <summary>
+    /// 建檔撞上既有鎖檔、但在判斷前持有者就釋放了：那是「剛好放掉」，必須重試，
+    /// 不能讓 IOException 漏出去——有界等待只重試 LockHeldException，漏出去就整個失敗。
+    /// </summary>
+    [Fact]
+    public async Task ContendedAcquireNeverLeaksIOExceptionWhenTheHolderReleases()
+    {
+        var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
+
+        var workers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            for (var i = 0; i < 300; i++)
+            {
+                var token = locks.Acquire("index", TimeSpan.FromSeconds(30));
+                locks.Release("index", token);
+            }
+        }));
+
+        await Task.WhenAll(workers);
+    }
+
     /// <summary>等不到就必須拋出，不能無限期卡住——呼叫端要能把它當成可重試的失敗。</summary>
     [Fact]
     public void AcquireWithTimeoutThrowsWhenTheHolderKeepsIt()
