@@ -77,9 +77,12 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         SweepStaleGraveyards(Path.GetDirectoryName(path)!);
 
-        // 只允許接管殘骸鎖一次：第一輪發現持有者已死就刪掉重試，
-        // 第二輪若仍失敗就是真的有人持有（或有另一個程序同時接管成功）。
-        foreach (var mayReclaim in (ReadOnlySpan<bool>)[true, false])
+        // 只允許接管殘骸鎖一次：發現持有者已死就刪掉重試，
+        // 之後若仍失敗就是真的有人持有（或有另一個程序同時接管成功）。
+        var mayReclaim = true;
+        var vanishedRetries = 0;
+
+        while (true)
         {
             try
             {
@@ -101,24 +104,33 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
             {
                 if (TryReclaimStaleLock(path, mayReclaim, out var holderProcessId))
                 {
+                    mayReclaim = false;
                     continue;
                 }
 
                 throw new LockHeldException(name, holderProcessId);
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException && mayReclaim)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 // 建檔失敗但鎖檔已不在（上面的 File.Exists 為 false）：持有者剛好釋放。
                 // Windows 上刪除中的檔案在最後一個 handle 關閉前，CreateNew 拿到的是 UnauthorizedAccessException。
-                // 不能讓它漏出去——有界等待只重試 LockHeldException。稍等一下重試建檔，只重試一次：
-                // 第二輪仍失敗就是真正的 I/O 或權限錯誤，原樣拋出而不是誤報成鎖被持有。
-                Thread.Sleep(20);
-                continue;
+                // 不能讓它漏出去——有界等待只重試 LockHeldException。稍等一下重試建檔。
+                // 競爭激烈時（Linux 上取得與釋放都只要幾微秒）可能連續撞上好幾次，所以給獨立的重試額度，
+                // 不佔用接管殘骸的那一次；額度用完仍失敗就是持續性的 I/O 或權限錯誤，原樣拋出而不是誤報成鎖被持有。
+                if (++vanishedRetries >= MaxVanishedRetries)
+                {
+                    throw;
+                }
+
+                Thread.Sleep(VanishedRetryDelay);
             }
         }
-
-        throw new LockHeldException(name, null);
     }
+
+    /// <summary>建檔撞上「剛被釋放的鎖檔」時的重試次數上限與間隔。持續性錯誤最多多等約 100ms 才拋出。</summary>
+    private const int MaxVanishedRetries = 10;
+
+    private static readonly TimeSpan VanishedRetryDelay = TimeSpan.FromMilliseconds(10);
 
     /// <summary>
     /// 取得鎖，取不到時在 <paramref name="timeout"/> 內輪詢等待；逾時仍拋出
@@ -153,6 +165,14 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         var (outcome, existing) = ReadWithRetry(path);
         holderProcessId = existing?.ProcessId;
 
+        // 檔案在讀取前消失：持有者剛釋放，直接重試建檔。不能走 ReclaimStale：
+        // 這期間別人可能已建立新的活鎖，改名會把它搬走再歸還；歸還前對方若已釋放（在原位讀不到而什麼都沒刪），
+        // 歸還回去的就是一個再也不會有人釋放的鎖，之後每個等待者都只能等到逾時。
+        if (outcome == ReadOutcome.Missing)
+        {
+            return mayReclaim;
+        }
+
         var stale = outcome switch
         {
             // 內容壞掉的鎖檔視為殘骸——留著它只會讓工具永遠卡住。
@@ -160,14 +180,12 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
             // 中間一瞬間讀到的空檔是正在寫入的活鎖。
             ReadOutcome.Corrupt => IsPastCorruptGrace(path),
             ReadOutcome.Ok => IsStale(existing),
-            // 檔案在讀取前消失：持有者剛釋放，直接重試建檔。
-            ReadOutcome.Missing => true,
             _ => false,
         };
 
         // ReclaimStale 回傳 false 代表「搬走的不是當初判定的殘骸」，
         // 已嘗試歸還，本輪視為被持有，不重試建檔。
-        return mayReclaim && stale && ReclaimStale(path, existing, expectFile: outcome != ReadOutcome.Missing);
+        return mayReclaim && stale && ReclaimStale(path, existing);
     }
 
     private static (ReadOutcome outcome, LockRecord? record) ReadWithRetry(string path)
@@ -351,7 +369,7 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
     /// </para>
     /// </summary>
     /// <returns>true 代表可以重試建檔；false 代表搬走的是別人的新鎖，已嘗試歸還。</returns>
-    private static bool ReclaimStale(string path, LockRecord? expected, bool expectFile)
+    private static bool ReclaimStale(string path, LockRecord? expected)
     {
         var graveyard = $"{path}.stale-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
 
@@ -374,12 +392,6 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
                 TryRestore(graveyard, path);
                 return false;
             }
-        }
-        else if (!expectFile)
-        {
-            // 分類時檔案不存在，改名卻成功：中間有新鎖建立，歸還並放棄。
-            TryRestore(graveyard, path);
-            return false;
         }
 
         TryDelete(graveyard);
