@@ -37,6 +37,19 @@ The prebuilt C# bridge is compiled against the public [Krafs.Rimworld.Ref](https
 
 ## Installation
 
+### Ask your agent to install it
+
+If you use Claude Code, Codex, or another coding agent, you can hand the whole setup over. Paste this prompt:
+
+```text
+Please install rimworld-mod-mcp for me, following https://github.com/mushroomTW/rimworld-mod-mcp (README.md).
+Download the executable for my platform from the latest release, put it in a stable folder, and register it
+as an MCP server named "rimworld" with the argument "stdio" in my MCP client. Then call rimworld_status
+to confirm RimWorld was detected, and call rebuild_index once.
+```
+
+The agent downloads the file, registers it in your client's configuration, and verifies it. Restart or reload your MCP client afterwards if the new server does not appear.
+
 ### Download a release (recommended)
 
 Download the executable for your platform from the [latest release](https://github.com/mushroomTW/rimworld-mod-mcp/releases/latest):

@@ -37,6 +37,19 @@
 
 ## 安裝
 
+### 請 agent 協助安裝
+
+如果你使用 Claude Code、Codex 或其他 coding agent，可以直接把安裝交給它，貼上這段提示：
+
+```text
+請依照 https://github.com/mushroomTW/rimworld-mod-mcp 的 README 幫我安裝 rimworld-mod-mcp：
+從最新 Release 下載適合我平台的執行檔，放到固定資料夾，
+並在我的 MCP client 中註冊名為 "rimworld"、參數為 "stdio" 的 MCP server。
+接著呼叫 rimworld_status 確認有偵測到 RimWorld，再呼叫一次 rebuild_index。
+```
+
+agent 會下載檔案、寫入 client 設定並驗證。若新的 server 沒有出現，請重新啟動或重新載入 MCP client。
+
 ### 從 Release 下載（推薦）
 
 到[最新版 Release](https://github.com/mushroomTW/rimworld-mod-mcp/releases/latest) 下載對應平台的執行檔：
