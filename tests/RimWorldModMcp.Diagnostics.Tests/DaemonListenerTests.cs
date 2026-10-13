@@ -204,7 +204,7 @@ public sealed class DaemonListenerTests : IDisposable
 
         Directory.CreateDirectory(_root);
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllText(log, "Error: fallback check\n");
+        File.WriteAllText(log, "2026-10-13 01:29:00.100 ERROR [Verse] fallback check\n");
 
         var sessions = new TestSessionStore(_store);
         sessions.Write(new TestSession

@@ -1,7 +1,10 @@
 <Solution>
   <Folder Name="/bridge/" />
   <Folder Name="/bridge/Source/">
-    <Project Path="bridge/Source/RimWorldModMcp.Bridge.csproj" />
+    <!-- 需要本機遊戲組件才能建置，由 run_test_cycle 就地建置；solution 建置（含 CI）略過它。 -->
+    <Project Path="bridge/Source/RimWorldModMcp.Bridge.csproj">
+      <Build Project="false" />
+    </Project>
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/RimWorldModMcp.Core/RimWorldModMcp.Core.csproj" />

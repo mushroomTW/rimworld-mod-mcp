@@ -138,6 +138,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         try
         {
             var paths = locator.Detect();
+            paths.ThrowIfUnsupported();
 
             if (paths.ManagedDir is null)
             {

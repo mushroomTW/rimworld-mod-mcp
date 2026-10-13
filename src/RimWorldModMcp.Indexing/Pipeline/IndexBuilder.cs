@@ -112,6 +112,7 @@ public sealed class IndexBuilder(
     private IndexBuildResult RebuildCore()
     {
         var paths = locator.Detect();
+        paths.ThrowIfUnsupported();
 
         if (paths.ManagedDir is null || paths.DataDir is null)
         {

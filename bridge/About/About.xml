@@ -3,7 +3,7 @@
   <author>RimWorld MCP contributors</author>
   <packageId>rimworldmodmcp.bridge</packageId>
   <supportedVersions>
-    <li>1.6</li>
+    <li>1.7</li>
   </supportedVersions>
   <!--
     Bridge 自帶 0Harmony.dll，所以沒有安裝 Harmony mod 也能運作。

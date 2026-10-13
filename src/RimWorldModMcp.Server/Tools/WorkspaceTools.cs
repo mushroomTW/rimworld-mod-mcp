@@ -23,7 +23,7 @@ public sealed class WorkspaceTools(
         string name,
         [Description("RimWorld packageId: lowercase alphanumerics and . _ - only, e.g. yourname.yourmod.")]
         string package_id,
-        [Description("Also generate a C# project skeleton (net472).")]
+        [Description("Also generate a C# project skeleton (net10.0).")]
         bool with_code = false) => ToolGuard.Run(() =>
     {
         var path = scaffolder.Create(directory, name, package_id, with_code);

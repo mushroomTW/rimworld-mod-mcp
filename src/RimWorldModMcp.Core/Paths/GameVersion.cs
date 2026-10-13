@@ -4,11 +4,11 @@ namespace RimWorldModMcp.Core.Paths;
 public static class GameVersion
 {
     /// <summary>偵測不到遊戲版本時（ModScaffolder 的 supportedVersions、TestEnvironmentPreparer 的 ModsConfig.xml）的退路版本。</summary>
-    public const string Fallback = "1.6";
+    public const string Fallback = "1.7";
 
     /// <summary>
-    /// 回傳 major.minor（例如 1.6）。檔案不存在或格式不符時回 null。
-    /// Version.txt 的內容形如 1.6.4871 rev590；Mod 的相容性只看前兩段，
+    /// 回傳 major.minor（例如 1.7）。檔案不存在或格式不符時回 null。
+    /// Version.txt 的內容形如 1.7.4976 rev1043；Mod 的相容性只看前兩段，
     /// 這與 About.xml 的 supportedVersions 用的粒度一致。
     /// </summary>
     public static string? ReadMajorMinor(string? installRoot)

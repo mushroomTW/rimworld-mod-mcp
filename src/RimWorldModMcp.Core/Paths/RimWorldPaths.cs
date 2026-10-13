@@ -19,6 +19,30 @@ public sealed record RimWorldPaths(
 
     /// <summary>是否已偵測到可用的遊戲安裝（索引與建置的最低要求）。</summary>
     public bool HasManagedAndData => ManagedDir is not null && DataDir is not null;
+
+    /// <summary>
+    /// 安裝目錄是本工具不支援的舊版遊戲時為該版本號（例如 "1.6"；Version.txt 讀不到但是 Unity 結構時為 "pre-1.7"），否則 null。
+    /// 本工具只支援 RimWorld 1.7；此時 <see cref="ManagedDir"/> 與 <see cref="Executable"/> 為 null，
+    /// 呼叫端應提示使用者更新遊戲，而不是回報「找不到組件」。
+    /// </summary>
+    public string? UnsupportedVersion { get; init; }
+
+    /// <summary>不支援的舊版遊戲時給使用者的說明，否則 null。</summary>
+    public string? UnsupportedMessage => UnsupportedVersion is null
+        ? null
+        : $"RimWorld {UnsupportedVersion} detected; this tool supports RimWorld 1.7 only.";
+
+    /// <summary>
+    /// 各入口使用路徑前先呼叫：舊版遊戲時丟出明確的說明，
+    /// 免得呼叫端只看到「找不到組件」而去要使用者設定遊戲路徑。
+    /// </summary>
+    public void ThrowIfUnsupported()
+    {
+        if (UnsupportedMessage is { } message)
+        {
+            throw new NotSupportedException(message);
+        }
+    }
 }
 
 /// <summary>本工具使用的環境變數名稱。</summary>

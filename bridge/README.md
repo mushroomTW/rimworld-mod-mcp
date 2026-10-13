@@ -4,11 +4,11 @@
 
 沒有設定 `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` 時，Bridge 完全休眠——不掛任何 Harmony patch。因此即使它留在 Mods 目錄裡，正常遊玩也不受影響。
 
-## 為什麼維持 net472
+## 目標框架
 
-RimWorld 跑在 Unity Mono 上，只能載入 `net472` 的組件。MCP server 本身是 `net10.0`，兩者在同一個 solution 裡並存但目標框架不同。
+只支援 RimWorld 1.7（不支援 1.6）。1.7 的遊戲跑在 .NET 10 上，Bridge 以 `net10.0` 為目標，參考 `RIMWORLD_MANAGED_DIR`（1.7 安裝根目錄）下的 `Assembly-CSharp.dll` 與 `UnityStubs.dll`，Harmony 帶入 net10 版。MCP server 本身也是 `net10.0`，兩者在同一個 solution 裡並存。
 
-`DiagnosticPayload` 刻意不相依 RimWorld、Harmony 或 `System.Text.Json`——把 JSON 序列化的相依塞進遊戲會多帶 DLL 進 `Assemblies/`，在 Unity Mono 下有與其他 Mod 組件衝突的風險。它的逐字元轉義邏輯由 net10 的測試專案連結同一份原始碼直接測試。
+`DiagnosticPayload` 刻意不相依 RimWorld、Harmony 或 `System.Text.Json`——把 JSON 序列化的相依塞進遊戲會多帶 DLL 進 `Assemblies/`，有與其他 Mod 組件衝突的風險。它的逐字元轉義邏輯由 net10 的測試專案連結同一份原始碼直接測試。
 
 ## 遊戲狀態
 
@@ -16,15 +16,17 @@ RimWorld 跑在 Unity Mono 上，只能載入 `net472` 的組件。MCP server �
 
 ## 預編譯與就地建置
 
-Server 打包時會以公開參考組件（`Krafs.Rimworld.Ref`）把 Bridge 編成 DLL，連同 `game-version.txt` 放在 `bridge/Prebuilt/` 隨工具發佈。執行期遊戲的 major.minor 與該檔案相同就直接複製使用，不需要本機 .NET SDK；不同時才複製 `Source/` 到快取目錄，參考本機遊戲組件就地建置。
+目前不預編譯，也不使用 NuGet 的公開參考組件（`Krafs.Rimworld.Ref` 沒有 1.7 版）：Server 只內嵌 `About/` 與 `Source/`，`run_test_cycle` 時把 `Source/` 複製到快取目錄，參考本機遊戲組件就地建置。`BridgeBuilder` 仍保留使用 `bridge/Prebuilt/`（DLL 加上記錄遊戲 major.minor 的 `game-version.txt`）的分支，日後恢復預編譯時可直接接回。
 
 ## 手動建置
 
 用本機遊戲組件建置時需設定 `RIMWORLD_MANAGED_DIR`，例如 Windows：
 
 ```powershell
-$env:RIMWORLD_MANAGED_DIR='C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed'
+$env:RIMWORLD_MANAGED_DIR='C:\Program Files (x86)\Steam\steamapps\common\RimWorld'
 dotnet build .\Source\RimWorldModMcp.Bridge.csproj -c Release
 ```
 
-不設 `RIMWORLD_MANAGED_DIR`（或加 `-p:BridgeUseReferenceAssemblies=true`）則改用公開參考組件，這也是 CI 與預編譯用的路徑。
+1.7 的組件就在安裝根目錄（沒有 `RimWorldWin64_Data\Managed`），`RIMWORLD_MANAGED_DIR` 直接指向安裝根目錄。
+
+沒設 `RIMWORLD_MANAGED_DIR` 時建置會直接報錯並說明原因。Bridge 因此不參與 solution 建置（`.slnx` 裡標成不建置），CI 也不建它。

@@ -37,7 +37,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
 
         if (managed is null)
         {
-            return new BridgeBuild(false, null, false, "RimWorld Managed directory not found; cannot prepare the Bridge.");
+            return new BridgeBuild(false, null, false, paths.UnsupportedMessage ?? "RimWorld Managed directory not found; cannot prepare the Bridge.");
         }
 
         var modDirectory = Path.Combine(store.CacheHome, "bridge");
@@ -50,7 +50,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
         var prebuiltUsable = prebuiltVersion is not null
             && RequiredAssemblies.All(name => File.Exists(Path.Combine(prebuilt, name)));
 
-        // 預編譯版本只看 major.minor：Mod 的相容性粒度就是這樣，1.6.x 之間的
+        // 預編譯版本只看 major.minor：Mod 的相容性粒度就是這樣，1.7.x 之間的
         // 修訂版不會改動 Bridge 用到的那幾個 API。
         if (prebuiltUsable && gameVersion is not null && gameVersion == prebuiltVersion)
         {
@@ -284,7 +284,7 @@ public sealed class BridgeBuilder(StoreDirectories store, RimWorldLocator locato
             builder.Append(info.Name).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks).Append('|');
         }
 
-        foreach (var name in (ReadOnlySpan<string>)["Assembly-CSharp.dll", "UnityEngine.CoreModule.dll"])
+        foreach (var name in (ReadOnlySpan<string>)["Assembly-CSharp.dll", "UnityStubs.dll"])
         {
             var info = new FileInfo(Path.Combine(managedDirectory, name));
 

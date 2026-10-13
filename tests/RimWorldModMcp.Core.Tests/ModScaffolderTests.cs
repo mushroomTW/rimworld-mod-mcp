@@ -43,7 +43,7 @@ public sealed class ModScaffolderTests : IDisposable
     }
 
     [Fact]
-    public void WithCodeGeneratesANet472Project()
+    public void WithCodeGeneratesANet10Project()
     {
         var mod = _scaffolder.Create(_workspace, "CodeMod", "author.codemod", withCode: true);
 
@@ -52,8 +52,8 @@ public sealed class ModScaffolderTests : IDisposable
 
         var content = File.ReadAllText(project);
 
-        // net472 是硬性要求：RimWorld 跑在 Unity Mono 上，載入不了其他目標框架。
-        Assert.Contains("<TargetFramework>net472</TargetFramework>", content, StringComparison.Ordinal);
+        // 1.7 的遊戲跑在 .NET 10 上，專案要以 net10.0 為目標。
+        Assert.Contains("<TargetFramework>net10.0</TargetFramework>", content, StringComparison.Ordinal);
         Assert.Contains("RIMWORLD_MANAGED_DIR", content, StringComparison.Ordinal);
     }
 

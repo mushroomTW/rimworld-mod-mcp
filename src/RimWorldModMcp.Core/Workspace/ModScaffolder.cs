@@ -46,8 +46,11 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
                 Directory.CreateDirectory(Path.Combine(modPath, folder));
             }
 
-            // supportedVersions 跟著實際安裝的遊戲走：寫死 1.6 的骨架在 1.5 上一載入就是版本不符警告。
-            var gameVersion = GameVersion.ReadMajorMinor(locator?.Detect().InstallRoot) ?? FallbackGameVersion;
+            // supportedVersions 跟著實際安裝的遊戲走：寫死 1.7 的骨架在其他版本上一載入就是版本不符警告。
+            // 舊版遊戲不能套 net10.0 + UnityStubs 的骨架，直接說明而不是產生建置不了的專案。
+            var paths = locator?.Detect();
+            paths?.ThrowIfUnsupported();
+            var gameVersion = GameVersion.ReadMajorMinor(paths?.InstallRoot) ?? FallbackGameVersion;
             File.WriteAllText(Path.Combine(modPath, "About", "About.xml"), AboutXml(name, normalisedId, gameVersion), new UTF8Encoding(false));
 
             if (withCode)
@@ -123,15 +126,15 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
         """;
 
     /// <summary>
-    /// C# Mod 專案骨架。
-    /// 目標框架必須是 net472——RimWorld 跑在 Unity Mono 上，其他 TFM 載入不了。
+    /// C# Mod 專案骨架。1.7 的遊戲跑在 .NET 10 上，UnityEngine 型別由 UnityStubs.dll 提供；
+    /// Harmony 等社群 Mod 的 1.7 版也都改以 net10.0 為目標。
     /// 遊戲組件的位置由 RIMWORLD_MANAGED_DIR 環境變數提供，建置時由本工具注入。
     /// </summary>
     private const string CsProjTemplate = """
         <Project Sdk="Microsoft.NET.Sdk">
 
           <PropertyGroup>
-            <TargetFramework>net472</TargetFramework>
+            <TargetFramework>net10.0</TargetFramework>
             <LangVersion>latest</LangVersion>
             <Nullable>enable</Nullable>
             <ImplicitUsings>disable</ImplicitUsings>
@@ -147,14 +150,10 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
               <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
               <Private>false</Private>
             </Reference>
-            <Reference Include="UnityEngine.CoreModule">
-              <HintPath>$(RimWorldManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+            <Reference Include="UnityStubs">
+              <HintPath>$(RimWorldManagedDir)\UnityStubs.dll</HintPath>
               <Private>false</Private>
             </Reference>
-          </ItemGroup>
-
-          <ItemGroup>
-            <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
           </ItemGroup>
 
         </Project>

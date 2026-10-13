@@ -50,16 +50,16 @@ public sealed class PlayerLogTailerTests : IDisposable
         var log = Path.Combine(_root, "Player.log");
 
         File.WriteAllBytes(log, [
-            .. Encoding.UTF8.GetBytes("error: first\n"),
+            .. Encoding.UTF8.GetBytes("2026-10-13 01:29:00.100 ERROR [Verse] first\n"),
             0xFF, 0xFE,
-            .. Encoding.UTF8.GetBytes("\nerror: second\n"),
+            .. Encoding.UTF8.GetBytes("\n2026-10-13 01:29:00.200 ERROR [Verse] second\n"),
         ]);
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log), offsets);
 
         // 追加一筆。漂移會讓下一次 Seek 落在這一行的中間，於是整行讀不到。
-        File.AppendAllText(log, "error: third\n", new UTF8Encoding(false));
+        File.AppendAllText(log, "2026-10-13 01:29:00.300 ERROR [Verse] third\n", new UTF8Encoding(false));
         _tailer.ReadNewLines(Session(log), offsets);
 
         var texts = _diagnostics.Read().Select(record => record.Text).ToList();
@@ -77,7 +77,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void PartialTrailingLineIsHeldUntilItIsCompleted()
     {
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllText(log, "error: complete\nwarn", new UTF8Encoding(false));
+        File.WriteAllText(log, "2026-10-13 01:29:00.100 ERROR [Verse] complete\n2026-10-13 01:29:00.200  WARN [Verse] warn", new UTF8Encoding(false));
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log), offsets);
@@ -103,13 +103,13 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void TruncatedLogIsReadFromTheStart()
     {
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllText(log, new string('x', 4096) + "\nerror: old\n", new UTF8Encoding(false));
+        File.WriteAllText(log, new string('x', 4096) + "\n2026-10-13 01:29:00.100 ERROR [Verse] old\n", new UTF8Encoding(false));
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log), offsets);
 
         // 遊戲重啟：檔案被截斷，新的內容比舊的 offset 還短。
-        File.WriteAllText(log, "error: after restart\n", new UTF8Encoding(false));
+        File.WriteAllText(log, "2026-10-13 01:29:00.200 ERROR [Verse] after restart\n", new UTF8Encoding(false));
         _tailer.ReadNewLines(Session(log), offsets);
 
         Assert.Contains(
@@ -117,12 +117,12 @@ public sealed class PlayerLogTailerTests : IDisposable
             text => text.Contains("after restart", StringComparison.Ordinal));
     }
 
-    /// <summary>BOM 不影響讀取，而且第一行仍必須被分類（Classify 會剝掉它）。</summary>
+    /// <summary>BOM 不影響讀取，而且第一行仍必須被分類（Normalise 會剝掉它）。</summary>
     [Fact]
     public void ByteOrderMarkDoesNotHideTheFirstLine()
     {
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllBytes(log, [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("error: with bom\n")]);
+        File.WriteAllBytes(log, [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("2026-10-13 01:29:00.100 ERROR [Verse] with bom\n")]);
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log), offsets);
@@ -133,7 +133,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>
-    /// Unity 啟動時把 Player.log 改名成 Player-prev.log 再建新檔。Windows 的檔案通道效應
+    /// 遊戲啟動時把 Player.log 改名成 Player-prev.log 再建新檔。Windows 的檔案通道效應
     /// 讓新檔沿用舊檔的建立時間，建立時間判斷失效；新檔在第一次輪詢前就長得比 LogOffset 長時，
     /// 新檔開頭（XML 載入錯誤正好在這裡）會被當成「上一場的內容」跳過。
     /// 以 Player-prev.log 的戳記變化判定輪替。
@@ -151,7 +151,7 @@ public sealed class PlayerLogTailerTests : IDisposable
         };
 
         File.Move(log, Path.Combine(_root, "Player-prev.log"));
-        File.WriteAllText(log, "error: early startup failure\nloading...\n", new UTF8Encoding(false));
+        File.WriteAllText(log, "2026-10-13 01:29:00.100 ERROR [Verse] early startup failure\nloading...\n", new UTF8Encoding(false));
 
         _tailer.ReadNewLines(session, new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase));
 
@@ -165,8 +165,8 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void ContentBeforeLogOffsetIsNotReported()
     {
         var log = Path.Combine(_root, "Player.log");
-        var prefix = "error: from the previous run\n";
-        File.WriteAllText(log, prefix + "error: this run\n", new UTF8Encoding(false));
+        var prefix = "2026-10-13 01:29:00.100 ERROR [Verse] from the previous run\n";
+        File.WriteAllText(log, prefix + "2026-10-13 01:29:00.200 ERROR [Verse] this run\n", new UTF8Encoding(false));
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log, logOffset: Encoding.UTF8.GetByteCount(prefix)), offsets);
@@ -189,10 +189,11 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void StackTraceContinuationLinesMergeIntoThePrecedingDiagnostic()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
-            "Exception in Thing.Tick: boom",
+            "2026-10-13 01:29:00.300 ERROR [Verse] Exception in Thing.Tick: boom",
             "  at Verse.Thing.Tick()",
             "  at Verse.Thing.TickLong()",
             "at System.Object.GetType()",
+            "    at Verse.Log.Error(String text) [0x1A] in Log.cs:137",
         ]);
 
         var entry = Assert.Single(batch);
@@ -201,51 +202,37 @@ public sealed class PlayerLogTailerTests : IDisposable
         Assert.Equal("Exception in Thing.Tick: boom", entry.FirstLine);
         Assert.Contains("at Verse.Thing.Tick()", entry.Text, StringComparison.Ordinal);
         Assert.Contains("at System.Object.GetType()", entry.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Log.Error", entry.Text, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// 孤立的堆疊行（緊接的前一行不是診斷）要丟棄，不能誤併到更早的紀錄——
+    /// 孤立的堆疊行（所屬紀錄不是診斷，或前面根本沒有紀錄）要丟棄，不能誤併到更早的紀錄——
     /// 那會讓不相關的堆疊混進一筆診斷，去重簽章也跟著失真。
     /// </summary>
     [Fact]
     public void OrphanStackTraceLinesAreDroppedInsteadOfMergingIntoAnEarlierEntry()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
-            "error: real",
-            "some unrelated info line",
+            "  at Header.Orphan()",
+            "2026-10-13 01:29:00.100 ERROR [Verse] real",
+            "2026-10-13 01:29:00.200  INFO [Verse] some unrelated info line",
             "  at Orphan.Method()",
         ]);
 
         var entry = Assert.Single(batch);
 
-        Assert.Equal("error: real", entry.Text);
+        Assert.Equal("real", entry.Text);
         Assert.DoesNotContain("Orphan", entry.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Player.log 沒有層級標記，關鍵字分類會誤判已知訊息：「Translation data ... has 18 errors」
-    /// 是 RimWorld 的 Log.Warning（LoadedLanguage），而且使用者的 Prefs 語言設定會帶進每一場測試；
-    /// 「Could not resolve cross-reference」是 Log.Error，卻不含 error 字樣。
-    /// </summary>
-    [Theory]
-    [InlineData("Translation data for language Simplified Chinese has 18 errors. Generate translation report for more info.", "warning")]
-    [InlineData("Could not resolve cross-reference: No Verse.ThingDef named Foo found to give to X", "error")]
-    [InlineData("Failed to find Verse.ThingDef named Foo. There are 10 defs of this type loaded.", "error")]
-    public void KnownRimWorldMessagesAreClassifiedByTheirRealLevel(string line, string expected)
-    {
-        var entry = Assert.Single(PlayerLogTailer.ClassifyBatch([line]));
-
-        Assert.Equal(expected, entry.Type);
-    }
-
-    /// <summary>帶效能標記的 Log.Message 要被收成 performance，且標記優先於 error 關鍵字；沒標記的一般訊息仍被忽略。</summary>
+    /// <summary>帶效能標記的 Log.Message 要被收成 performance，且標記優先於層級與 error 字樣；沒標記的 INFO 仍被忽略。</summary>
     [Fact]
     public void PerformanceMarkedLinesAreClassifiedAsPerformance()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
-            "[perf] Round 1 timing: mainThreadReadAllBytes=41ms",
-            "[PERF] startup with 0 errors",
-            "Round 2 timing: plain message without marker",
+            "2026-10-13 01:29:00.100  INFO [Verse] [perf] Round 1 timing: mainThreadReadAllBytes=41ms",
+            "2026-10-13 01:29:00.200  INFO [Verse] [PERF] startup with 0 errors",
+            "2026-10-13 01:29:00.300  INFO [Verse] Round 2 timing: plain message without marker",
         ]);
 
         Assert.Equal(2, batch.Count);
@@ -263,15 +250,15 @@ public sealed class PlayerLogTailerTests : IDisposable
         Assert.False(PerformanceMarkers.Matches("[FGL InGameTests] Round 1 timing", PerformanceMarkers.Load(null)));
     }
 
-    /// <summary>兩個例外各自成筆，堆疊不會跨過空行或中斷行混在一起。</summary>
+    /// <summary>兩個例外各自成筆，堆疊不會跨過空行或下一筆紀錄混在一起。</summary>
     [Fact]
     public void TwoSeparateExceptionsStaySeparate()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
-            "error: first",
+            "2026-10-13 01:29:00.100 ERROR [Verse] first",
             "  at A.B()",
             string.Empty,
-            "warning: second",
+            "2026-10-13 01:29:00.200  WARN [Verse] second",
             "  at C.D()",
         ]);
 
@@ -283,6 +270,164 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>
+    /// 1.7 的日誌每行帶層級：照層級分類，而不是關鍵字。「 WARN」不含 warning 字樣，
+    /// 靠關鍵字會整個漏掉；含 error 字樣的 INFO 也不能算成錯誤。
+    /// </summary>
+    [Fact]
+    public void DotNetLogLinesAreClassifiedByTheirLevel()
+    {
+        var batch = PlayerLogTailer.ClassifyBatch([
+            "=== RimWorld by Ludeon Studios log ===",
+            "Command:   RimWorld.exe -savedatafolder=C:/tmp/run",
+            "2026-10-13 01:29:00.100  INFO [Verse] Loaded 0 errors from cache",
+            "2026-10-13 01:29:00.200  WARN [Verse] Something odd",
+            "2026-10-13 01:29:00.300 ERROR [Verse] [MyMod] failed",
+            "2026-10-13 01:29:00.400  CRIT [Waylith] device lost",
+        ]);
+
+        Assert.Equal(3, batch.Count);
+        Assert.Equal(("warning", "Something odd"), (batch[0].Type, batch[0].FirstLine));
+        Assert.Equal(("error", "[MyMod] failed"), (batch[1].Type, batch[1].FirstLine));
+        Assert.Equal(("error", "device lost"), (batch[2].Type, batch[2].FirstLine));
+    }
+
+    /// <summary>
+    /// 時間戳記與分類要剝掉：同一個錯誤每次發生時間不同，留著的話去重簽章全都不同，
+    /// 也對不上 Bridge 回報的原始訊息。
+    /// </summary>
+    [Fact]
+    public void RepeatedDotNetErrorsShareTheSameText()
+    {
+        var batch = PlayerLogTailer.ClassifyBatch([
+            "2026-10-13 01:29:00.300 ERROR [Verse] boom",
+            "2026-10-13 01:29:05.900 ERROR [Verse] boom",
+        ]);
+
+        Assert.Equal(2, batch.Count);
+        Assert.Equal(batch[0].Text, batch[1].Text);
+        Assert.Equal("boom", batch[0].Text);
+    }
+
+    /// <summary>
+    /// 1.7 的一筆紀錄可跨多行（多行訊息、四格縮排的堆疊），直到下一個帶層級的行為止。
+    /// 錯誤的後續行全部併入；INFO 的後續行即使含 exception 字樣也不能被當成另一筆錯誤。
+    /// </summary>
+    [Fact]
+    public void DotNetRecordContinuationLinesBelongToTheirRecord()
+    {
+        var batch = PlayerLogTailer.ClassifyBatch([
+            "2026-10-13 01:29:00.300 ERROR [Verse] Exception ticking Thing",
+            "System.NullReferenceException: Object reference not set",
+            "    at Verse.Thing.Tick() [0x1A]",
+            "2026-10-13 01:29:00.400  INFO [Verse] Dumping state",
+            "previous exception was handled",
+            "    at Verse.Root.Update() [0x0]",
+        ]);
+
+        var entry = Assert.Single(batch);
+
+        Assert.Equal("Exception ticking Thing", entry.FirstLine);
+        Assert.Contains("System.NullReferenceException", entry.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Root.Update", entry.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 引擎替每筆紀錄附的呼叫端堆疊不能進診斷：去重簽章只看 at 行，同一呼叫點的不同錯誤
+    /// 會被併成一筆，也對不上不帶堆疊的 Bridge 回報。訊息本身的例外堆疊（沒有 [0x..]）要留著。
+    /// </summary>
+    [Fact]
+    public void DotNetEngineStackFramesAreNotPartOfTheDiagnostic()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        File.WriteAllText(log, string.Join('\n',
+            "2026-10-13 01:29:00.300 ERROR [Verse] Could not resolve cross-reference to A",
+            "    at Verse.Log.Error(String text) [0x1A] in Log.cs:137",
+            "2026-10-13 01:29:00.400 ERROR [Verse] Could not resolve cross-reference to B",
+            "    at Verse.Log.Error(String text) [0x1A] in Log.cs:137",
+            "2026-10-13 01:29:00.500 ERROR [Verse] Exception in tick: System.Exception: boom",
+            "   at MyMod.Comp.Tick() in Comp.cs:line 12",
+            "    at Verse.Log.Error(String text) [0x1A] in Log.cs:137",
+            string.Empty), new UTF8Encoding(false));
+
+        _tailer.ReadNewLines(Session(log), new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase));
+
+        var texts = _diagnostics.Read().Select(record => record.Text).ToList();
+
+        Assert.Equal(3, texts.Count);
+        Assert.Contains("Could not resolve cross-reference to A", texts);
+        Assert.Contains("Could not resolve cross-reference to B", texts);
+        Assert.Contains("Exception in tick: System.Exception: boom\nat MyMod.Comp.Tick() in Comp.cs:line 12", texts);
+    }
+
+    /// <summary>
+    /// 輪詢邊界切在 1.7 紀錄中間：下一批開頭的行屬於上一批尾那一筆。
+    /// 是 INFO 就丟掉，不能併到更早的錯誤；是錯誤就併進去，不能被關鍵字分類成另一筆。
+    /// </summary>
+    [Fact]
+    public void DotNetRecordSplitAcrossPollsStaysWithItsRecord()
+    {
+        var log = Path.Combine(_root, "Player.log");
+        var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        File.WriteAllText(log, "2026-10-13 01:29:00.300 ERROR [Verse] boom\n2026-10-13 01:29:00.400  INFO [Verse] Dumping state\n", new UTF8Encoding(false));
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        File.AppendAllText(log, "previous exception was handled\n    at Verse.Root.Update() [0x0]\n2026-10-13 01:29:00.500 ERROR [Verse] second\n", new UTF8Encoding(false));
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        File.AppendAllText(log, "System.NullReferenceException: Object reference not set\n", new UTF8Encoding(false));
+        _tailer.ReadNewLines(Session(log), offsets);
+
+        var records = _diagnostics.Read();
+
+        Assert.Equal(2, records.Count);
+        Assert.Equal("boom", records.Single(record => record.FirstLine == "boom").Text);
+        Assert.Equal("second\nSystem.NullReferenceException: Object reference not set", records.Single(record => record.FirstLine == "second").Text);
+    }
+
+    /// <summary>
+    /// 訊息以換行開頭時標題行沒有內容：第一個續行就是訊息，不能因為標題空白就整筆丟掉。
+    /// 標題空白、後面也沒有續行的紀錄沒有可回報的文字，不產生診斷。
+    /// </summary>
+    [Fact]
+    public void ErrorWhoseMessageStartsWithANewlineUsesItsFirstContinuationLine()
+    {
+        var batch = PlayerLogTailer.ClassifyBatch([
+            "2026-10-13 01:29:00.300 ERROR [Verse] ",
+            "[MyMod] failed to load X",
+            "    at Verse.Log.Error(String text) [0x1A] in Log.cs:137",
+            "2026-10-13 01:29:00.400 ERROR [Verse]",
+        ], out var trailingRecordIsEntry);
+
+        var entry = Assert.Single(batch);
+
+        Assert.Equal(("error", "[MyMod] failed to load X", "[MyMod] failed to load X"), entry);
+        Assert.False(trailingRecordIsEntry);
+    }
+
+    /// <summary>1.7 的時間以文化格式化，時間分隔符號不一定是冒號（例如 fi-FI 用句點）。</summary>
+    [Fact]
+    public void DotNetLinesWithANonColonTimeSeparatorAreStillStructured()
+    {
+        var entry = Assert.Single(PlayerLogTailer.ClassifyBatch([
+            "2026-10-13 01.29.00.200  WARN [Verse] Something odd",
+        ]));
+
+        Assert.Equal(("warning", "Something odd"), (entry.Type, entry.FirstLine));
+    }
+
+    /// <summary>效能標記優先於層級：帶標記的 INFO 也要收成 performance。</summary>
+    [Fact]
+    public void PerformanceMarkedDotNetLinesAreClassifiedAsPerformance()
+    {
+        var entry = Assert.Single(PlayerLogTailer.ClassifyBatch([
+            "2026-10-13 01:29:00.100  INFO [Verse] [perf] Round 1 timing: 41ms",
+        ]));
+
+        Assert.Equal(("performance", "[perf] Round 1 timing: 41ms"), (entry.Type, entry.FirstLine));
+    }
+
+    /// <summary>
     /// F08：日誌重建且快速長大時不可漏掉開頭的錯誤。
     /// 僅以 length &lt; offset 判斷換檔時，重建後的新檔若已超過舊 offset，
     /// 會被誤認為原檔而直接跳過開頭。
@@ -291,7 +436,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void RecreatedLogLongerThanTheOldOffsetIsReadFromTheStart()
     {
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllText(log, new string('x', 60) + "\nerror: old\n", new UTF8Encoding(false));
+        File.WriteAllText(log, new string('x', 60) + "\n2026-10-13 01:29:00.100 ERROR [Verse] old\n", new UTF8Encoding(false));
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log), offsets);
@@ -300,7 +445,7 @@ public sealed class PlayerLogTailerTests : IDisposable
         File.Delete(log);
         File.WriteAllText(
             log,
-            "Error: early failure\n" + new string('y', 200) + "\n",
+            "2026-10-13 01:29:00.200 ERROR [Verse] early failure\n" + new string('y', 200) + "\n",
             new UTF8Encoding(false));
         _tailer.ReadNewLines(Session(log), offsets);
 
@@ -311,13 +456,13 @@ public sealed class PlayerLogTailerTests : IDisposable
 
     /// <summary>
     /// F09：錯誤標題與堆疊分處兩輪輪詢時，堆疊不可遺失。
-    /// 上一批尾是診斷、本批頭是 `at ...` 續行時，必須併入同一筆。
+    /// 上一批尾是診斷、本批頭是不帶層級的續行（`at ...`）時，必須併入同一筆。
     /// </summary>
     [Fact]
     public void StackTraceAcrossPollsIsMergedIntoTheSameDiagnostic()
     {
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllText(log, "Error: failed\n", new UTF8Encoding(false));
+        File.WriteAllText(log, "2026-10-13 01:29:00.100 ERROR [Verse] failed\n", new UTF8Encoding(false));
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         _tailer.ReadNewLines(Session(log), offsets);
@@ -339,7 +484,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void AppendAfterTheTimestampTickDoesNotRestartReading()
     {
         var log = Path.Combine(_root, "Player.log");
-        File.WriteAllText(log, "Error: failed\n", new UTF8Encoding(false));
+        File.WriteAllText(log, "2026-10-13 01:29:00.100 ERROR [Verse] failed\n", new UTF8Encoding(false));
         File.SetLastWriteTimeUtc(log, DateTime.UtcNow.AddHours(-1));
 
         var offsets = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
@@ -360,7 +505,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     public void LogAppendedDuringTheSessionIsNotMistakenForANewFile()
     {
         var log = Path.Combine(_root, "Player.log");
-        var previous = "error: from the previous run\n";
+        var previous = "2026-10-13 01:29:00.100 ERROR [Verse] from the previous run\n";
         File.WriteAllText(log, previous, new UTF8Encoding(false));
 
         var longAgo = DateTime.UtcNow.AddHours(-1);
@@ -372,7 +517,7 @@ public sealed class PlayerLogTailerTests : IDisposable
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-30).ToUnixTimeMilliseconds(),
         };
 
-        File.AppendAllText(log, "error: this run\n", new UTF8Encoding(false));
+        File.AppendAllText(log, "2026-10-13 01:29:00.200 ERROR [Verse] this run\n", new UTF8Encoding(false));
         _tailer.ReadNewLines(session, new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase));
 
         var texts = _diagnostics.Read().Select(record => record.Text).ToList();

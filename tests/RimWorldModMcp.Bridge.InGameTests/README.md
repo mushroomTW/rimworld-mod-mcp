@@ -1,5 +1,8 @@
 # Bridge 遊戲內整合測試
 
+> [!NOTE]
+> **目前暫停。** 本工具只支援 RimWorld 1.7，而 RimTest Redux 沒有 1.7 版，所以這組測試暫時無法建置與執行，等 RimTest Redux 更新後才能恢復。程式碼維持原狀。
+
 以 [RimTest Redux](https://github.com/ilyvion/rimtest-redux)（`ilyvion.rimtestredux`，RimWorld 1.6）在真正的遊戲裡測 `bridge/`。headless 測試把 Unity 與遊戲都 stub 掉了，驗證不到 patch 是否真的套上、載入時機，以及取樣值是否等於遊戲當下的值。
 
 只供開發：不在 `RimWorldModMcp.slnx` 裡，也不隨工具發佈。刻意放在 `bridge/` 之外，因為 Server 會把 `bridge/**` 整個內嵌進執行檔。
@@ -13,13 +16,16 @@ Bridge 的型別幾乎都是 internal，測試一律用反射與 Harmony probe �
 
 ## 受測的是哪一份 Bridge
 
-`run_test_cycle` 載入的是 MCP server 旁的 `bridge/Prebuilt/`（遊戲 major.minor 相同時），不是 `bridge/Source/` 的即時建置。改了 Bridge 之後，要先重新發佈 server，測試才會看到新版本。
+`run_test_cycle` 載入的是 MCP server 內嵌的 `bridge/Source/` 在快取目錄建出的版本，不是 repo 裡的即時原始碼。改了 Bridge 之後，要先重新發佈 server，測試才會看到新版本。
 
 ## 建置與執行
 
 ```powershell
+$env:RIMWORLD_MANAGED_DIR='C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed'
 dotnet build .\tests\RimWorldModMcp.Bridge.InGameTests\Source -c Release
 ```
+
+參考的是本機遊戲組件（不用 NuGet 的 `Krafs.Rimworld.Ref`）。RimTest Redux 只有 1.6 版，所以必須指向 RimWorld 1.6 的 `RimWorldWin64_Data\Managed`；1.7 的遊戲無法建置與執行這組測試。
 
 Workshop 不在預設 Steam 路徑時，加上 `-p:RimWorldWorkshopDir=<...\workshop\content\294100>`。
 

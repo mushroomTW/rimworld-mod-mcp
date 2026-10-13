@@ -12,7 +12,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>rimworld-mod-mcp</ToolCommandName>
     <PackageId>RimWorldModMcp</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>mushroomTW</Authors>
     <Description>本機執行的 RimWorld Mod 開發 MCP server：索引遊戲的 Def 與 C# API、建置 Mod、在隔離環境測試。</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -37,11 +37,10 @@
   </ItemGroup>
 
   <!--
-    Bridge 隨工具發佈兩種形式：
-    - bridge/Prebuilt/：用公開參考組件（Krafs.Rimworld.Ref）預編譯的 DLL，遊戲 major.minor
-      與 game-version.txt 相同時直接使用，run_test_cycle 就不需要本機 .NET SDK。
-    - bridge/Source/：原始碼。遊戲版本不同（或預編譯檔缺失）時就地建置，參考使用者本機的遊戲組件。
-    兩者同時以 bridge/<相對路徑> 內嵌進組件：Release 只發佈單一執行檔，旁邊沒有 bridge/ 目錄，
+    Bridge 以原始碼（bridge/About/、bridge/Source/）隨工具發佈，run_test_cycle 時參考使用者本機的
+    遊戲組件就地建置。目前不再預編譯：NuGet 的公開參考組件（Krafs.Rimworld.Ref）沒有 1.7 版。
+    BridgeBuilder 仍保留使用 bridge/Prebuilt/ 的執行期分支，日後恢復預編譯時可直接接回。
+    原始碼以 bridge/<相對路徑> 內嵌進組件：Release 只發佈單一執行檔，旁邊沒有 bridge/ 目錄，
     執行期由 EmbeddedBridge 解到快取目錄。
   -->
   <ItemGroup>
@@ -54,48 +53,5 @@
     <None Include=".mcp\server.json" Pack="true" PackagePath="/.mcp/" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <BridgeProject>$(MSBuildThisFileDirectory)..\..\bridge\Source\RimWorldModMcp.Bridge.csproj</BridgeProject>
-    <!--
-      獨立的中繼與輸出目錄：solution 建置會以另一組屬性建置同一個 Bridge 專案，
-      共用 obj/bin 會互相覆蓋。ExcludeAssets 是在 restore 時寫進 project.assets.json 的，
-      所以連 obj 根目錄（assets 檔所在）也要分開，否則兩種建置會互相覆蓋對方的參考集。
-      MSBuildProjectExtensionsPath 必須是絕對路徑：以全域屬性傳入時 Microsoft.Common.props 無法
-      把它轉成絕對路徑，相對路徑會被當成相對於 SDK 目錄而匯入不到 nuget.g.props，
-      net472 參考組件套件因此失效——只有裝了 .NET Framework Developer Pack 的 Windows 看不出來。
-    -->
-    <BridgePrebuiltProperties>Configuration=Release;BridgeUseReferenceAssemblies=true;OutDir=bin\prebuilt\;BaseIntermediateOutputPath=obj\prebuilt\;MSBuildProjectExtensionsPath=$([System.IO.Path]::GetDirectoryName($(BridgeProject)))\obj\prebuilt\</BridgePrebuiltProperties>
-  </PropertyGroup>
-
-  <!--
-    先建 Bridge 的預編譯版本再決定自己的輸出內容。
-    只 pack Server 專案時 Bridge 不在 restore 圖裡，所以先自己 restore 一次；
-    MSBuildRestoreSessionId 是讓 restore 與 build 不共用同一份專案評估的慣例。
-    RemoveProperties：pack 會以全域屬性 TargetFramework=net10.0 再建一次 Server，
-    不移除就會傳進 Bridge，把預編譯 DLL 編成 net10.0，RimWorld（Mono）載入不了。
-  -->
-  <Target Name="PrebuildBridge" BeforeTargets="AssignTargetPaths">
-    <MSBuild Projects="$(BridgeProject)" Targets="Restore" Properties="$(BridgePrebuiltProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" RemoveProperties="TargetFramework" />
-    <MSBuild Projects="$(BridgeProject)" Targets="Build" Properties="$(BridgePrebuiltProperties)" RemoveProperties="TargetFramework">
-      <Output TaskParameter="TargetOutputs" ItemName="_BridgePrebuiltAssembly" />
-    </MSBuild>
-    <PropertyGroup>
-      <_BridgePrebuiltDir>@(_BridgePrebuiltAssembly->'%(RootDir)%(Directory)')</_BridgePrebuiltDir>
-    </PropertyGroup>
-    <ItemGroup>
-      <_BridgePrebuiltFile Include="$(_BridgePrebuiltDir)*.dll;$(_BridgePrebuiltDir)game-version.txt" />
-      <None Include="@(_BridgePrebuiltFile)">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Link>bridge\Prebuilt\%(Filename)%(Extension)</Link>
-        <!--
-          單一執行檔發佈會把所有 .dll 併進 exe。這兩顆是 net472、要給 RimWorld 載入的，
-          必須留在磁碟上的 bridge/Prebuilt/。
-        -->
-        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-      </None>
-      <EmbeddedResource Include="@(_BridgePrebuiltFile)" LogicalName="bridge/Prebuilt/%(Filename)%(Extension)" WithCulture="false" />
-    </ItemGroup>
-  </Target>
 
 </Project>

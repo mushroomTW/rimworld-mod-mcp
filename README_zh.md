@@ -22,18 +22,18 @@
 - 用獨立的存檔目錄與臨時目錄連結測試 Mod，不會動到使用者的存檔與設定。
 - 合併遊戲內 Bridge 與 `Player.log` 的診斷；Bridge 連不上時仍有 `Player.log` 可用，且會明確告知原因而非靜默降級。
 - Bridge 同時回報**遊戲內狀態**（主選單或遊戲中、地圖是否載入、tick、暫停、載入中、開啟的對話框），agent 可以等地圖真的起來再判斷測試結果，不必從 log 的沉默去猜。
-- Bridge **隨工具預編譯發佈**；遊戲版本與預編譯版本相同時，`run_test_cycle` 不需要本機 .NET SDK。
+- Bridge 以原始碼隨工具發佈，由 `run_test_cycle` 參考使用者本機的遊戲組件建置。
 - 遊戲檔、反編譯結果、索引與診斷全部留在本機。
 
 ## 系統需求
 
-- 本機已合法安裝的 RimWorld
-- [.NET SDK 10](https://dotnet.microsoft.com/download)：只有 `build_mod`（編譯 C# Mod）、從原始碼安裝，或 `run_test_cycle` 必須退回就地建置 Bridge 時才需要
+- 本機已合法安裝的 RimWorld 1.7
+- [.NET SDK 10](https://dotnet.microsoft.com/download)：`build_mod`（編譯 C# Mod）、`run_test_cycle`（建置 Bridge）與從原始碼安裝時需要
 
 > [!NOTE]
-> Release 的執行檔是 Self-Contained，執行伺服器本體不需要 .NET Runtime。`run_test_cycle` 使用內嵌在工具裡的預編譯 Bridge，只有在已安裝遊戲的 major.minor 版本與預編譯版本不同時才退回就地編譯（那時才需要 SDK）；`test_status` 的 `bridge_origin` 會說明走的是哪一條路。
+> Release 的執行檔是 Self-Contained，執行伺服器本體不需要 .NET Runtime。遊戲內 Bridge 以原始碼內嵌在工具裡；`run_test_cycle` 會參考偵測到的 RimWorld 組件編譯一次（需要 SDK），之後 Bridge 或遊戲沒變就沿用。不使用任何 NuGet 參考組件，本 repository 也不包含任何 RimWorld 二進位檔。
 
-預編譯的 C# Bridge 以公開的 [Krafs.Rimworld.Ref](https://www.nuget.org/packages/Krafs.Rimworld.Ref) 參考組件編譯；就地建置的後備路徑才會參考偵測到的 RimWorld 組件。本 repository 不包含任何 RimWorld 二進位檔。
+需要 RimWorld 1.7；不支援 1.6。1.7 不再是 Unity 遊戲，改跑在 .NET 10 上、組件直接放在安裝根目錄，因此 Bridge 與 `create_mod` 產生的 C# 專案以 `net10.0` 為目標，並參考那裡的 `Assembly-CSharp.dll` 與 `UnityStubs.dll`。
 
 ## 安裝
 
@@ -144,7 +144,7 @@ macOS 與 Linux 改填下載檔案的絕對路徑。若從原始碼安裝為 dot
 | `read_symbol` | 查詢符號的簽章、完整繼承鏈與介面，可選擇一併反編譯原始碼。精確命中優先：有精確命中時不再混入子字串命中，只在 `partial_count` 計數。`assembly` 可限定單一組件（或多版本 Mod 的其中一個版本）。零命中時回 `suggestions`。 |
 | `list_symbols` | 不靠關鍵字瀏覽：給 namespace 列出其中的頂層型別與子 namespace，給型別列出它的成員。parent 不存在時報錯而不是回空清單。 |
 | `find_descendants` | 找出所有繼承自指定型別的類別；短名不歧義時也可以。零命中時回 `suggestions`。 |
-| `search_source` | 以正規表示式（.NET 語法，一律不分大小寫）搜尋反編譯後的原始碼：預設搜遊戲本體，給 `package_id` 則搜一個已安裝的 Mod（首次會在背景反編譯，`indexing=true` 代表稍後再試）。`assembly`（例如 `1.6/`）可只搜 Mod 其中一個版本的 DLL。優先用簡單字面量（`CurTimeSpeed`）；`a|b` 取聯集。 |
+| `search_source` | 以正規表示式（.NET 語法，一律不分大小寫）搜尋反編譯後的原始碼：預設搜遊戲本體，給 `package_id` 則搜一個已安裝的 Mod（首次會在背景反編譯，`indexing=true` 代表稍後再試）。`assembly`（例如 `1.7/`）可只搜 Mod 其中一個版本的 DLL。優先用簡單字面量（`CurTimeSpeed`）；`a|b` 取聯集。 |
 | `read_source_file` | 用搜尋結果回傳的 `assembly` 與 `file` 讀取整個反編譯檔（遊戲或 Mod），以行分頁（`start_line`＋`max_bytes`）。空結果先看 `source_indexed`。 |
 | `find_def_usages` | 找出一個 Def 被引用的位置，含 XML 交叉引用與 C# 的 `DefOf` 欄位。手寫 `Languages/` 翻譯前先用它驗證欄位。 |
 
@@ -153,7 +153,7 @@ macOS 與 Linux 改填下載檔案的絕對路徑。若從原始碼安裝為 dot
 | 工具 | 用途 |
 | --- | --- |
 | `list_installed_mods` | 列出本機與 Workshop 的 Mod。用 `package_id` 過濾、`limit`／`offset` 分頁；`include_details` 才附路徑、相依與版本欄位。 |
-| `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。鎖以 `packageId` 為單位，大 Mod 首次索引數分鐘也不會擋到別的 Mod。每個組件的鍵為 `mod:<packageId>:<DLL 相對路徑>`，例如 `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`。 |
+| `inspect_installed_mod` | 按需反編譯並索引一個 Mod 的組件。鎖以 `packageId` 為單位，大 Mod 首次索引數分鐘也不會擋到別的 Mod。每個組件的鍵為 `mod:<packageId>:<DLL 相對路徑>`，例如 `mod:cj.rimtalk:1.7/Assemblies/RimTalk.dll`。 |
 
 ### 建置
 

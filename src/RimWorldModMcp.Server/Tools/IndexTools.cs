@@ -27,7 +27,7 @@ public sealed class IndexTools(
     ModInspectionService inspection)
 {
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Call first: reports RimWorld installation detection and index status. If detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.busy=true another writer holds the database, so retry shortly; if index.healthy=false and busy=false, call rebuild_index (the index database is corrupt); if index.fresh=false, call rebuild_index.")]
+    [Description("Call first: reports RimWorld installation detection and index status. If unsupported is set, an older RimWorld is installed: tell the user this tool supports RimWorld 1.7 only and ask them to update the game; if detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.busy=true another writer holds the database, so retry shortly; if index.healthy=false and busy=false, call rebuild_index (the index database is corrupt); if index.fresh=false, call rebuild_index.")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
@@ -37,6 +37,7 @@ public sealed class IndexTools(
         {
             Detected = paths.HasManagedAndData,
             InstallRoot = paths.InstallRoot,
+            Unsupported = paths.UnsupportedMessage,
             ModsDir = paths.ModsDir,
             WorkshopDir = paths.WorkshopDir,
             PlayerLog = paths.PlayerLog,
@@ -169,7 +170,7 @@ public sealed class IndexTools(
         int max_bytes = 4096,
         [Description("Maximum results, 1-100.")]
         int limit = 10,
-        [Description("Substring of the assembly key to restrict results, e.g. Assembly-CSharp, mod:cj.rimtalk, or 1.6/ to pick one version of a multi-version mod.")]
+        [Description("Substring of the assembly key to restrict results, e.g. Assembly-CSharp, mod:cj.rimtalk, or 1.7/ to pick one version of a multi-version mod.")]
         string? assembly = null) => ToolGuard.Run(() =>
     {
         using var connection = database.Open();
@@ -237,7 +238,7 @@ public sealed class IndexTools(
         string parent = "",
         [Description("Restrict to a symbol kind: Class, Struct, Interface, Enum, Delegate, Method, Constructor, Property, Field, or Event. Omit for all.")]
         string? kind = null,
-        [Description("Substring of the assembly key to restrict results, e.g. mod:cj.rimtalk or 1.6/.")]
+        [Description("Substring of the assembly key to restrict results, e.g. mod:cj.rimtalk or 1.7/.")]
         string? assembly = null,
         [Description("Maximum results, 1-500.")]
         int limit = 100) => ToolGuard.Run(() =>
@@ -286,7 +287,7 @@ public sealed class IndexTools(
     [McpServerTool(Name = "read_source_file", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Read a decompiled source file (game or installed mod) one page at a time, by the assembly and file values returned from search_source or list_symbols. A page is max_bytes (16 KB by default, about 400 lines); truncated=true means more follows, so page with start_line = previous end_line + 1.")]
     public ReadSourceFileResult ReadSourceFile(
-        [Description("Assembly key exactly as returned by a search, e.g. Assembly-CSharp or mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll.")]
+        [Description("Assembly key exactly as returned by a search, e.g. Assembly-CSharp or mod:cj.rimtalk:1.7/Assemblies/RimTalk.dll.")]
         string assembly,
         [Description("File path exactly as returned by a search, e.g. Verse/ThingDef.cs.")]
         string file,
@@ -376,7 +377,7 @@ public sealed class IndexTools(
         string? package_id = null,
         [Description("Game only: restrict to a file path pattern, e.g. RimWorld/*.cs.")]
         string? file_pattern = null,
-        [Description("Mod only: substring of the assembly key, e.g. 1.6/ to search one version of a multi-version mod.")]
+        [Description("Mod only: substring of the assembly key, e.g. 1.7/ to search one version of a multi-version mod.")]
         string? assembly = null,
         [Description("Maximum results, 1-800.")]
         int limit = 50) => ToolGuard.Run(() =>

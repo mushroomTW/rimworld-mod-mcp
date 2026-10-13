@@ -18,6 +18,10 @@ public sealed record RimWorldStatusResult
     [JsonPropertyName("install_root")]
     public string? InstallRoot { get; init; }
 
+    /// <summary>Set when an older, unsupported RimWorld is installed (this tool supports 1.7 only). Omitted otherwise.</summary>
+    [JsonPropertyName("unsupported")]
+    public string? Unsupported { get; init; }
+
     [JsonPropertyName("mods_dir")]
     public string? ModsDir { get; init; }
 

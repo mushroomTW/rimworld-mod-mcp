@@ -99,7 +99,7 @@ namespace RimWorldModMcp.Bridge
             {
                 if (__args == null || __args.Length == 0) return;
 
-                var text = __args[0] == null ? string.Empty : __args[0].ToString();
+                var text = __args[0]?.ToString() ?? string.Empty;
                 var matched = false;
                 for (var i = 0; i < markers.Length; i++)
                 {

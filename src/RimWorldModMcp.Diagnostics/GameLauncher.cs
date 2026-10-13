@@ -25,7 +25,7 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
             UseShellExecute = false,
             // 不重導 stdout/stderr：診斷本來就走 Player.log 與 Bridge，這兩條
             // 管線沒有人讀。重導又不讀的話，OS 管線緩衝區（Windows 約 4 KB）
-            // 被 Unity 的啟動 log 填滿後，RimWorld 的下一次寫入會永久阻塞。
+            // 被遊戲的啟動 log 填滿後，RimWorld 的下一次寫入會永久阻塞。
             RedirectStandardOutput = false,
             RedirectStandardError = false,
             CreateNoWindow = false,

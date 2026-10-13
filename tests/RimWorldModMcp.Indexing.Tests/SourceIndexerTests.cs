@@ -47,11 +47,10 @@ public sealed class SourceIndexerTests : IDisposable
         }
     }
 
-    private static string ManagedRelativePath() => OperatingSystem.IsWindows()
-        ? Path.Combine("RimWorldWin64_Data", "Managed")
-        : OperatingSystem.IsMacOS()
-            ? Path.Combine("RimWorldMac.app", "Contents", "Resources", "Data", "Managed")
-            : Path.Combine("RimWorldLinux_Data", "Managed");
+    /// <summary>1.7 的受控組件在安裝根目錄（macOS 在 app bundle 的 Contents/MacOS）。</summary>
+    private static string ManagedRelativePath() => OperatingSystem.IsMacOS()
+        ? Path.Combine("RimWorld.app", "Contents", "MacOS")
+        : "";
 
     [Fact]
     public void RunIndexesEveryGameAssemblyAndMarksThemDone()

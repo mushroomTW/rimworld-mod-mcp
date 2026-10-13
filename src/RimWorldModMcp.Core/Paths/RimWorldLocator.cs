@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using RimWorldModMcp.Core.Platform;
 
@@ -65,11 +66,11 @@ public sealed partial class RimWorldLocator
             return RimWorldPaths.Empty;
         }
 
-        var (managedDir, executable, dataDir) = PlatformLayout(install);
+        var (managedDir, executable) = Layout(install);
+        var dataDir = Path.Combine(install, "Data");
 
         // 每個衍生欄位都要各自通過存在性驗證，任一項不成立就是 null，
         // 呼叫端才能明確知道缺的是哪一塊。
-        var validManaged = Directory.Exists(managedDir) ? managedDir : null;
         var validExecutable = File.Exists(executable) ? executable : null;
 
         // Data 目錄光是存在不算數，必須真的有 Core/Defs 才是可用的遊戲資料。
@@ -83,14 +84,17 @@ public sealed partial class RimWorldLocator
 
         return new RimWorldPaths(
             InstallRoot: install,
-            Executable: validExecutable,
-            ManagedDir: validManaged,
+            Executable: managedDir is null ? null : validExecutable,
+            ManagedDir: managedDir,
             DataDir: validData,
             ModsDir: validMods,
             WorkshopDir: WorkshopDirectory(install),
-            PlayerLog: PlayerLogCandidates().FirstOrDefault(File.Exists),
+            PlayerLog: ResolvePlayerLog(),
             ModsConfig: modsConfig,
-            PrefsXml: prefs is not null && File.Exists(prefs) ? prefs : null);
+            PrefsXml: prefs is not null && File.Exists(prefs) ? prefs : null)
+        {
+            UnsupportedVersion = managedDir is null ? OlderThanSupported(install) : null,
+        };
     }
 
     /// <summary>
@@ -111,82 +115,80 @@ public sealed partial class RimWorldLocator
         return Directory.Exists(workshop) ? workshop : null;
     }
 
-    private static (string ManagedDir, string Executable, string DataDir) PlatformLayout(string install)
+    /// <summary>
+    /// 本工具只支援 1.7：遊戲不再是 Unity 程式，改跑在 .NET 10 上，受控組件（Assembly-CSharp.dll、
+    /// UnityStubs.dll 等）直接放在執行檔旁，不再有 *_Data/Managed。找不到 Assembly-CSharp.dll 時
+    /// ManagedDir 為 null。Data/ 與 Mods/ 在所有平台都直接位於安裝根目錄。
+    /// </summary>
+    private static (string? ManagedDir, string Executable) Layout(string install)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return (
-                Path.Combine(install, "RimWorldWin64_Data", "Managed"),
-                Path.Combine(install, "RimWorldWin64.exe"),
-                Path.Combine(install, "Data"));
-        }
-
         if (OperatingSystem.IsMacOS())
         {
-            return (
-                Path.Combine(install, "RimWorldMac.app", "Contents", "Resources", "Data", "Managed"),
-                MacExecutable(install),
-                // macOS 的 Data 目錄在安裝根目錄下，不在 app bundle 內。
-                Path.Combine(install, "Data"));
+            return MacLayout(install);
         }
 
-        return (
-            Path.Combine(install, "RimWorldLinux_Data", "Managed"),
-            Path.Combine(install, "RimWorldLinux"),
-            Path.Combine(install, "Data"));
+        // 執行檔是與 RimWorld.deps.json 同名的 apphost；
+        // 只在 Windows 上實際驗證過，Linux 依 apphost 慣例推定為沒有副檔名的 RimWorld。
+        var executable = Path.Combine(install, OperatingSystem.IsWindows() ? "RimWorld.exe" : "RimWorld");
+        return (File.Exists(Path.Combine(install, "Assembly-CSharp.dll")) ? install : null, executable);
     }
 
     /// <summary>
-    /// macOS 的執行檔名稱不固定，依序嘗試：Info.plist 的 CFBundleExecutable、
-    /// 兩個已知的硬編碼名稱、最後才是「MacOS 目錄下恰好只有一個檔案」的情況。
+    /// macOS 的受控組件在 app bundle 的 Contents/MacOS（未驗證：bundle 名稱不明，
+    /// 所以在安裝根目錄的第一層 *.app 中找含 Assembly-CSharp.dll 的那個）。
+    /// 執行檔取該目錄下 *.deps.json 去掉副檔名的名稱，找不到就退回 RimWorld。
     /// </summary>
-    private static string MacExecutable(string install)
+    private static (string? ManagedDir, string Executable) MacLayout(string install)
     {
-        var contents = Path.Combine(install, "RimWorldMac.app", "Contents");
-        var macOsDir = Path.Combine(contents, "MacOS");
-        var candidates = new List<string>();
-
-        var plist = Path.Combine(contents, "Info.plist");
-        if (File.Exists(plist))
+        string[] bundles;
+        try
         {
-            try
-            {
-                var match = BundleExecutableRegex().Match(File.ReadAllText(plist));
-                if (match.Success)
-                {
-                    candidates.Add(match.Groups[1].Value.Trim());
-                }
-            }
-            catch (IOException)
-            {
-                // 讀不到 plist 就往下走硬編碼候選。
-            }
+            bundles = Directory.GetDirectories(install, "*.app");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            bundles = [];
         }
 
-        candidates.Add(RimWorldFolderName);
-        candidates.Add("RimWorldMac");
-
-        foreach (var name in candidates.Where(n => !string.IsNullOrWhiteSpace(n)))
+        foreach (var bundle in bundles.Order(StringComparer.Ordinal))
         {
-            var path = Path.Combine(macOsDir, name);
-            if (File.Exists(path))
+            var macOsDir = Path.Combine(bundle, "Contents", "MacOS");
+            if (!File.Exists(Path.Combine(macOsDir, "Assembly-CSharp.dll")))
             {
-                return path;
+                continue;
             }
+
+            var deps = Directory.GetFiles(macOsDir, "*.deps.json").Order(StringComparer.Ordinal).FirstOrDefault();
+            var name = deps is null ? "RimWorld" : Path.GetFileName(deps)[..^".deps.json".Length];
+            return (macOsDir, Path.Combine(macOsDir, name));
         }
 
-        // 最後手段：只有在 MacOS 目錄恰好只有一個檔案時才敢採用，避免猜錯。
-        if (Directory.Exists(macOsDir))
-        {
-            var only = Directory.GetFiles(macOsDir);
-            if (only.Length == 1)
-            {
-                return only[0];
-            }
-        }
-
-        return Path.Combine(macOsDir, "RimWorldMac");
+        return (null, Path.Combine(install, "RimWorld.app", "Contents", "MacOS", "RimWorld"));
     }
+
+    /// <summary>
+    /// 安裝目錄的版本低於 1.7 時回傳該版本（major.minor），否則 null。
+    /// Version.txt 讀不到時，Unity 的 *_Data/Managed 結構本身就代表 1.7 以前的版本，回傳 "pre-1.7"。
+    /// </summary>
+    private static string? OlderThanSupported(string install)
+    {
+        var version = GameVersion.ReadMajorMinor(install);
+        if (version is null)
+        {
+            return HasUnityLayout(install) ? "pre-1.7" : null;
+        }
+
+        var parts = version.Split('.');
+        var major = int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+        var minor = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+
+        return major < 1 || (major == 1 && minor < 7) ? version : null;
+    }
+
+    private static bool HasUnityLayout(string install)
+        => Directory.Exists(Path.Combine(install, "RimWorldWin64_Data", "Managed"))
+            || Directory.Exists(Path.Combine(install, "RimWorldLinux_Data", "Managed"))
+            || Directory.Exists(Path.Combine(install, "RimWorldMac.app", "Contents", "Resources", "Data", "Managed"));
 
     private static IEnumerable<string> InstallCandidates()
     {
@@ -273,6 +275,28 @@ public sealed partial class RimWorldLocator
         }
     }
 
+    /// <summary>
+    /// Logs/Player.log 要等遊戲第一次啟動才會建立。設定目錄已存在時先指向它，
+    /// 否則第一場測試的 session 會把日誌路徑記成 null，整場都不讀日誌；
+    /// 也不能退回同目錄下舊版留下的 Player.log，那份不會再被寫入。
+    /// </summary>
+    private static string? ResolvePlayerLog()
+    {
+        var candidates = PlayerLogCandidates().ToList();
+
+        return candidates.FirstOrDefault(File.Exists)
+            ?? candidates.FirstOrDefault(path => Directory.Exists(Path.GetDirectoryName(Path.GetDirectoryName(path))));
+    }
+
+    /// <summary>
+    /// 1.7 的日誌根目錄（RimWorldWaylith.Bootstrap.ResolveLogDataRoot）：macOS 另有位置，
+    /// 其他平台就是資料根目錄。
+    /// </summary>
+    private static string DotNetLogRoot()
+        => OperatingSystem.IsMacOS()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Ludeon Studios", RimWorldFolderName)
+            : ConfigRoots().First();
+
     private static IEnumerable<string> PlayerLogCandidates()
     {
         var overridePath = EnvironmentVariables.PlayerLog;
@@ -281,17 +305,8 @@ public sealed partial class RimWorldLocator
             yield return PathText.ExpandUser(overridePath);
         }
 
-        if (OperatingSystem.IsMacOS())
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            yield return Path.Combine(home, "Library", "Logs", "Ludeon Studios", RimWorldFolderName, "Player.log");
-            yield break;
-        }
-
-        foreach (var root in ConfigRoots())
-        {
-            yield return Path.Combine(root, "Player.log");
-        }
+        // 日誌由新引擎寫在日誌根目錄的 Logs/ 底下（依據反編譯的啟動程式碼）。
+        yield return Path.Combine(DotNetLogRoot(), "Logs", "Player.log");
     }
 
     private static IEnumerable<string> ConfigRoots()
@@ -300,8 +315,7 @@ public sealed partial class RimWorldLocator
 
         if (OperatingSystem.IsWindows())
         {
-            var profile = Environment.GetEnvironmentVariable("USERPROFILE") ?? home;
-            yield return Path.Combine(profile, "AppData", "LocalLow", "Ludeon Studios", RimWorldFolderName);
+            yield return Path.Combine(LocalLowFolder(), "Ludeon Studios", RimWorldFolderName);
             yield break;
         }
 
@@ -313,13 +327,41 @@ public sealed partial class RimWorldLocator
             yield break;
         }
 
-        var unity = Path.Combine(home, ".config", "unity3d", "Ludeon Studios");
-        yield return Path.Combine(unity, RimWorldFolderName);
-        yield return Path.Combine(unity, "RimWorld");
+        // 1.7 在 Linux 上遵循 XDG_CONFIG_HOME，而且只用「RimWorld by Ludeon Studios」這一個名稱。
+        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        var config = string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".config") : xdg;
+        yield return Path.Combine(config, "unity3d", "Ludeon Studios", RimWorldFolderName);
     }
 
-    [GeneratedRegex(@"<key>\s*CFBundleExecutable\s*</key>\s*<string>([^<]+)</string>")]
-    private static partial Regex BundleExecutableRegex();
+    private static readonly Guid LocalLowFolderId = new("A520A1A4-1780-4FF6-BD18-167343C5AF16");
+
+    /// <summary>
+    /// Windows 的 LocalLow。遊戲以 SHGetKnownFolderPath 取得，AppData 被重新導向或搬移時
+    /// 不在 %USERPROFILE%\AppData\LocalLow；取不到才退回該預設位置。
+    /// </summary>
+    private static string LocalLowFolder()
+    {
+        if (OperatingSystem.IsWindows() && SHGetKnownFolderPath(LocalLowFolderId, 0, 0, out var buffer) == 0)
+        {
+            try
+            {
+                if (Marshal.PtrToStringUni(buffer) is { Length: > 0 } path)
+                {
+                    return path;
+                }
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(buffer);
+            }
+        }
+
+        var profile = Environment.GetEnvironmentVariable("USERPROFILE") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(profile, "AppData", "LocalLow");
+    }
+
+    [LibraryImport("shell32.dll")]
+    private static partial int SHGetKnownFolderPath(in Guid rfid, uint dwFlags, nint hToken, out nint ppszPath);
 
     [GeneratedRegex("\"path\"\\s+\"([^\"]+)\"")]
     private static partial Regex LibraryPathRegex();

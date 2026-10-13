@@ -112,7 +112,9 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
     private BuildResult BuildProject(string mod, string project)
     {
-        var managed = locator.Detect().ManagedDir;
+        var paths = locator.Detect();
+        paths.ThrowIfUnsupported();
+        var managed = paths.ManagedDir;
 
         DotnetHost.BuildExecution execution;
 

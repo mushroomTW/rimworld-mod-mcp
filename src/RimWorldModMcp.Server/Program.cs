@@ -34,6 +34,7 @@ static int Detect()
     var payload = new Dictionary<string, object?>
     {
         ["install_root"] = paths.InstallRoot,
+        ["unsupported"] = paths.UnsupportedMessage,
         ["executable"] = paths.Executable,
         ["managed_dir"] = paths.ManagedDir,
         ["data_dir"] = paths.DataDir,
@@ -107,7 +108,7 @@ static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellati
             // 描述越長每輪成本越高；instructions 只在 initialize 送一次。
             options.ServerInstructions = """
                 RimWorld mod development server: Core/DLC Defs, the game's C# API, and the decompiled C# of any installed mod (Workshop or local), all indexed locally. Workflow:
-                1. rimworld_status first; if index.busy=true another writer holds the index database, so retry shortly; if index.healthy=false and busy=false call rebuild_index; if index.fresh=false call rebuild_index. index.source_index tells whether the source full-text layer is running, failed (error), or done.
+                1. rimworld_status first; if unsupported is set an older RimWorld is installed, so tell the user this tool supports RimWorld 1.7 only and ask them to update the game; if index.busy=true another writer holds the index database, so retry shortly; if index.healthy=false and busy=false call rebuild_index; if index.fresh=false call rebuild_index. index.source_index tells whether the source full-text layer is running, failed (error), or done.
                 2. Research the game: search_defs -> read_def for Core/DLC XML; read_symbol / list_symbols / find_descendants for the C# API (zero hits return suggestions); search_source for regex over decompiled code (indexing=true means retry shortly); read_source_file to page a whole file.
                 3. Analyze an installed mod (Workshop or local, including DLL-only mods): list_installed_mods(package_id=<name fragment>, include_details=true) resolves packageId, path, dependencies and versions; search_source(package_id, e.g. pattern=HarmonyPatch for its patches) starts decompiling and indexing every DLL in the background; poll it until indexing=false (inspect_installed_mod does the same synchronously and can exceed your tool-call timeout on large mods). Then scope the same tools with assembly=mod:<packageId>: list_symbols(parent="") for its namespaces, read_symbol(include_body=true) for one member, read_source_file to page through a whole file. find_descendants lists mod types whose direct base is the given game type. A mod's own XML Defs are not indexed: read them from its path.
                 4. Build: create_mod (with_code=true for C#), then build_mod after every source change.

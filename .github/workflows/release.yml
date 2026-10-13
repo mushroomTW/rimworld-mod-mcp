@@ -37,13 +37,9 @@ jobs:
       # 用 python：三個 runner 都有 python3，路徑與副檔名處理不必分平台寫。
       - run: |
           python3 - <<'EOF'
-          import os, pathlib, shutil, sys
+          import os, pathlib, shutil
           rid = "${{ matrix.rid }}"
           root = pathlib.Path("publish", rid)
-          # 內嵌進執行檔的就是這份預編譯 Bridge。RimWorld 跑在 Mono 上，只載得了 net472。
-          bridge = (root / "bridge/Prebuilt/RimWorldModMcp.Bridge.dll").read_bytes()
-          if b".NETFramework,Version=v4.7.2" not in bridge:
-              sys.exit("prebuilt bridge is not built for net472")
           suffix = ".exe" if rid.startswith("win") else ""
           tag = os.environ["GITHUB_REF_NAME"]
           os.makedirs("dist", exist_ok=True)

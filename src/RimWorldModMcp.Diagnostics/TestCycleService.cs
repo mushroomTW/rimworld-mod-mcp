@@ -46,6 +46,7 @@ public sealed class TestCycleService(
         var mod = PathText.ResolveDirectory(modPath);
         var seedFiles = ResolveSeedConfig(seedConfig);
         var paths = locator.Detect();
+        paths.ThrowIfUnsupported();
 
         if (paths.Executable is null || paths.ModsDir is null)
         {

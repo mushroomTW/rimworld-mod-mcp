@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace RimWorldModMcp.Diagnostics;
 
@@ -10,7 +11,7 @@ namespace RimWorldModMcp.Diagnostics;
 /// 所以即使 Bridge 正常也一併讀——兩邊的資訊互補。
 /// </para>
 /// </summary>
-public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore diagnostics)
+public sealed partial class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore diagnostics)
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 
@@ -31,6 +32,12 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
     /// 避免久候的孤立堆疊行誤併到早已結束的診斷。
     /// </summary>
     private readonly Dictionary<string, (DiagnosticIdentity Identity, DateTimeOffset At)> _lastEntry = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 上一批結束時仍在其中的結構化紀錄，值為它是否是診斷。輪詢邊界可能切在一筆紀錄中間，
+    /// 下一批開頭直到下一個帶層級的行之前，都還屬於那一筆。
+    /// </summary>
+    private readonly Dictionary<string, bool> _openRecord = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly TimeSpan ContinuationIdleTimeout = TimeSpan.FromMinutes(5);
 
@@ -94,6 +101,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
                 _currentRun = session.RunId;
                 _identities.Clear();
                 _lastEntry.Clear();
+                _openRecord.Clear();
             }
         }
 
@@ -202,7 +210,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
 
     /// <summary>
     /// 同目錄 Player-prev.log 的「大小:修改時間」戳記；不存在時為 missing。
-    /// 啟動遊戲前記一次，之後不同就代表 Unity 已把舊 Player.log 輪替成它。
+    /// 啟動遊戲前記一次，之後不同就代表遊戲已把舊 Player.log 輪替成它。
     /// 改名保留修改時間，所以輪替後的戳記是舊 Player.log 的，與先前的 prev 不同。
     /// </summary>
     public static string PreviousLogStamp(string playerLog)
@@ -260,7 +268,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
         }
 
         // Windows 的檔案通道效應會讓新檔沿用舊檔的建立時間，上面的判斷就失效了。
-        // Unity 輪替時舊檔改名成 Player-prev.log，它的戳記一變就代表目前這份是新檔。
+        // 遊戲輪替時舊檔改名成 Player-prev.log，它的戳記一變就代表目前這份是新檔。
         if (offset > 0
             && session.PreviousLogStamp is { } before
             && PreviousLogStamp(path) != before)
@@ -284,6 +292,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             {
                 offset = 0;
                 _lastEntry.Remove(path);
+                _openRecord.Remove(path);
             }
         }
 
@@ -295,6 +304,7 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             lock (_stateGate)
             {
                 _lastEntry.Remove(path);
+                _openRecord.Remove(path);
             }
         }
 
@@ -303,11 +313,13 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
 
     private int HandleStackContinuation(string[] lines, string path)
     {
-        var startIndex = 0;
         DiagnosticIdentity? pending = null;
+        bool? openRecordIsEntry;
 
         lock (_stateGate)
         {
+            openRecordIsEntry = _openRecord.TryGetValue(path, out var isEntry) ? isEntry : null;
+
             if (_lastEntry.TryGetValue(path, out var last))
             {
                 if (DateTimeOffset.UtcNow - last.At > ContinuationIdleTimeout)
@@ -322,43 +334,38 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
             }
         }
 
-        if (pending is not null)
+        // 上一批停在一筆結構化紀錄中間。下一個帶層級的行之前都屬於它——
+        // 是診斷就併進去（不含引擎附的呼叫堆疊），不是（例如 INFO）就整段丟掉，
+        // 不能併到更早的診斷。
+        if (openRecordIsEntry is not { } openIsEntry)
         {
-            var leading = new List<string>();
-
-            foreach (var raw in lines)
-            {
-                var text = Normalise(raw);
-
-                if (text.Length == 0 || !IsStackContinuation(text))
-                {
-                    break;
-                }
-
-                leading.Add(text);
-            }
-
-            if (leading.Count > 0)
-            {
-                diagnostics.AppendContinuation(pending, string.Join('\n', leading));
-                startIndex = leading.Count;
-            }
-            else
-            {
-                // 新一批不是續行：上一筆診斷已完整，清除接續資格。
-                lock (_stateGate)
-                {
-                    _lastEntry.Remove(path);
-                }
-            }
+            return 0;
         }
 
-        return startIndex;
+        var leading = lines.Select(Normalise).TakeWhile(text => !StructuredLineRegex().IsMatch(text)).ToList();
+        var body = leading.Where(text => text.Length > 0 && !EngineStackFrameRegex().IsMatch(text)).ToList();
+
+        if (openIsEntry && pending is not null && body.Count > 0)
+        {
+            diagnostics.AppendContinuation(pending, string.Join('\n', body));
+        }
+
+        return leading.Count;
     }
 
     private void RecordBatchDiagnostics(string[] lines, int startIndex, string path, string? runId)
     {
-        var batch = ClassifyBatch(lines.Skip(startIndex));
+        var batch = ClassifyBatch(lines.Skip(startIndex), out var trailingRecordIsEntry);
+
+        // 記下批尾停在哪一筆結構化紀錄裡。這批沒有任何帶層級的行時，
+        // 整批都已當作上一筆的續行處理，狀態不變。
+        if (trailingRecordIsEntry is { } isEntry)
+        {
+            lock (_stateGate)
+            {
+                _openRecord[path] = isEntry;
+            }
+        }
 
         // 整批一次寫入：錯誤風暴時逐行各做一次全檔 read+serialize 是 O(n²) IO。
         if (batch.Count > 0)
@@ -377,20 +384,25 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
     /// 把一批日誌行分類成診斷。
     ///
     /// <para>
-    /// 堆疊追蹤的續行會**併進前一筆**而不是各自成一筆。一個例外在 Player.log 裡
-    /// 通常有 5~20 行堆疊，逐行各成一筆會把保留容量（200 筆）瞬間塞滿、
-    /// 把真正的錯誤擠掉，同時把 error_count 灌成假的高數字——而 agent 會照著
-    /// 那些數字去追不存在的問題。
+    /// 每筆紀錄以「時間 層級 [分類]」開頭，之後到下一個開頭之前的行（多行訊息、堆疊）
+    /// 都屬於同一筆：是診斷就併進去（引擎附的呼叫堆疊除外），不是就整段略過。
+    /// 一個例外在 Player.log 裡通常有 5~20 行堆疊，逐行各成一筆會把保留容量（200 筆）
+    /// 瞬間塞滿、把真正的錯誤擠掉，同時把 error_count 灌成假的高數字——
+    /// 而 agent 會照著那些數字去追不存在的問題。
     /// </para>
     /// <para>
-    /// 續行只在「緊接的前一行本身就是一筆診斷」時才併入；否則（例如一段孤立的
-    /// 堆疊行）直接丟棄，避免誤併到更早的無關紀錄。
+    /// 第一筆紀錄之前的行（檔頭等）沒有所屬紀錄，直接丟棄。
     /// </para>
     /// </summary>
     internal static List<(string Type, string FirstLine, string Text)> ClassifyBatch(IEnumerable<string> lines)
+        => ClassifyBatch(lines, out _);
+
+    /// <param name="lines">一批日誌行。</param>
+    /// <param name="trailingRecordIsEntry">批尾停在的那筆紀錄是否是診斷；這批沒有任何帶層級的行時為 null。</param>
+    internal static List<(string Type, string FirstLine, string Text)> ClassifyBatch(IEnumerable<string> lines, out bool? trailingRecordIsEntry)
     {
         var batch = new List<(string Type, string FirstLine, string Text)>();
-        var previousLineWasEntry = false;
+        bool? currentRecordIsEntry = null;
 
         foreach (var line in lines)
         {
@@ -398,100 +410,88 @@ public sealed class PlayerLogTailer(TestSessionStore sessions, DiagnosticStore d
 
             if (text.Length == 0)
             {
-                previousLineWasEntry = false;
                 continue;
             }
 
-            if (previousLineWasEntry && IsStackContinuation(text))
+            var structured = StructuredLineRegex().Match(text);
+
+            if (!structured.Success)
             {
-                var previous = batch[^1];
-                batch[^1] = (previous.Type, previous.FirstLine, previous.Text + "\n" + text);
+                if (currentRecordIsEntry == true && !EngineStackFrameRegex().IsMatch(text))
+                {
+                    // 訊息以換行開頭時標題行沒有內容，第一個續行才是訊息的第一行。
+                    var previous = batch[^1];
+                    batch[^1] = previous.Text.Length == 0
+                        ? (previous.Type, text, text)
+                        : (previous.Type, previous.FirstLine, previous.Text + "\n" + text);
+                }
+
                 continue;
             }
 
-            if (Classify(text) is { } item)
+            var item = ClassifyStructured(structured.Groups["level"].Value, structured.Groups["message"].Value);
+
+            if (item is { } entry)
             {
-                batch.Add(item);
-                previousLineWasEntry = true;
-                continue;
+                batch.Add(entry);
             }
 
-            previousLineWasEntry = false;
+            currentRecordIsEntry = item is not null;
         }
+
+        // 標題行沒有內容、這批也沒有續行的紀錄沒有可回報的文字，丟掉。批尾那筆被丟掉時，
+        // 下一批的續行不能併到更早的診斷，所以批尾視為非診斷。
+        if (currentRecordIsEntry == true && batch[^1].Text.Length == 0)
+        {
+            currentRecordIsEntry = false;
+        }
+
+        batch.RemoveAll(entry => entry.Text.Length == 0);
+        trailingRecordIsEntry = currentRecordIsEntry;
 
         return batch;
     }
 
     /// <summary>
-    /// 是否是堆疊追蹤的續行。縮排已經被 <see cref="Normalise"/> 去掉，
-    /// 所以判斷 "at " 開頭即可（.NET 的堆疊行形如 <c>at Verse.Thing.Tick()</c>）。
+    /// 日誌行：<c>2026-10-13 01:29:00.123 ERROR [Verse] 訊息</c>。層級固定五字元寬、
+    /// 右靠（" WARN"），Normalise 之後前導空白已併進分隔。分類名稱一律剝掉：
+    /// Bridge 回報的是原始訊息，診斷要以相同文字去重。
     /// </summary>
-    private static bool IsStackContinuation(string trimmedLine)
-        => trimmedLine.StartsWith("at ", StringComparison.Ordinal);
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2} \d{2}\D\d{2}\D\d{2}\.\d{3} +(?<level>TRACE|DEBUG|INFO|WARN|ERROR|CRIT)(?: \[[^\]\s]*\])?(?: (?<message>.*))?$")]
+    private static partial Regex StructuredLineRegex();
+
+    /// <summary>
+    /// 引擎替每一筆紀錄附上的呼叫端堆疊（FileLog.FormatStack：<c>at 型別.方法(...) [0xIL] in 檔案:行</c>）。
+    /// 這些不放進診斷：DiagnosticStore 的去重簽章只看 at 行，留著的話同一呼叫點的不同錯誤
+    /// 會被併成一筆，也對不上不帶堆疊的 Bridge 回報。訊息本身含的例外堆疊（.NET 的格式沒有 [0x..]）照留。
+    /// </summary>
+    [GeneratedRegex(@"^at .+ \[0x[0-9A-Fa-f]+\](?: in .+)?$")]
+    private static partial Regex EngineStackFrameRegex();
+
+    /// <summary>
+    /// 有明確層級的日誌行：照層級分類，不再靠關鍵字。訊息以換行開頭時 <paramref name="message"/> 是空的，
+    /// 錯誤與警告仍回一筆空文字的診斷，由 ClassifyBatch 以第一個續行補上。
+    /// </summary>
+    private static (string Type, string FirstLine, string Text)? ClassifyStructured(string level, string message)
+    {
+        if (message.Length > 0 && PerformanceMarkers.Matches(message))
+        {
+            return ("performance", message, message);
+        }
+
+        return level switch
+        {
+            "ERROR" or "CRIT" => ("error", message, message),
+            "WARN" => ("warning", message, message),
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// 去掉縮排與 BOM。關掉 BOM 自動偵測後，檔案開頭的 BOM 會以字元形式
     /// 出現在第一行。
     /// </summary>
     private static string Normalise(string line) => line.Trim().TrimStart('﻿').Trim();
-
-    /// <summary>
-    /// 含 error 字樣、實際卻是 Log.Warning 的訊息。「Translation data ... has N errors」
-    /// 來自 LoadedLanguage，而使用者的語言設定會隨 Prefs.xml 帶進每一場測試——
-    /// 不排除的話每場都憑空多一個 error。
-    /// </summary>
-    private static readonly string[] KnownWarnings =
-    [
-        "Translation data for language",
-        "(using undefined sound instead)",
-    ];
-
-    /// <summary>不含 error／exception 字樣的 Log.Error（DirectXmlCrossRefLoader、DefDatabase）。</summary>
-    private static readonly string[] KnownErrors =
-    [
-        "Could not resolve cross-reference",
-        "Failed to find ",
-    ];
-
-    private static (string Type, string FirstLine, string Text)? Classify(string line)
-    {
-        var text = Normalise(line);
-
-        if (text.Length == 0)
-        {
-            return null;
-        }
-
-        // 效能標記是 Mod 作者明確的選擇，優先於關鍵字：效能行常含 error 以外的字樣，
-        // 但萬一含了也不該被當成錯誤。
-        if (PerformanceMarkers.Matches(text))
-        {
-            return ("performance", text, text);
-        }
-
-        // Player.log 沒有層級標記，只能靠關鍵字；已知會被關鍵字誤判的 RimWorld 訊息先按真實層級處理。
-        if (KnownWarnings.Any(marker => text.Contains(marker, StringComparison.Ordinal)))
-        {
-            return ("warning", text, text);
-        }
-
-        if (KnownErrors.Any(marker => text.StartsWith(marker, StringComparison.Ordinal)))
-        {
-            return ("error", text, text);
-        }
-
-        var isError = text.Contains("error", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("exception", StringComparison.OrdinalIgnoreCase);
-
-        var isWarning = text.Contains("warning", StringComparison.OrdinalIgnoreCase);
-
-        if (!isError && !isWarning)
-        {
-            return null;
-        }
-
-        return (isError ? "error" : "warning", text, text);
-    }
 
     private static async Task<bool> SafeWaitAsync(PeriodicTimer timer, CancellationToken cancellationToken)
     {

@@ -24,11 +24,23 @@
   <PropertyGroup>
     <!-- 不在預設 Steam 路徑時以 -p:RimWorldWorkshopDir=... 覆寫。 -->
     <RimWorldWorkshopDir Condition="'$(RimWorldWorkshopDir)' == ''">C:\Program Files (x86)\Steam\steamapps\workshop\content\294100</RimWorldWorkshopDir>
+    <!--
+      參考本機遊戲組件（不用 NuGet 的 Krafs.Rimworld.Ref）。RimTest Redux 只有 1.6 版，
+      所以必須指向 1.6 的 RimWorldWin64_Data\Managed。
+    -->
+    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == ''">$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 執行期由 brrainz.harmony、ilyvion.Laboratory、ilyvion.rimtestredux 提供，一律不複製。 -->
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.*" PrivateAssets="all" />
+    <!-- 執行期由遊戲本身與 brrainz.harmony、ilyvion.Laboratory、ilyvion.rimtestredux 提供，一律不複製。 -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(RimWorldManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <PackageReference Include="Lib.Harmony" Version="2.4.2" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net481" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="RimTestRedux">
@@ -36,5 +48,10 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <!-- 路徑沒設或指向 1.7（.NET 10 組件，net481 參考不了）時，明講原因而不是丟出一串編譯錯誤。 -->
+  <Target Name="RequireRimWorld16ManagedDir" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(RimWorldManagedDir)\UnityEngine.CoreModule.dll')">
+    <Error Text="遊戲內測試需要 RimWorld 1.6 的遊戲組件：請把 RIMWORLD_MANAGED_DIR 設為 1.6 的 RimWorldWin64_Data\Managed（RimTest Redux 沒有 1.7 版）。目前的值：'$(RimWorldManagedDir)'" />
+  </Target>
 
 </Project>

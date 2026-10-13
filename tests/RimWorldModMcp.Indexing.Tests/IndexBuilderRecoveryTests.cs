@@ -36,12 +36,10 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
     public void RebuildResetsAMalformedDerivedDatabaseAndRetriesOnce()
     {
         var install = Path.Combine(_root, "RimWorld");
-        // Managed 目錄的位置依平台不同；CI 的這個測試專案跑在 Ubuntu 上。
-        Directory.CreateDirectory(Path.Combine(install, OperatingSystem.IsWindows()
-            ? Path.Combine("RimWorldWin64_Data", "Managed")
-            : OperatingSystem.IsMacOS()
-                ? Path.Combine("RimWorldMac.app", "Contents", "Resources", "Data", "Managed")
-                : Path.Combine("RimWorldLinux_Data", "Managed")));
+        // 1.7 的受控組件在安裝根目錄（macOS 在 app bundle 的 Contents/MacOS）；
+        // 定位器以 Assembly-CSharp.dll 是否存在判斷，所以放一個沒有任何型別的空組件。
+        var managed = OperatingSystem.IsMacOS() ? Path.Combine(install, "RimWorld.app", "Contents", "MacOS") : install;
+        SyntheticAssembly.Emit("", "Assembly-CSharp", managed);
         Directory.CreateDirectory(Path.Combine(install, "Data", "Core", "Defs"));
         Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", install);
 

@@ -22,18 +22,18 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 - Tests mods with an isolated save folder and temporary directory links, leaving your real saves and settings untouched.
 - Merges diagnostics from the in-game bridge and `Player.log`. If the bridge cannot connect, `Player.log` still works and the reason is reported rather than silently degraded.
 - The bridge also reports **in-game state** (main menu vs. playing, map loaded, tick, paused, loading, open dialogs), so an agent can wait for the map to come up before judging a test instead of guessing from log silence.
-- The bridge ships **prebuilt**; `run_test_cycle` needs no local .NET SDK when the installed game matches the prebuilt version.
+- The bridge ships as source and is built by `run_test_cycle` against your installed game's own assemblies.
 - Game files, decompiled output, indexes, and diagnostics all stay on your machine.
 
 ## Requirements
 
-- A legitimately installed copy of RimWorld
-- [.NET SDK 10](https://dotnet.microsoft.com/download), only for `build_mod` (compiling C# mods), for installing from source, or when `run_test_cycle` has to fall back to building the bridge locally
+- A legitimately installed copy of RimWorld 1.7
+- [.NET SDK 10](https://dotnet.microsoft.com/download), for `build_mod` (compiling C# mods), for `run_test_cycle` (building the bridge), or for installing from source
 
 > [!NOTE]
-> The release executable is self-contained: running the server needs no .NET Runtime. `run_test_cycle` uses the prebuilt in-game bridge embedded in the tool and only falls back to compiling it locally (which needs the SDK) when the installed game's major.minor version differs from the one the bridge was built for; `test_status` reports which path was taken in `bridge_origin`.
+> The release executable is self-contained: running the server needs no .NET Runtime. The in-game bridge is embedded in the tool as source; `run_test_cycle` compiles it once against the RimWorld assemblies it detects (which needs the SDK) and reuses that build until the bridge or the game changes. No NuGet reference assemblies are used, and this repository contains no RimWorld binaries.
 
-The prebuilt C# bridge is compiled against the public [Krafs.Rimworld.Ref](https://www.nuget.org/packages/Krafs.Rimworld.Ref) reference assemblies; the local fallback build references the RimWorld assemblies it detects. This repository contains no RimWorld binaries.
+RimWorld 1.7 is required; 1.6 is not supported. 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root, so the bridge and `create_mod` C# projects target `net10.0` and reference `Assembly-CSharp.dll` and `UnityStubs.dll` there.
 
 ## Installation
 
@@ -144,7 +144,7 @@ Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp
 | `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. Exact name matches win: when any exist, substring matches are left out and counted in `partial_count`. `assembly` narrows to one assembly (or one version of a multi-version mod). Zero hits return `suggestions`. |
 | `list_symbols` | Browse without a keyword: a namespace lists its top-level types and child namespaces; a type lists its members. An unknown parent is an error, not an empty list. |
 | `find_descendants` | Find every class deriving from a given type; a short name works when unambiguous. Zero hits return `suggestions`. |
-| `search_source` | Regex search (.NET syntax, always case-insensitive) over decompiled source: the game by default, or one installed mod with `package_id` (first use decompiles in the background; `indexing=true` means retry shortly). `assembly` (e.g. `1.6/`) restricts a mod search to one version's DLL. Prefer simple literals (`CurTimeSpeed`); `a|b` matches either branch. |
+| `search_source` | Regex search (.NET syntax, always case-insensitive) over decompiled source: the game by default, or one installed mod with `package_id` (first use decompiles in the background; `indexing=true` means retry shortly). `assembly` (e.g. `1.7/`) restricts a mod search to one version's DLL. Prefer simple literals (`CurTimeSpeed`); `a|b` matches either branch. |
 | `read_source_file` | Read a whole decompiled file (game or mod) by the `assembly` and `file` a search returned, paging by line (`start_line` + `max_bytes`). Check `source_indexed` before trusting empty results. |
 | `find_def_usages` | Find where a Def is referenced, across XML cross-references and C# `DefOf` fields. Use it to verify translatable fields before hand-writing `Languages/` XML. |
 
@@ -153,7 +153,7 @@ Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp
 | Tool | Purpose |
 | --- | --- |
 | `list_installed_mods` | List local and Workshop mods. Filter with `package_id` and page with `limit`/`offset`; `include_details` adds the path, dependencies and versions. |
-| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Locks are per-`packageId`, so a large mod (minutes on first run) does not block other mods. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll`. |
+| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Locks are per-`packageId`, so a large mod (minutes on first run) does not block other mods. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.7/Assemblies/RimTalk.dll`. |
 
 ### Build
 
