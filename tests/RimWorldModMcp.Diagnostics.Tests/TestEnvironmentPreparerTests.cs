@@ -73,7 +73,56 @@ public sealed class TestEnvironmentPreparerTests
         Assert.Equal("True", root.Element("fullscreen")!.Value);
     }
 
-    private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\Games\RimWorld" : "/opt/rimworld";
+    private static XElement WriteConfig(string? existingXml, string? installedVersion)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "rwmm-cfg-" + Guid.NewGuid().ToString("n")[..12]);
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            string? existing = null;
+
+            if (existingXml is not null)
+            {
+                existing = Path.Combine(root, "existing.xml");
+                File.WriteAllText(existing, existingXml);
+            }
+
+            TestEnvironmentPreparer.WriteModsConfig(root, existing, ["ludeon.rimworld"], installedVersion);
+
+            return XDocument.Load(Path.Combine(root, "ModsConfig.xml")).Root!;
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private const string OldConfig = """
+        <ModsConfigData>
+          <version>1.6.4871 rev590</version>
+          <knownExpansions><li>Ludeon.RimWorld.Royalty</li></knownExpansions>
+        </ModsConfigData>
+        """;
+
+    [Fact]
+    public void WriteModsConfig_prefers_installed_version_over_stale_user_config()
+    {
+        // 使用者設定檔還是 1.6 版號時，沿用它會讓 1.7 判定為舊資料並重置啟用清單。
+        var config = WriteConfig(OldConfig, "1.7.4976 rev1043");
+
+        Assert.Equal("1.7.4976 rev1043", config.Element("version")!.Value);
+        Assert.Equal("ludeon.rimworld.royalty", config.Element("knownExpansions")!.Element("li")!.Value);
+    }
+
+    [Fact]
+    public void WriteModsConfig_falls_back_to_existing_then_default_version()
+    {
+        Assert.Equal("1.6.4871 rev590", WriteConfig(OldConfig, null).Element("version")!.Value);
+        Assert.Equal(RimWorldModMcp.Core.Paths.GameVersion.Fallback, WriteConfig(null, null).Element("version")!.Value);
+    }
+
+    private static readonly string Root =OperatingSystem.IsWindows() ? @"C:\Games\RimWorld" : "/opt/rimworld";
     private static readonly string ModsDir = Path.Combine(Root, "Mods");
 
     [Fact]

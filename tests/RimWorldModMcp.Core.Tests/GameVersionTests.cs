@@ -28,6 +28,16 @@ public sealed class GameVersionTests : IDisposable
     }
 
     [Theory]
+    [InlineData("1.7.4976 rev1043\n", "1.7.4976 rev1043")]
+    [InlineData("1.7", "1.7")]
+    public void ReadsFullVersion(string content, string expected)
+    {
+        File.WriteAllText(Path.Combine(_root, "Version.txt"), content);
+
+        Assert.Equal(expected, GameVersion.ReadFull(_root));
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("garbage")]
     [InlineData("1")]

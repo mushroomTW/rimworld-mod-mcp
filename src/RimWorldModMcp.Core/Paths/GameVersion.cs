@@ -13,6 +13,24 @@ public static class GameVersion
     /// </summary>
     public static string? ReadMajorMinor(string? installRoot)
     {
+        var full = ReadFull(installRoot);
+
+        if (full is null)
+        {
+            return null;
+        }
+
+        var parts = full.Split(' ', 2)[0].Split('.');
+
+        return $"{parts[0]}.{parts[1]}";
+    }
+
+    /// <summary>
+    /// 回傳 Version.txt 的完整內容（例如 1.7.4976 rev1043）。檔案不存在或格式不符時回 null。
+    /// 遊戲比對 ModsConfig.xml 的 version 時看的是整串，不只 major.minor。
+    /// </summary>
+    public static string? ReadFull(string? installRoot)
+    {
         if (installRoot is null)
         {
             return null;
@@ -29,10 +47,12 @@ public static class GameVersion
             return null;
         }
 
-        var parts = text.Trim().Split(' ', 2)[0].Split('.');
+        text = text.Trim();
+
+        var parts = text.Split(' ', 2)[0].Split('.');
 
         return parts.Length >= 2 && int.TryParse(parts[0], out _) && int.TryParse(parts[1], out _)
-            ? $"{parts[0]}.{parts[1]}"
+            ? text
             : null;
     }
 }

@@ -102,7 +102,7 @@ public sealed class TestEnvironmentPreparer(
                 }
             }
 
-            WriteModsConfig(configDirectory, paths.ModsConfig, activeMods, GameVersion.ReadMajorMinor(paths.InstallRoot));
+            WriteModsConfig(configDirectory, paths.ModsConfig, activeMods, GameVersion.ReadFull(paths.InstallRoot));
             CopyPrefs(configDirectory, paths.PrefsXml);
             SeedConfig(configDirectory, seedConfig, testFolderName);
             ApplyFullscreen(configDirectory);
@@ -206,9 +206,13 @@ public sealed class TestEnvironmentPreparer(
         return EmbeddedBridge.Extract(Assembly.GetEntryAssembly(), Path.Combine(store.CacheHome, "bridge-embedded"));
     }
 
-    private static void WriteModsConfig(string configDirectory, string? existingConfig, IReadOnlyList<string> activeMods, string? installedVersion)
+    internal static void WriteModsConfig(string configDirectory, string? existingConfig, IReadOnlyList<string> activeMods, string? installedVersion)
     {
-        var (version, knownExpansions) = ReadConfigValues(existingConfig, installedVersion ?? GameVersion.Fallback);
+        var (existingVersion, knownExpansions) = ReadConfigValues(existingConfig);
+
+        // 安裝目錄的版本優先：使用者的設定檔可能還停在舊版號（升級遊戲後尚未正常開過一次），
+        // 遊戲讀到不符的版本會判定為舊資料並重置啟用清單，只剩 Core 與 DLC。
+        var version = installedVersion ?? existingVersion ?? GameVersion.Fallback;
 
         var document = new XElement("ModsConfigData",
             new XElement("version", version),
@@ -222,14 +226,14 @@ public sealed class TestEnvironmentPreparer(
     }
 
     /// <summary>
-    /// 沿用使用者現有設定的遊戲版本與已知 DLC，避免遊戲把 DLC 當成新安裝。
-    /// 沒有現成設定（第一次啟動的遊戲）時退回 Version.txt 讀到的版本。
+    /// 沿用使用者現有設定的已知 DLC，避免遊戲把 DLC 當成新安裝；
+    /// 同時回傳其中的版本號（沒有或讀不到時為 null），僅在讀不到安裝版本時才會用到。
     /// </summary>
-    private static (string Version, IReadOnlyList<string> KnownExpansions) ReadConfigValues(string? path, string fallbackVersion)
+    private static (string? Version, IReadOnlyList<string> KnownExpansions) ReadConfigValues(string? path)
     {
         if (path is null || !File.Exists(path))
         {
-            return (fallbackVersion, []);
+            return (null, []);
         }
 
         try
@@ -238,7 +242,7 @@ public sealed class TestEnvironmentPreparer(
 
             if (root is null)
             {
-                return (fallbackVersion, []);
+                return (null, []);
             }
 
             var version = root.Element("version")?.Value.Trim();
@@ -248,11 +252,11 @@ public sealed class TestEnvironmentPreparer(
                 .Where(v => v.Length > 0)
                 .ToList();
 
-            return (string.IsNullOrEmpty(version) ? fallbackVersion : version, expansions);
+            return (string.IsNullOrEmpty(version) ? null : version, expansions);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
-            return (fallbackVersion, []);
+            return (null, []);
         }
     }
 
