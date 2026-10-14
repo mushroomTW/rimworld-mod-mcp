@@ -352,12 +352,7 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
 
         internal static DecompilerHandle Create(string assemblyPath, string stamp, string? managedDirectory)
         {
-            // PrefetchEntireImage 讀完就放掉檔案控制代碼。預設的 memory-map 會鎖住 DLL，
-            // 使用者中途更新遊戲時會留下卡住的 handle。
-            const System.Reflection.PortableExecutable.PEStreamOptions streamOptions =
-                System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage;
-
-            var file = new PEFile(assemblyPath, System.IO.File.OpenRead(assemblyPath), streamOptions);
+            var file = OpenImage(assemblyPath);
 
             // resolver 必須指向 Managed 目錄，否則跨組件的型別全都解析成 ??。
             // 參考組件也要用同樣的 streamOptions：resolver 預設會 memory-map 同目錄的 DLL
@@ -366,12 +361,12 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
                 assemblyPath,
                 throwOnError: false,
                 file.DetectTargetFrameworkId(),
-                streamOptions: streamOptions);
+                streamOptions: ImageStreamOptions);
 
             // Mod 組件放在自己的 Assemblies/ 底下，resolver 預設只搜那裡與目標框架的
             // 參考目錄，Assembly-CSharp 與 UnityEngine 全都解析不到——反編譯結果會塞滿
             // 「Unknown result type (might be due to invalid IL or missing references)」。
-            // 把遊戲的 Managed 目錄加進搜尋路徑；沒有 Mono 的平台上連 mscorlib 也靠它。
+            // 把遊戲的受控組件目錄加進搜尋路徑；net472 的 Mod 參考的 mscorlib 也靠它。
             if (managedDirectory is not null && Directory.Exists(managedDirectory))
             {
                 resolver.AddSearchDirectory(managedDirectory);
@@ -384,9 +379,19 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
                 ShowXmlDocumentation = false,
             };
 
-            return new DecompilerHandle(file, new CSharpDecompiler(file, resolver, settings), stamp);
+            return new DecompilerHandle(file, new CSharpDecompiler(file, UnityStubsResolver.Wrap(resolver, managedDirectory), settings), stamp);
         }
 
         public void Dispose() => File.Dispose();
     }
+
+    /// <summary>
+    /// PrefetchEntireImage 讀完就放掉檔案控制代碼。預設的 memory-map 會鎖住 DLL，
+    /// 使用者中途更新遊戲時會留下卡住的 handle。
+    /// </summary>
+    internal const System.Reflection.PortableExecutable.PEStreamOptions ImageStreamOptions =
+        System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage;
+
+    /// <summary>以 <see cref="ImageStreamOptions"/> 把組件整個讀進記憶體，不留檔案控制代碼。</summary>
+    internal static PEFile OpenImage(string path) => new(path, System.IO.File.OpenRead(path), ImageStreamOptions);
 }
