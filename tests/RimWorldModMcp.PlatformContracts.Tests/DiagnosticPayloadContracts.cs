@@ -7,9 +7,8 @@ namespace RimWorldModMcp.PlatformContracts.Tests;
 /// Bridge 送出的 NDJSON 格式契約。
 ///
 /// <para>
-/// Bridge 跑在 Unity Mono 的 net472 上，不能相依 System.Text.Json，
-/// 所以 JSON 是手寫逐字元組出來的。這個測試專案直接以原始碼連結
-/// 引入同一份 DiagnosticPayload.cs，在行程內驗證那段邏輯。
+/// Bridge 以 Utf8JsonWriter 組出每一行。這個測試專案直接以原始碼連結
+/// 引入同一份 DiagnosticPayload.cs，在行程內驗證 daemon 收到的格式。
 /// </para>
 /// <para>
 /// Python 時代這件事得靠一個叫 EscapeProbe 的獨立主控台程式 + base64-over-stdin
@@ -95,13 +94,34 @@ public sealed class DiagnosticPayloadContracts
     }
 
     [Fact]
-    public void ControlCharactersUseLowercaseHexEscapes()
+    public void ControlCharactersUseUnicodeEscapes()
     {
         var line = DiagnosticPayload.BuildLine("error", "t", "f", "");
 
-        Assert.Contains("\\u0001", line, StringComparison.Ordinal);
-        Assert.Contains("\\u001f", line, StringComparison.Ordinal);
-        Assert.Contains("\\u007f", line, StringComparison.Ordinal);
+        Assert.Contains("\\u0001", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\\u001f", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\\u007f", line, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Mod 的日誌可能含單獨的 surrogate；換成 U+FFFD 送出，不能讓整筆診斷因例外而消失。</summary>
+    [Fact]
+    public void LoneSurrogateIsReplacedNotThrown()
+    {
+        var line = DiagnosticPayload.BuildLine("error", "t", "f", "a\ud800b");
+
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal("a\ufffdb", document.RootElement.GetProperty("text").GetString());
+    }
+
+    /// <summary>null 欄位送空字串而不是 JSON null：daemon 對非字串的 type 會丟掉整行。</summary>
+    [Fact]
+    public void NullFieldsAreSentAsEmptyStrings()
+    {
+        var line = DiagnosticPayload.BuildLine(null!, "t", "f", null!);
+
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal(JsonValueKind.String, document.RootElement.GetProperty("type").ValueKind);
+        Assert.Equal(string.Empty, document.RootElement.GetProperty("text").GetString());
     }
 
     private static int CountOccurrences(string haystack, string needle)

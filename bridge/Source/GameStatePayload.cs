@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace RimWorldModMcp.Bridge
 {
     /// <summary>
@@ -30,27 +28,26 @@ namespace RimWorldModMcp.Bridge
     internal static class GameStatePayload
     {
         internal static string BuildLine(string token, GameStateSnapshot state)
-        {
-            var builder = new StringBuilder(384);
-            builder.Append("{\"type\":\"game_state\",\"token\":\"").Append(DiagnosticPayload.Escape(token)).Append('"');
-            builder.Append(",\"program_state\":\"").Append(DiagnosticPayload.Escape(state.ProgramState)).Append('"');
-            builder.Append(",\"map_loaded\":").Append(state.MapLoaded ? "true" : "false");
-            builder.Append(",\"tick\":").Append(state.Tick);
-            builder.Append(",\"paused\":").Append(state.Paused ? "true" : "false");
-            builder.Append(",\"time_speed\":\"").Append(DiagnosticPayload.Escape(state.TimeSpeed)).Append('"');
-            builder.Append(",\"loading\":").Append(state.Loading ? "true" : "false");
-            builder.Append(",\"open_windows\":[");
-            for (var i = 0; i < state.OpenWindows.Length; i++)
+            => DiagnosticPayload.Write((token, state), static (writer, line) =>
             {
-                if (i > 0) builder.Append(',');
-                builder.Append('"').Append(DiagnosticPayload.Escape(state.OpenWindows[i])).Append('"');
-            }
-            builder.Append(']');
-            builder.Append(",\"colonists\":").Append(state.Colonists);
-            builder.Append(",\"game_version\":\"").Append(DiagnosticPayload.Escape(state.GameVersion)).Append('"');
-            builder.Append(",\"uptime_ms\":").Append(state.UptimeMs);
-            builder.Append('}');
-            return builder.ToString();
-        }
+                var snapshot = line.state;
+                writer.WriteString("type", "game_state");
+                DiagnosticPayload.WriteText(writer, "token", line.token);
+                DiagnosticPayload.WriteText(writer, "program_state", snapshot.ProgramState);
+                writer.WriteBoolean("map_loaded", snapshot.MapLoaded);
+                writer.WriteNumber("tick", snapshot.Tick);
+                writer.WriteBoolean("paused", snapshot.Paused);
+                DiagnosticPayload.WriteText(writer, "time_speed", snapshot.TimeSpeed);
+                writer.WriteBoolean("loading", snapshot.Loading);
+                writer.WriteStartArray("open_windows");
+                foreach (var window in snapshot.OpenWindows)
+                {
+                    writer.WriteStringValue(window ?? string.Empty);
+                }
+                writer.WriteEndArray();
+                writer.WriteNumber("colonists", snapshot.Colonists);
+                DiagnosticPayload.WriteText(writer, "game_version", snapshot.GameVersion);
+                writer.WriteNumber("uptime_ms", snapshot.UptimeMs);
+            });
     }
 }
