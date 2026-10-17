@@ -120,28 +120,7 @@ public static class LoadOrderResolver
             .ThenBy(id => id, StringComparer.Ordinal)
             .ToList();
 
-        // 宣告 loadBefore／forceLoadBefore Core 的 Mod（例如 Harmony）連同它們的硬相依先走訪，排在 Core 前面。
-        // Core 不在 wanted 裡，BuildReverseLoadBeforeEdges 不會替它建反向邊，必須在這裡處理。
-        var mustFollowCore = ModsThatMustFollowCore(wanted, index, afterEdgesFromBefore, dependencyEdges);
-
-        foreach (var id in roots)
-        {
-            if (id == CorePackageId
-                || !index.TryGetValue(id, out var mod)
-                || !mod.LoadBefore.Concat(mod.ForceLoadBefore).Contains(CorePackageId, StringComparer.Ordinal))
-            {
-                continue;
-            }
-
-            if (mustFollowCore.Contains(id))
-            {
-                // 兩邊的條件無法同時滿足：維持排在 Core 之後，回報給使用者而不是默默挑一邊。
-                loadBeforeCoreConflicts.Add(id);
-                continue;
-            }
-
-            Visit(id);
-        }
+        VisitModsThatMustLoadBeforeCore(roots, wanted, index, afterEdgesFromBefore, dependencyEdges, loadBeforeCoreConflicts, Visit);
 
         // 即使 Core 不在 available 裡也要列出來——RimWorld 沒有 Core 就無法啟動。
         ordered.Add(CorePackageId);
@@ -182,6 +161,41 @@ public static class LoadOrderResolver
             visiting.Remove(id);
             visited.Add(id);
             ordered.Add(id);
+        }
+    }
+
+    /// <summary>
+    /// 宣告 loadBefore／forceLoadBefore Core 的 Mod（例如 Harmony）連同它們的硬相依先走訪，排在 Core 前面。
+    /// Core 不在 wanted 裡，BuildReverseLoadBeforeEdges 不會替它建反向邊，必須在走訪前先處理。
+    /// </summary>
+    private static void VisitModsThatMustLoadBeforeCore(
+        List<string> roots,
+        HashSet<string> wanted,
+        Dictionary<string, ModInfo> index,
+        Dictionary<string, List<string>> afterEdgesFromBefore,
+        Dictionary<string, List<string>> dependencyEdges,
+        List<string> loadBeforeCoreConflicts,
+        Action<string> visit)
+    {
+        var mustFollowCore = ModsThatMustFollowCore(wanted, index, afterEdgesFromBefore, dependencyEdges);
+
+        foreach (var id in roots)
+        {
+            if (id == CorePackageId
+                || !index.TryGetValue(id, out var mod)
+                || !mod.LoadBefore.Concat(mod.ForceLoadBefore).Contains(CorePackageId, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            if (mustFollowCore.Contains(id))
+            {
+                // 兩邊的條件無法同時滿足：維持排在 Core 之後，回報給使用者而不是默默挑一邊。
+                loadBeforeCoreConflicts.Add(id);
+                continue;
+            }
+
+            visit(id);
         }
     }
 

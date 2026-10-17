@@ -21,7 +21,7 @@ internal sealed class UnityStubsResolver(IAssemblyResolver inner, string stubsPa
     internal const string StubsFileName = "UnityStubs.dll";
 
     // 同一個 Mod 常參考多個 Unity 模組，全部導向同一份映像，型別系統才不會看到重複的組件。
-    private readonly Lazy<MetadataFile?> _stubs = new(() => Load(stubsPath));
+    private readonly Lazy<PEFile?> _stubs = new(() => Load(stubsPath));
 
     /// <summary>遊戲的受控組件目錄有 UnityStubs.dll 時包一層，否則原樣回傳。</summary>
     internal static IAssemblyResolver Wrap(IAssemblyResolver resolver, string? managedDirectory)
@@ -48,10 +48,10 @@ internal sealed class UnityStubsResolver(IAssemblyResolver inner, string stubsPa
             || (name.StartsWith("Unity.", StringComparison.Ordinal) && name != "Unity.Newtonsoft.Json")
             || name == "Assembly-CSharp-firstpass";
 
-    private MetadataFile? Fallback(IAssemblyReference reference)
+    private PEFile? Fallback(IAssemblyReference reference)
         => IsRedirected(reference.Name) ? _stubs.Value : null;
 
-    private static MetadataFile? Load(string path)
+    private static PEFile? Load(string path)
     {
         try
         {

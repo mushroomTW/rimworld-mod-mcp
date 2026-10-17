@@ -419,24 +419,13 @@ public sealed partial class PlayerLogTailer(TestSessionStore sessions, Diagnosti
             {
                 if (currentRecordIsEntry == true && !EngineStackFrameRegex().IsMatch(text))
                 {
-                    // 訊息以換行開頭時標題行沒有內容，第一個續行才是訊息的第一行。
-                    var previous = batch[^1];
-                    batch[^1] = previous.Text.Length == 0
-                        ? (previous.Type, text, text)
-                        : (previous.Type, previous.FirstLine, previous.Text + "\n" + text);
+                    AppendContinuation(batch, text);
                 }
 
                 continue;
             }
 
-            var item = ClassifyStructured(structured.Groups["level"].Value, structured.Groups["message"].Value);
-
-            if (item is { } entry)
-            {
-                batch.Add(entry);
-            }
-
-            currentRecordIsEntry = item is not null;
+            currentRecordIsEntry = AppendStructuredLine(structured, batch);
         }
 
         // 標題行沒有內容、這批也沒有續行的紀錄沒有可回報的文字，丟掉。批尾那筆被丟掉時，
@@ -450,6 +439,31 @@ public sealed partial class PlayerLogTailer(TestSessionStore sessions, Diagnosti
         trailingRecordIsEntry = currentRecordIsEntry;
 
         return batch;
+    }
+
+    /// <summary>
+    /// 續行併進目前這筆診斷。訊息以換行開頭時標題行沒有內容，第一個續行才是訊息的第一行，
+    /// 所以整筆的文字要換掉；其餘情況接在後面。
+    /// </summary>
+    private static void AppendContinuation(List<(string Type, string FirstLine, string Text)> batch, string text)
+    {
+        var previous = batch[^1];
+        batch[^1] = previous.Text.Length == 0
+            ? (previous.Type, text, text)
+            : (previous.Type, previous.FirstLine, previous.Text + "\n" + text);
+    }
+
+    /// <summary>把有明確層級的行照分類加進批次，回傳這筆算不算診斷（批尾狀態要接著用）。</summary>
+    private static bool AppendStructuredLine(Match structured, List<(string Type, string FirstLine, string Text)> batch)
+    {
+        var item = ClassifyStructured(structured.Groups["level"].Value, structured.Groups["message"].Value);
+
+        if (item is { } entry)
+        {
+            batch.Add(entry);
+        }
+
+        return item is not null;
     }
 
     /// <summary>

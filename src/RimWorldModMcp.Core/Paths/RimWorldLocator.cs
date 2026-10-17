@@ -13,6 +13,10 @@ public sealed partial class RimWorldLocator
     public const int DefaultBridgePort = 49460;
 
     private const string RimWorldFolderName = "RimWorld by Ludeon Studios";
+
+    /// <summary>安裝目錄、執行檔與 macOS app bundle 的遊戲名稱；Linux 的 apphost 沒有副檔名。</summary>
+    private const string GameName = "RimWorld";
+
     private const string SteamDirName = "Steam";
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
@@ -129,7 +133,7 @@ public sealed partial class RimWorldLocator
 
         // 執行檔是與 RimWorld.deps.json 同名的 apphost；
         // 只在 Windows 上實際驗證過，Linux 依 apphost 慣例推定為沒有副檔名的 RimWorld。
-        var executable = Path.Combine(install, OperatingSystem.IsWindows() ? "RimWorld.exe" : "RimWorld");
+        var executable = Path.Combine(install, OperatingSystem.IsWindows() ? $"{GameName}.exe" : GameName);
         return (File.Exists(Path.Combine(install, "Assembly-CSharp.dll")) ? install : null, executable);
     }
 
@@ -159,11 +163,11 @@ public sealed partial class RimWorldLocator
             }
 
             var deps = Directory.GetFiles(macOsDir, "*.deps.json").Order(StringComparer.Ordinal).FirstOrDefault();
-            var name = deps is null ? "RimWorld" : Path.GetFileName(deps)[..^".deps.json".Length];
+            var name = deps is null ? GameName : Path.GetFileName(deps)[..^".deps.json".Length];
             return (macOsDir, Path.Combine(macOsDir, name));
         }
 
-        return (null, Path.Combine(install, "RimWorld.app", "Contents", "MacOS", "RimWorld"));
+        return (null, Path.Combine(install, "RimWorld.app", "Contents", "MacOS", GameName));
     }
 
     /// <summary>
@@ -204,7 +208,7 @@ public sealed partial class RimWorldLocator
 
         foreach (var library in LibraryRoots())
         {
-            yield return Path.Combine(library, "steamapps", "common", "RimWorld");
+            yield return Path.Combine(library, "steamapps", "common", GameName);
         }
     }
 
@@ -322,7 +326,7 @@ public sealed partial class RimWorldLocator
         if (OperatingSystem.IsMacOS())
         {
             var support = Path.Combine(home, "Library", "Application Support");
-            yield return Path.Combine(support, "RimWorld");
+            yield return Path.Combine(support, GameName);
             yield return Path.Combine(support, RimWorldFolderName);
             yield break;
         }

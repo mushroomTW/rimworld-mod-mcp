@@ -74,6 +74,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     public async Task ContendedAcquireNeverLeaksIOExceptionWhenTheHolderReleases()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
+        var completed = 0;
 
         var workers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
         {
@@ -81,10 +82,14 @@ public sealed class CriticalSectionLockTests : IDisposable
             {
                 var token = locks.Acquire("index", TimeSpan.FromSeconds(30));
                 locks.Release("index", token);
+                Interlocked.Increment(ref completed);
             }
         }));
 
         await Task.WhenAll(workers);
+
+        // IOException 漏出去就不會走到這裡；每一輪取用都必須真的完成。
+        Assert.Equal(4 * 300, completed);
     }
 
     /// <summary>等不到就必須拋出，不能無限期卡住——呼叫端要能把它當成可重試的失敗。</summary>

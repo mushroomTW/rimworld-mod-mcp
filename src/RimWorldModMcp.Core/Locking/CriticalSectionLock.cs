@@ -127,11 +127,6 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         }
     }
 
-    /// <summary>建檔撞上「剛被釋放的鎖檔」時的重試次數上限與間隔。持續性錯誤最多多等約 100ms 才拋出。</summary>
-    private const int MaxVanishedRetries = 10;
-
-    private static readonly TimeSpan VanishedRetryDelay = TimeSpan.FromMilliseconds(10);
-
     /// <summary>
     /// 取得鎖，取不到時在 <paramref name="timeout"/> 內輪詢等待；逾時仍拋出
     /// <see cref="LockHeldException"/>。
@@ -159,6 +154,11 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
             }
         }
     }
+
+    /// <summary>建檔撞上「剛被釋放的鎖檔」時的重試次數上限與間隔。持續性錯誤最多多等約 100ms 才拋出。</summary>
+    private const int MaxVanishedRetries = 10;
+
+    private static readonly TimeSpan VanishedRetryDelay = TimeSpan.FromMilliseconds(10);
 
     private bool TryReclaimStaleLock(string path, bool mayReclaim, out int? holderProcessId)
     {
@@ -216,6 +216,11 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
         }
     }
 
+    /// <summary>刪除鎖檔失敗時的重試次數上限與間隔。</summary>
+    private const int MaxDeleteAttempts = 10;
+
+    private const int DeleteRetryDelayMs = 20;
+
     /// <summary>
     /// 刪除自己持有的鎖檔。等待者正好在讀鎖檔時，Windows 上的刪除會撞上分享違規；
     /// 直接吞掉的話鎖就永遠不會釋放——持有者還活著，不會被當成殘骸回收，之後每個等待者都只能等到逾時。
@@ -224,21 +229,20 @@ public sealed class CriticalSectionLock(StoreDirectories store, IProcessHost pro
     /// </summary>
     private static void DeleteOwnLock(string path)
     {
-        for (var attempt = 1; ; attempt++)
+        // 重試次數用盡仍失敗就放棄：盡力而為，不阻礙主流程（與原本的行為相同）。
+        for (var attempt = 1; attempt <= MaxDeleteAttempts; attempt++)
         {
             try
             {
                 File.Delete(path);
                 return;
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException && attempt < 10)
-            {
-                Thread.Sleep(20);
-            }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // 重試仍失敗：盡力而為，不阻礙主流程（與原本的行為相同）。
-                return;
+                if (attempt < MaxDeleteAttempts)
+                {
+                    Thread.Sleep(DeleteRetryDelayMs);
+                }
             }
         }
     }
