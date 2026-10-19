@@ -126,9 +126,9 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
         """;
 
     /// <summary>
-    /// C# Mod 專案骨架。1.7 的遊戲跑在 .NET 10 上，UnityEngine 型別由 UnityStubs.dll 提供；
+    /// C# Mod 專案骨架。1.7 的遊戲跑在 .NET 10 上；RimWorld API 由 Krafs.Rimworld.Ref
+    /// NuGet 套件提供 reference assemblies，Mod 可在沒有遊戲安裝的環境下建置。
     /// Harmony 等社群 Mod 的 1.7 版也都改以 net10.0 為目標。
-    /// 遊戲組件的位置由 RIMWORLD_MANAGED_DIR 環境變數提供，建置時由本工具注入。
     /// </summary>
     private const string CsProjTemplate = """
         <Project Sdk="Microsoft.NET.Sdk">
@@ -141,19 +141,8 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
             <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
           </PropertyGroup>
 
-          <PropertyGroup Condition="'$(RimWorldManagedDir)' == ''">
-            <RimWorldManagedDir>$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
-          </PropertyGroup>
-
           <ItemGroup>
-            <Reference Include="Assembly-CSharp">
-              <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
-              <Private>false</Private>
-            </Reference>
-            <Reference Include="UnityStubs">
-              <HintPath>$(RimWorldManagedDir)\UnityStubs.dll</HintPath>
-              <Private>false</Private>
-            </Reference>
+            <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.*-*" />
           </ItemGroup>
 
         </Project>

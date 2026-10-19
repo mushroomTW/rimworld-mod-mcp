@@ -31,9 +31,9 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 - [.NET SDK 10](https://dotnet.microsoft.com/download), for `build_mod` (compiling C# mods), for `run_test_cycle` (building the bridge), or for installing from source
 
 > [!NOTE]
-> The release executable is self-contained: running the server needs no .NET Runtime. The in-game bridge is embedded in the tool as source; `run_test_cycle` compiles it once against the RimWorld assemblies it detects (which needs the SDK) and reuses that build until the bridge or the game changes. No NuGet reference assemblies are used, and this repository contains no RimWorld binaries.
+> The release executable is self-contained: running the server needs no .NET Runtime. The in-game bridge is embedded in the tool as source; `run_test_cycle` compiles it once against the RimWorld assemblies it detects (which needs the SDK) and reuses that build until the bridge or the game changes. Mod projects created by `create_mod` reference the RimWorld API through the `Krafs.Rimworld.Ref` NuGet package instead of the game's own assemblies; this repository itself contains no RimWorld binaries.
 
-RimWorld 1.7 is required; 1.6 is not supported. 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root, so the bridge and `create_mod` C# projects target `net10.0` and reference `Assembly-CSharp.dll` and `UnityStubs.dll` there.
+RimWorld 1.7 is required; 1.6 is not supported. 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root. The in-game bridge still builds against those assemblies, while `create_mod` C# projects target `net10.0` and pull the RimWorld API from the `Krafs.Rimworld.Ref` NuGet package.
 
 ## Installation
 

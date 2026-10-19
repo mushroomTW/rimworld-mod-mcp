@@ -112,10 +112,9 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
     private BuildResult BuildProject(string mod, string project)
     {
-        var paths = locator.Detect();
-        paths.ThrowIfUnsupported();
-        var managed = paths.ManagedDir;
-
+        // RimWorld API 由 Krafs.Rimworld.Ref NuGet 套件提供，建置不再依賴遊戲安裝。
+        // 保留 locator 參數是為了相容現有呼叫端與測試；這裡不再偵測或要求遊戲。
+        _ = locator;
         DotnetHost.BuildExecution execution;
 
         try
@@ -123,7 +122,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
             execution = DotnetHost.RunBuild(
                 project,
                 workingDirectory: mod,
-                managedDirectory: managed,
+                managedDirectory: null,
                 extraArgs: ["-consoleLoggerParameters:NoSummary;ForceNoAlign"],
                 timeout: BuildTimeout);
         }
@@ -145,11 +144,6 @@ public sealed partial class BuildService(RimWorldLocator locator)
         if (success && deployed.Count == 0)
         {
             warnings.Add($"Build reported success but no DLL was found in the output directory; check the csproj TargetFramework and OutputPath settings.");
-        }
-
-        if (managed is null)
-        {
-            warnings.Add("RimWorld Managed directory not detected; game assembly references may not resolve.");
         }
 
         // 失敗但一筆錯誤都沒解析到（MSBuild 崩潰、SDK 版本問題等非標準輸出）時，

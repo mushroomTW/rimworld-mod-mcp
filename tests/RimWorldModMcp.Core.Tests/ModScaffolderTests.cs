@@ -54,7 +54,9 @@ public sealed class ModScaffolderTests : IDisposable
 
         // 1.7 的遊戲跑在 .NET 10 上，專案要以 net10.0 為目標。
         Assert.Contains("<TargetFramework>net10.0</TargetFramework>", content, StringComparison.Ordinal);
-        Assert.Contains("RIMWORLD_MANAGED_DIR", content, StringComparison.Ordinal);
+        // RimWorld API 由 Krafs.Rimworld.Ref NuGet 套件提供，不再依賴遊戲安裝目錄。
+        Assert.Contains("Krafs.Rimworld.Ref", content, StringComparison.Ordinal);
+        Assert.Contains("PackageReference", content, StringComparison.Ordinal);
     }
 
     [Fact]

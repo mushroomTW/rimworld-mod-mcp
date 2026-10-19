@@ -15,7 +15,7 @@ public sealed class WorkspaceTools(
     BuildService builds)
 {
     [McpServerTool(Name = "create_mod", UseStructuredContent = true, ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Create a new mod skeleton with About.xml and the standard folders. Always start C# mods with with_code=true: the generated csproj is wired to the game assembly references that build_mod injects.")]
+    [Description("Create a new mod skeleton with About.xml and the standard folders. Always start C# mods with with_code=true: the generated csproj references the Krafs.Rimworld.Ref NuGet package for the RimWorld API.")]
     public CreateModResult CreateMod(
         [Description("Existing directory in which to create the mod folder.")]
         string directory,
