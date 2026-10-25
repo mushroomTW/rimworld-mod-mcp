@@ -122,7 +122,7 @@ public sealed class IndexBuilder(
         using var _ = locks.Hold(WriteLockName, new Dictionary<string, string> { ["operation"] = "rebuild_index" });
 
         var stopwatch = Stopwatch.StartNew();
-        var assemblies = GameAssemblies(paths.ManagedDir);
+        var assemblies = GameAssemblyCatalog.Find(paths.ManagedDir);
 
         // Data/ 只走訪一次：Def 掃描、引用候選與指紋計算共用同一份清單，
         // 兩萬個檔案不再走三遍、解析兩遍。
@@ -266,15 +266,4 @@ public sealed class IndexBuilder(
         return new SourceIndexState(progress.Running, indexedFiles, error);
     }
 
-    /// <summary>
-    /// 要索引哪些組件。
-    ///
-    /// <para>
-    /// Python 版是硬編碼的 DLC 白名單，每次有新 DLC 上市都要改程式碼。
-    /// 這裡改成掃目錄，凡是 Assembly-CSharp 開頭的都納入——
-    /// RimWorld 的 DLC 內容都編進這些組件裡，Unity 與 BCL 組件則不是索引目標。
-    /// </para>
-    /// </summary>
-    private static List<string> GameAssemblies(string managedDirectory)
-        => [.. Directory.GetFiles(managedDirectory, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal)];
 }

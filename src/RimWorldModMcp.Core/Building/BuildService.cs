@@ -112,9 +112,8 @@ public sealed partial class BuildService(RimWorldLocator locator)
 
     private BuildResult BuildProject(string mod, string project)
     {
-        // RimWorld API 由 Krafs.Rimworld.Ref NuGet 套件提供，建置不再依賴遊戲安裝。
-        // 保留 locator 參數是為了相容現有呼叫端與測試；這裡不再偵測或要求遊戲。
-        _ = locator;
+        // 新專案以 NuGet 取得 RimWorld API；偵測到遊戲時仍注入組件路徑，讓舊專案可繼續建置。
+        var managedDirectory = locator.Detect().ManagedDir;
         DotnetHost.BuildExecution execution;
 
         try
@@ -122,7 +121,7 @@ public sealed partial class BuildService(RimWorldLocator locator)
             execution = DotnetHost.RunBuild(
                 project,
                 workingDirectory: mod,
-                managedDirectory: null,
+                managedDirectory: managedDirectory,
                 extraArgs: ["-consoleLoggerParameters:NoSummary;ForceNoAlign"],
                 timeout: BuildTimeout);
         }

@@ -152,7 +152,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             var generation = IndexMetaRepository.Get(connection, GenerationKey);
             var context = new IndexingContext(connection, decompiler, generation, stopwatch, cancellationToken);
 
-            foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal))
+            foreach (var assembly in GameAssemblyCatalog.Find(paths.ManagedDir))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 

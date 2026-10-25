@@ -70,7 +70,7 @@ public sealed class IndexFingerprint
             AppendFile(digest, Path.Combine(paths.InstallRoot, "Version.txt"));
         }
 
-        foreach (var assembly in Directory.GetFiles(paths.ManagedDir, "Assembly-CSharp*.dll").Order(StringComparer.Ordinal))
+        foreach (var assembly in GameAssemblyCatalog.Find(paths.ManagedDir))
         {
             AppendFile(digest, assembly);
         }

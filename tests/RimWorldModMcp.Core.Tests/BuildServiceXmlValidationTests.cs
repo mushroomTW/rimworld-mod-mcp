@@ -7,13 +7,17 @@ namespace RimWorldModMcp.Core.Tests;
 /// F07：XML-only Mod 的有效性檢查必須檢查 Def XML。
 /// 舊實作只驗 About.xml，沒有 C# 專案就宣告成功，未閉合的 Defs 也放行。
 /// </summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class BuildServiceXmlValidationTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "rwmm-build-" + Guid.NewGuid().ToString("n")[..12]);
     private readonly BuildService _service = new(new RimWorldLocator());
+    private readonly string? _previousGamePath = Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH");
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", _previousGamePath);
+
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);
@@ -89,6 +93,41 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
 
         Assert.Equal("xml_only", result.Kind);
         Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void LegacyCSharpProjectReceivesDetectedGameAssemblyDirectory()
+    {
+        var mod = NewMod();
+        var install = Path.Combine(_root, "RimWorld");
+        var managed = OperatingSystem.IsMacOS()
+            ? Path.Combine(install, "RimWorld.app", "Contents", "MacOS")
+            : install;
+        Directory.CreateDirectory(Path.Combine(install, "Data", "Core", "Defs"));
+        Directory.CreateDirectory(managed);
+        File.WriteAllBytes(Path.Combine(managed, "Assembly-CSharp.dll"), []);
+        File.WriteAllBytes(Path.Combine(managed, "UnityStubs.dll"), []);
+        Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", install);
+
+        var source = Path.Combine(mod, "Source");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "Legacy.cs"), "namespace LegacyMod; public sealed class LegacyMod { }");
+        File.WriteAllText(Path.Combine(source, "Legacy.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+                <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == ''">$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
+              </PropertyGroup>
+              <Target Name="RequireLegacyGameAssemblies" BeforeTargets="CoreCompile">
+                <Error Condition="!Exists('$(RimWorldManagedDir)/Assembly-CSharp.dll')" Text="Assembly-CSharp.dll was not found." />
+                <Error Condition="!Exists('$(RimWorldManagedDir)/UnityStubs.dll')" Text="UnityStubs.dll was not found." />
+              </Target>
+            </Project>
+            """);
+
+        var result = _service.Build(mod);
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics.Select(d => d.Message)));
     }
 
     private string NewMod()

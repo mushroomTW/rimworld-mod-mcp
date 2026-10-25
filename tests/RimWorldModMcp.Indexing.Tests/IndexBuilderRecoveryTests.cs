@@ -40,6 +40,8 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
         // 定位器以 Assembly-CSharp.dll 是否存在判斷，所以放一個沒有任何型別的空組件。
         var managed = OperatingSystem.IsMacOS() ? Path.Combine(install, "RimWorld.app", "Contents", "MacOS") : install;
         SyntheticAssembly.Emit("", "Assembly-CSharp", managed);
+        SyntheticAssembly.Emit("namespace Waylith { public class TextureLoader { } }", "Waylith", managed);
+        GameAssemblyManifest.Write(managed, "Assembly-CSharp.dll", "Waylith.dll");
         Directory.CreateDirectory(Path.Combine(install, "Data", "Core", "Defs"));
         Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", install);
 
@@ -67,7 +69,8 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
         var result = builder.Rebuild();
 
         Assert.Equal(0, result.DefCount);
-        Assert.Equal(0, result.SymbolCount);
+        Assert.True(result.SymbolCount > 0);
+        Assert.Equal(new[] { "Assembly-CSharp", "Waylith" }, result.Assemblies);
         using var connection = database.Open();
         Assert.Equal(0, DefRepository.Count(connection));
     }

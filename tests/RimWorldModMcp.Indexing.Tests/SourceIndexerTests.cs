@@ -6,8 +6,7 @@ using RimWorldModMcp.Indexing.Storage;
 namespace RimWorldModMcp.Indexing.Tests;
 
 /// <summary>
-/// 第三層索引的續跑：行程重啟殺掉背景工作後，做完的組件不該重來。
-/// 用兩顆合成的 Assembly-CSharp* 組件模擬遊戲的 Managed 目錄。
+/// 使用 .deps.json 宣告的合成遊戲組件驗證原始碼索引與續跑行為。
 /// </summary>
 // 兩個類別都改寫行程共用的 RIMWORLD_MOD_MCP_GAME_PATH，不能平行跑。
 [Collection("GamePathEnvironment")]
@@ -29,6 +28,8 @@ public sealed class SourceIndexerTests : IDisposable
 
         SyntheticAssembly.Emit("namespace Verse { public class Thing { public void Tick() { } } }", "Assembly-CSharp", managed);
         SyntheticAssembly.Emit("namespace LudeonTK { public class Early { public void Boot() { } } }", "Assembly-CSharp-firstpass", managed);
+        SyntheticAssembly.Emit("namespace Waylith { public class TextureLoader { public void Load() { } } }", "Waylith", managed);
+        GameAssemblyManifest.Write(managed, "Assembly-CSharp.dll", "Assembly-CSharp-firstpass.dll", "Waylith.dll");
 
         Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", install);
 
@@ -58,12 +59,14 @@ public sealed class SourceIndexerTests : IDisposable
         var progress = _indexer.Run();
 
         Assert.True(progress.Completed, progress.Error);
-        Assert.Equal(2, progress.FilesIndexed);
+        Assert.Equal(3, progress.FilesIndexed);
 
         using var connection = _database.Open();
         Assert.Equal("true", IndexMetaRepository.Get(connection, "source_indexed"));
         Assert.NotNull(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp"));
         Assert.NotNull(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp-firstpass"));
+        Assert.NotNull(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Waylith"));
+        Assert.Equal(1L, SourceFileRepository.CountAssembly(connection, "Waylith"));
         Assert.False(_indexer.IsInterrupted());
     }
 
@@ -99,7 +102,7 @@ public sealed class SourceIndexerTests : IDisposable
         var progress = _indexer.Run();
 
         Assert.True(progress.Completed, progress.Error);
-        Assert.Equal(2, progress.FilesIndexed);
+        Assert.Equal(3, progress.FilesIndexed);
 
         using var check = _database.Open();
         Assert.Equal("// sentinel", SourceFileRepository.Read(check, "Assembly-CSharp-firstpass", "LudeonTK/Early.cs"));
@@ -118,6 +121,7 @@ public sealed class SourceIndexerTests : IDisposable
 
         Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp"));
         Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp-firstpass"));
+        Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Waylith"));
     }
 
     [Fact]
