@@ -196,7 +196,7 @@ public sealed class RimWorldLocatorTests : IDisposable
         Assert.Null(new RimWorldLocator().Detect().PlayerLog);
     }
 
-    /// <summary>1.7 的遊戲跑在 .NET 10 上，create_mod 的 C# 骨架要以 net10.0 為目標並參考 UnityStubs。</summary>
+    /// <summary>1.7 的遊戲跑在 .NET 10 上，create_mod 的 C# 骨架以 net10.0 和 Krafs.Rimworld.Ref 建置。</summary>
     [Fact]
     public void ScaffolderGeneratesANet10ProjectForTheDotNetGame()
     {
@@ -209,7 +209,9 @@ public sealed class RimWorldLocatorTests : IDisposable
 
         var project = File.ReadAllText(Path.Combine(mod, "Source", "author.codemod.csproj"));
         Assert.Contains("<TargetFramework>net10.0</TargetFramework>", project, StringComparison.Ordinal);
-        Assert.Contains(@"$(RimWorldManagedDir)\UnityStubs.dll", project, StringComparison.Ordinal);
+        Assert.Contains("Krafs.Rimworld.Ref", project, StringComparison.Ordinal);
+        Assert.DoesNotContain("UnityStubs.dll", project, StringComparison.Ordinal);
+        Assert.DoesNotContain("RIMWORLD_MANAGED_DIR", project, StringComparison.Ordinal);
         Assert.DoesNotContain("UnityEngine.CoreModule", project, StringComparison.Ordinal);
         Assert.Contains("<li>1.7</li>", File.ReadAllText(Path.Combine(mod, "About", "About.xml")), StringComparison.Ordinal);
     }
