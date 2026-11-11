@@ -2,30 +2,30 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using DevTools.Testing;
 using HarmonyLib;
 using LudeonTK;
-using RimTestRedux;
 using Verse;
 
 namespace RimWorldModMcp.Bridge.InGameTests
 {
-    [TestSuite]
-    internal static class BridgePatchTests
+    [TestFixture(TestType.MainMenu)]
+    internal sealed class BridgePatchTests
     {
-        /// <summary>1.6 的每個 Log.Warning / Log.Error overload 與 Root.Update 都真的掛上了 Bridge 的 postfix。</summary>
+        /// <summary>1.7 的每個 Log.Warning / Log.Error overload 與 Root.Update 都真的掛上了 Bridge 的 postfix。</summary>
         [Test]
-        public static void LogAndRootUpdateCarryBridgePostfix()
+        public void LogAndRootUpdateCarryBridgePostfix()
         {
             if (TestHelpers.SkipUnlessBridgeActive(nameof(LogAndRootUpdateCarryBridgePostfix))) return;
 
-            var failures = new List<string>();
             var targets = typeof(Log).GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .Where(method => method.Name == "Warning" || method.Name == "Error")
+                .Where(method => method.Name is "Warning" or "Error")
                 .Cast<MethodBase>()
                 .ToList();
-            if (targets.Count == 0) failures.Add("Verse.Log exposes no Warning/Error overloads");
+            Expect.IsNotEmpty(targets, "Verse.Log exposes no Warning/Error overloads");
             targets.Add(AccessTools.Method(typeof(Root), nameof(Root.Update)));
 
+            var failures = new List<string>();
             foreach (var target in targets)
             {
                 var info = Harmony.GetPatchInfo(target);
@@ -33,7 +33,7 @@ namespace RimWorldModMcp.Bridge.InGameTests
                     failures.Add(target.FullDescription());
             }
 
-            TestHelpers.AssertNone(failures, "methods without a Bridge postfix");
+            Expect.IsEmpty(failures, "methods without a Bridge postfix: " + string.Join(", ", failures));
         }
 
         /// <summary>
@@ -41,7 +41,9 @@ namespace RimWorldModMcp.Bridge.InGameTests
         /// WarningOnce / ErrorOnce 靠轉呼 Warning / Error 才被涵蓋，Message 不應送出。
         /// </summary>
         [Test]
-        public static void ForwardsEveryLogEntryPoint()
+        [WarningsAllowed(".*")]
+        [ErrorsAllowed(".*intentional.*")]
+        public void ForwardsEveryLogEntryPoint()
         {
             if (TestHelpers.SkipUnlessBridgeActive(nameof(ForwardsEveryLogEntryPoint))) return;
 
@@ -79,9 +81,8 @@ namespace RimWorldModMcp.Bridge.InGameTests
                 .Select(entry => entry.ToString())
                 .ToList();
 
-            var failures = new List<string>();
-            TestHelpers.CompareSequence(failures, "forwarded entries", expected, actual);
-            TestHelpers.AssertNone(failures, "Log calls not forwarded as expected");
+            Expect.AreEqual(expected.Count, actual.Count, "forwarded entries count mismatch");
+            Expect.That(() => expected.SequenceEqual(actual), "forwarded entries sequence mismatch:\nExpected:\n" + string.Join("\n", expected) + "\nActual:\n" + string.Join("\n", actual));
         }
     }
 }

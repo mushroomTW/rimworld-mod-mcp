@@ -1,40 +1,67 @@
 # Bridge 遊戲內整合測試
 
-> [!NOTE]
-> **目前暫停。** 本工具只支援 RimWorld 1.7，而 RimTest Redux 沒有 1.7 版，所以這組測試暫時無法建置與執行，等 RimTest Redux 更新後才能恢復。程式碼維持原狀。
+本測試專案透過 [SmashPhil DevTools](https://github.com/SmashPhil/DevTools) 在 RimWorld 1.7（.NET 10）真實遊戲環境中驗證 `bridge/` 的行為。Headless 單元測試通常會 stub 掉 Unity 與遊戲引擎，無法驗證 Harmony Patch 是否確實掛載、載入時機是否正確，以及即時取樣的值是否與遊戲底層數據完全吻合。
 
-以 [RimTest Redux](https://github.com/ilyvion/rimtest-redux)（`ilyvion.rimtestredux`，RimWorld 1.6）在真正的遊戲裡測 `bridge/`。headless 測試把 Unity 與遊戲都 stub 掉了，驗證不到 patch 是否真的套上、載入時機，以及取樣值是否等於遊戲當下的值。
+本測試專案**僅供內部開發與除錯**：未包含在 `RimWorldModMcp.slnx` 方案中，亦不隨工具發佈。專案刻意放置於 `bridge/` 目錄之外，避免 Server 將其隨 `bridge/**` 內嵌打包至發佈執行檔中。
 
-只供開發：不在 `RimWorldModMcp.slnx` 裡，也不隨工具發佈。刻意放在 `bridge/` 之外，因為 Server 會把 `bridge/**` 整個內嵌進執行檔。
+## 目錄結構
 
-## 結構
+- `Source/`：測試程式碼（以 `net10.0` 為目標框架），建置產物輸出至 `Mod/1.7/Assemblies/`。
+- `Mod/`：提供給 `run_test_cycle` 載入的受測 Mod 目錄：
+  - `About/About.xml`：Mod 定義（支援 RimWorld 1.7，相依 `brrainz.harmony`，並透過 `loadBefore` 排在 `rimworldmodmcp.bridge` 之前）。
+  - `Configs/UnitTestConfig.xml`：DevTools 測試組態。
+  - `1.7/Assemblies/`：包含 `DevTools.dll` 與 `RimWorldModMcp.Bridge.InGameTests.dll`（不納入版本控制）。
+- `Third-Party/DevTools/`：SmashPhil DevTools 原始碼（本地保留，不納入版本控制）。
 
-- `Source/`：測試原始碼，建置輸出到 `Mod/Assemblies/`（不進版控）。
-- `Mod/`：交給 `run_test_cycle` 的 Mod 目錄。相依 `brrainz.harmony`、`ilyvion.Laboratory`、`ilyvion.rimtestredux`（Workshop 3762405308），並以 `loadBefore` 排在 `rimworldmodmcp.bridge` 之前，讓 probe 在 Bridge 建構式執行前就位。
+由於 Bridge 內部型別皆宣告為 `internal`，測試專案一律透過反射與 Harmony Probe 存取，不直接加入對 Bridge DLL 的專案參考。
 
-Bridge 的型別幾乎都是 internal，測試一律用反射與 Harmony probe 存取，不參考 Bridge DLL。
+## 受測的 Bridge 版本來源
 
-## 受測的是哪一份 Bridge
+`run_test_cycle` 載入的是 MCP Server 內嵌之 `bridge/Source/` 原始碼在暫存快取目錄中所編譯出的組件，而非 repo 工作區當下的即時檔案。因此若修改了 `bridge/` 的程式碼，必須先重新發佈或建置 Server，整合測試才會套用最新版本的 Bridge。
 
-`run_test_cycle` 載入的是 MCP server 內嵌的 `bridge/Source/` 在快取目錄建出的版本，不是 repo 裡的即時原始碼。改了 Bridge 之後，要先重新發佈 server，測試才會看到新版本。
+## 建置方式
 
-## 建置與執行
+測試專案已設定 ProjectReference 連動 `Third-Party/DevTools`，並在建置完成後自動將 `DevTools.dll` 與測試組件一併複製至 `Mod/1.7/Assemblies/`：
+
+### Windows (PowerShell)
 
 ```powershell
-$env:RIMWORLD_MANAGED_DIR='C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed'
 dotnet build .\tests\RimWorldModMcp.Bridge.InGameTests\Source -c Release
 ```
 
-參考的是本機遊戲組件（不用 NuGet 的 `Krafs.Rimworld.Ref`）。RimTest Redux 只有 1.6 版，所以必須指向 RimWorld 1.6 的 `RimWorldWin64_Data\Managed`；1.7 的遊戲無法建置與執行這組測試。
+### macOS / Linux (Bash)
 
-Workshop 不在預設 Steam 路徑時，加上 `-p:RimWorldWorkshopDir=<...\workshop\content\294100>`。
+```bash
+dotnet build ./tests/RimWorldModMcp.Bridge.InGameTests/Source -c Release
+```
 
-接著以 MCP 工具 `run_test_cycle(path=<repo>\tests\RimWorldModMcp.Bridge.InGameTests\Mod)` 啟動（預設 quicktest）。結果寫在 Player.log：RimTest Redux 的結果摘要，以及本 Mod 以 `[RimWorldModMcp.Bridge.InGameTests] skipped:` 開頭的略過紀錄。RimTest Redux 會把略過的測試算成通過，略過數要從這些行另外計算。
+## 執行測試
 
-## 時機
+### 1. 透過 MCP 工具啟動測試
 
-本 Mod 把 RimTest Redux 內建的 run-at-startup hook 標成「已跑過」（不動它的設定），改由 `TestDriver` 觸發：資料載入完、沒有 long event 之後才跑；quicktest 時會再等到 `Playing` 且有地圖，地圖測試才不會被略過。地圖等超過 120 秒（例如地圖生成失敗）時，會記一則 warning 並在沒有地圖的情況下照跑，結果一定會出現在 Player.log。
+呼叫 MCP 工具 `run_test_cycle`，並帶入 DevTools CLI 參數（JSON 工具引數）：
 
-## 預期的診斷
+```json
+{
+  "path": "<repo_root>/tests/RimWorldModMcp.Bridge.InGameTests/Mod",
+  "extra_args": "--pid rimworldmodmcp.bridge.ingametests --test --exit"
+}
+```
 
-`ForwardsEveryLogEntryPoint` 會刻意呼叫 `Log.Error` / `Log.ErrorOnce`，所以 `list_test_diagnostics` 會出現兩則帶 `(intentional)` 的 error，這是預期行為。
+測試執行結果會記錄在 **`Test.log`**（詳細測試結果報告）與 **`Player.log`**。測試完成後遊戲會自動退出（`--exit`）。
+
+### 2. 透過遊戲內 DevTools 介面執行
+
+在遊戲中開啟開發者模式（Developer Mode），點擊上方除錯工具列的 **DevTools** 圖示，選擇 `RimWorld MCP Bridge - In-Game Tests` 的 **Test Explorer**，即可互動式挑選、執行測試或檢視結果。
+
+## 測試案例與場景支援
+
+本測試套件使用 DevTools 的 `TestType` 生命週期機制：
+
+- `BridgePatchTests`（`TestType.MainMenu`）：在主選單驗證 Verse 日誌與 `Root.Update` 的 Harmony Patch 是否確實掛載，以及日誌轉發與去重邏輯。
+- `BridgeStartupTests`（`TestType.MainMenu`）：驗證 Bridge 啟動公告連線訊息、已載入 Mod 清單與啟動效能回報。
+- `GameStateTests`（`TestType.Playing`）：DevTools 會自動生成地圖並進入遊戲中，驗證 Bridge 在主執行緒的狀態取樣、活動視窗監測、Tick、暫停狀態與殖民者數量回報。
+
+## 預期診斷訊息
+
+測試案例 `ForwardsEveryLogEntryPoint` 透過 `[WarningsAllowed]` 與 `[ErrorsAllowed]` 允許刻意發出的測試訊息。在執行測試時，`list_test_diagnostics` 中出現兩筆包含 `(intentional)` 的錯誤紀錄屬於正常預期行為。

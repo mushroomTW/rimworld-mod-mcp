@@ -1,0 +1,9 @@
+<TestConfig>
+  <log>
+    <folder>TestResults</folder>
+    <verboseLogging>true</verboseLogging>
+    <report>DevTools.Testing.MarkdownReport</report>
+  </log>
+  <failOnWarnings>false</failOnWarnings>
+  <failOnErrors>false</failOnErrors>
+</TestConfig>

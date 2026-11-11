@@ -8,6 +8,8 @@ artifacts/
 # Bridge 的建置產物：每次測試場次都會依本機的 RimWorld 重新建置。
 bridge/Assemblies/
 tests/RimWorldModMcp.Bridge.InGameTests/Mod/Assemblies/
+tests/RimWorldModMcp.Bridge.InGameTests/Mod/1.7/
+tests/RimWorldModMcp.Bridge.InGameTests/Third-Party/
 
 .vs/
 .idea/
