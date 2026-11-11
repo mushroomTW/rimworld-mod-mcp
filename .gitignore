@@ -26,3 +26,6 @@ nupkg/
 .sonarqube/
 .scannerwork/
 TestResults/
+
+# 本機 AI 代理人開發指引（不進版控）
+AGENTS.md
