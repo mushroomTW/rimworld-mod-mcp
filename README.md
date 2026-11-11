@@ -27,13 +27,13 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 
 ## Requirements
 
-- A legitimately installed copy of RimWorld 1.7
+- A legitimately installed copy of RimWorld 1.7 (RimWorld 1.6 is not supported)
 - [.NET SDK 10](https://dotnet.microsoft.com/download), for `build_mod` (compiling C# mods), for `run_test_cycle` (building the bridge), or for installing from source
 
 > [!NOTE]
 > The release executable is self-contained: running the server needs no .NET Runtime. The in-game bridge is embedded in the tool as source; `run_test_cycle` compiles it once against the RimWorld assemblies it detects (which needs the SDK) and reuses that build until the bridge or the game changes. Mod projects created by `create_mod` reference the RimWorld API through the `Krafs.Rimworld.Ref` NuGet package instead of the game's own assemblies; this repository itself contains no RimWorld binaries.
 
-RimWorld 1.7 is required; 1.6 is not supported. 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root. The in-game bridge still builds against those assemblies, while `create_mod` C# projects target `net10.0` and pull the RimWorld API from the `Krafs.Rimworld.Ref` NuGet package.
+RimWorld 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root. The in-game bridge builds against those local assemblies, while `create_mod` C# projects target `net10.0` and resolve the RimWorld API via the `Krafs.Rimworld.Ref` NuGet package.
 
 ## Installation
 
@@ -101,7 +101,7 @@ Point the command at the executable you downloaded — see [local-build.mcp.json
 {
   "mcpServers": {
     "rimworld": {
-      "command": "C:\path\to\rimworld-mod-mcp-<version>-win-x64.exe",
+      "command": "C:\\path\\to\\rimworld-mod-mcp-<version>-win-x64.exe",
       "args": ["stdio"]
     }
   }
@@ -159,7 +159,7 @@ Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp
 
 | Tool | Purpose |
 | --- | --- |
-| `create_mod` | Create a mod skeleton, optionally with a C# project whose csproj already references the game assemblies. |
+| `create_mod` | Create a mod skeleton, optionally with a C# project whose csproj already references the RimWorld API via the `Krafs.Rimworld.Ref` NuGet package. |
 | `build_mod` | Validate an XML mod, or build a C# mod and deploy its DLL; compiler errors come back as structured diagnostics. |
 
 The tool set deliberately covers only what an AI coding agent cannot do on its own: querying Defs and decompiled source from the game and other mods, building, and launching the game in an isolated test session. Copying files, creating directories, and snapshots are things the agent already does natively, so no tools are provided for them — use Git for version control.
@@ -196,7 +196,7 @@ Once tier 1 completes, Def search, symbol lookup, inheritance chains, and `read_
 
 ### What the agent can see during a test
 
-The bridge is a small Harmony mod, active only when a session token is present. It pushes two kinds of data over loopback:
+The bridge is a small Harmony mod, active only when a session token is present. It pushes two kinds of data over loopback using .NET 10's built-in `System.Text.Json` (`Utf8JsonWriter`) with thread-static buffers for zero-allocation streaming without external DLL dependencies:
 
 - **Diagnostics**: every `Log.Error` / `Log.Warning`, deduplicated with occurrence counts; when the diagnostics daemon is unavailable, they fall back to `Player.log`.
 - **Game state** (about once a second, or every 5 s as a heartbeat): `program_state`, whether a map is loaded, tick, paused, time speed, whether a long load is running, the open window types (a `Dialog_*` here usually means something is blocking), colonist count, and game version. `test_status` returns the latest report with its age.
@@ -229,7 +229,7 @@ Where this project fits:
 ## Security and privacy
 
 - The only tools that write files are `create_mod`, `build_mod`, and `run_test_cycle`, and they write only to the mod directory you pass (test sessions additionally use an isolated temporary save directory). There is no path allow-list; rely on your MCP client's tool-permission prompts.
-- No external network communication. Game files, decompiled output, indexes, and diagnostics stay local.
+- No external network communication by the server itself (initial C# mod builds may restore reference packages from NuGet). Game files, decompiled output, indexes, and diagnostics stay local.
 - The bridge activates only when `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` is present and connects only to `127.0.0.1`. Each test session uses a single-use token; the token is never written to diagnostic records and never appears in tool responses.
 - Destructive operations (`stop_test`) require an explicit `confirm: true`.
 
@@ -241,7 +241,7 @@ Where this project fits:
 | `RIMWORLD_MOD_MCP_PLAYER_LOG` | Override the `Player.log` location. |
 | `RIMWORLD_MOD_MCP_BRIDGE_PORT` | Loopback port for the diagnostics daemon; defaults to 49460. |
 | `RIMWORLD_MOD_MCP_PERF_MARKERS` | Extra markers, separated by `\|`. A `Log.Message` containing `[perf]` or any extra marker is recorded as a `performance` diagnostic (query with `list_test_diagnostics(type=performance)`). |
-| `RIMWORLD_MANAGED_DIR` | Passed to MSBuild to resolve game assemblies; injected automatically. |
+| `RIMWORLD_MANAGED_DIR` | Directory containing game assemblies (`Assembly-CSharp.dll` and `UnityStubs.dll`). Injected automatically for bridge builds and legacy mod projects; can be set manually for command-line builds. |
 
 ## Development
 

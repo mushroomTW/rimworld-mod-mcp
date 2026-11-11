@@ -14,26 +14,26 @@
 
 ## 特色
 
-- 支援 Windows、macOS、Linux，發佈為 Self-Contained 單一執行檔（也可從原始碼安裝為 dotnet tool）。
-- **直接讀取 IL metadata 建立符號索引**——十萬個符號約數秒完成，含完整繼承鏈與真實型別簽章。
+- 支援 Windows、macOS 與 Linux，發佈為 Self-Contained 單一執行檔（亦可從原始碼安裝為全域 dotnet tool）。
+- **直接讀取 IL metadata 建立符號索引**——數秒內即可解析約十萬個符號，提供完整繼承鏈與真實型別簽章。
 - SQLite FTS5 全文索引涵蓋 Def、符號與反編譯後的原始碼。
-- 以 `ICSharpCode.Decompiler` 在行程內反編譯，不需要外部工具，也沒有工具鏈安裝步驟。
-- 建置失敗回傳**結構化診斷**（錯誤代碼、檔名、行列），而不是一整包 MSBuild 文字輸出。
-- 用獨立的存檔目錄與臨時目錄連結測試 Mod，不會動到使用者的存檔與設定。
-- 合併遊戲內 Bridge 與 `Player.log` 的診斷；Bridge 連不上時仍有 `Player.log` 可用，且會明確告知原因而非靜默降級。
-- Bridge 同時回報**遊戲內狀態**（主選單或遊戲中、地圖是否載入、tick、暫停、載入中、開啟的對話框），agent 可以等地圖真的起來再判斷測試結果，不必從 log 的沉默去猜。
-- Bridge 以原始碼隨工具發佈，由 `run_test_cycle` 參考使用者本機的遊戲組件建置。
-- 遊戲檔、反編譯結果、索引與診斷全部留在本機。
+- 採用 `ICSharpCode.Decompiler` 於行程內進行反編譯，無須安裝額外外部工具或工具鏈。
+- 建置失敗回傳**結構化診斷**（錯誤代碼、檔案、行號、欄位），告別龐雜混亂的 MSBuild 終端輸出。
+- 透過獨立的暫存存檔目錄與目錄連結（Windows Junction / Unix Symlink）測試 Mod，完全不影響本機真實存檔與遊戲設定。
+- 整合遊戲內 Bridge 與 `Player.log` 診斷；若 Bridge 無法連線仍自動回退至 `Player.log`，並明確回報原因而非靜默降級。
+- Bridge 同時即時回報**遊戲內狀態**（主選單或遊戲中、地圖是否載入、tick、暫停狀態、長時間載入、開啟的對話框等），讓 Agent 能明確等待地圖完全載入後再驗收測試，不必依賴日誌沉默盲猜。
+- Bridge 以原始碼形式隨工具內嵌發佈，於執行 `run_test_cycle` 時依使用者本機安裝的遊戲組件自動編譯。
+- 遊戲檔案、反編譯結果、符號索引與診斷資訊全部保留在本機。
 
 ## 系統需求
 
-- 本機已合法安裝的 RimWorld 1.7
-- [.NET SDK 10](https://dotnet.microsoft.com/download)：`build_mod`（編譯 C# Mod）、`run_test_cycle`（建置 Bridge）與從原始碼安裝時需要
+- 本機已合法安裝的 RimWorld 1.7（不支援 1.6）
+- [.NET SDK 10](https://dotnet.microsoft.com/download)：供 `build_mod`（編譯 C# Mod）、`run_test_cycle`（建置 Bridge）以及從原始碼安裝使用
 
 > [!NOTE]
-> Release 的執行檔是 Self-Contained，執行伺服器本體不需要 .NET Runtime。遊戲內 Bridge 以原始碼內嵌在工具裡；`run_test_cycle` 會參考偵測到的 RimWorld 組件編譯一次（需要 SDK），之後 Bridge 或遊戲沒變就沿用。不使用任何 NuGet 參考組件，本 repository 也不包含任何 RimWorld 二進位檔。
+> 發佈的 Release 執行檔為 Self-Contained，執行伺服器本體無需預先安裝 .NET Runtime。遊戲內 Bridge 以原始碼內嵌於工具中；`run_test_cycle` 首次執行時會依偵測到的本機 RimWorld 組件就地編譯一次（此步驟需要 .NET SDK），之後若 Bridge 原始碼或遊戲版本未變更則持續沿用。`create_mod` 建立的 C# Mod 專案則透過 `Krafs.Rimworld.Ref` NuGet 套件參考 RimWorld API，無須依賴本機遊戲安裝目錄；本 repository 本身不包含任何 RimWorld 專有二進位檔。
 
-需要 RimWorld 1.7；不支援 1.6。1.7 不再是 Unity 遊戲，改跑在 .NET 10 上、組件直接放在安裝根目錄，因此 Bridge 與 `create_mod` 產生的 C# 專案以 `net10.0` 為目標，並參考那裡的 `Assembly-CSharp.dll` 與 `UnityStubs.dll`。
+RimWorld 1.7 不再運行於 Unity 引擎架構下，而是直接運行於 .NET 10，其核心組件位於遊戲安裝根目錄。遊戲內 Bridge 針對本機偵測到的組件進行編譯，而 `create_mod` 產生的 C# 專案則以 `net10.0` 為目標框架，並透過 `Krafs.Rimworld.Ref` 套件解析 RimWorld API。
 
 ## 安裝
 
@@ -101,7 +101,7 @@ dotnet publish src/RimWorldModMcp.Server -c Release -r linux-x64 --self-containe
 {
   "mcpServers": {
     "rimworld": {
-      "command": "C:\path\to\rimworld-mod-mcp-<版本>-win-x64.exe",
+      "command": "C:\\path\\to\\rimworld-mod-mcp-<版本>-win-x64.exe",
       "args": ["stdio"]
     }
   }
@@ -145,7 +145,7 @@ macOS 與 Linux 改填下載檔案的絕對路徑。若從原始碼安裝為 dot
 | `list_symbols` | 不靠關鍵字瀏覽：給 namespace 列出其中的頂層型別與子 namespace，給型別列出它的成員。parent 不存在時報錯而不是回空清單。 |
 | `find_descendants` | 找出所有繼承自指定型別的類別；短名不歧義時也可以。零命中時回 `suggestions`。 |
 | `search_source` | 以正規表示式（.NET 語法，一律不分大小寫）搜尋反編譯後的原始碼：預設搜遊戲本體，給 `package_id` 則搜一個已安裝的 Mod（首次會在背景反編譯，`indexing=true` 代表稍後再試）。`assembly`（例如 `1.7/`）可只搜 Mod 其中一個版本的 DLL。優先用簡單字面量（`CurTimeSpeed`）；`a|b` 取聯集。 |
-| `read_source_file` | 用搜尋結果回傳的 `assembly` 與 `file` 讀取整個反編譯檔（遊戲或 Mod），以行分頁（`start_line`＋`max_bytes`）。空結果先看 `source_indexed`。 |
+| `read_source_file` | 用搜尋結果回傳的 `assembly` 與 `file` 讀取完整反編譯檔案（遊戲或 Mod），支援以行數分頁（`start_line`＋`max_bytes`）。若查無結果可先確認 `source_indexed` 是否建置完成。 |
 | `find_def_usages` | 找出一個 Def 被引用的位置，含 XML 交叉引用與 C# 的 `DefOf` 欄位。手寫 `Languages/` 翻譯前先用它驗證欄位。 |
 
 ### 已安裝的 Mod
@@ -159,7 +159,7 @@ macOS 與 Linux 改填下載檔案的絕對路徑。若從原始碼安裝為 dot
 
 | 工具 | 用途 |
 | --- | --- |
-| `create_mod` | 建立 Mod 骨架，可含 C# 專案；csproj 已設定好遊戲組件參考。 |
+| `create_mod` | 建立 Mod 骨架，可選一併產生 C# 專案；產生的 csproj 已設定好透過 `Krafs.Rimworld.Ref` NuGet 套件參考 RimWorld API。 |
 | `build_mod` | 驗證 XML Mod 或建置 C# Mod 並部署 DLL，編譯錯誤以結構化診斷回傳。 |
 
 工具集刻意只保留 AI coding agent 自己做不到的事：查詢遊戲與其他 Mod 的 Def 與反編譯原始碼、建置、在隔離環境啟動遊戲測試。複製檔案、建目錄、版本快照這類 agent 原生就能做的事不提供工具——版本管理請用 Git。
@@ -217,7 +217,7 @@ RimWorld 的 AI 輔助 modding 工具有好幾個，各自占據不同的位置�
 | 測試啟動 | 隔離存檔目錄、自產 `ModsConfig.xml`、junction／symlink 指向工作區 | 安裝 Mod 後啟動遊戲；Bridge Mod 監看錯誤 | 無 | 經 GABS 啟動 debug 遊戲或載入存檔 | 無 |
 | 遊戲內回饋 | 錯誤／警告 + 遊戲狀態（場景、地圖、tick、暫停、開啟的對話框） | 經其 Bridge Mod 回報錯誤 | — | 完整即時狀態、語意化 UI 佈局、截圖、debug action、Lua 腳本 | — |
 | Steam Workshop | 刻意不做 | 內建發佈 | — | — | — |
-| 網路 | 無；全部留在本機 | 模型供應商 API、Workshop 上傳；內含 `@sentry/electron` | 託管模式會把查詢送到 rimsage.com；自架模式在本機 | 本機 | 本機，除非使用遠端嵌入 API |
+| 網路 | 本機（僅限 loopback；首次建置 C# Mod 可能需還原 NuGet 參考套件） | 模型供應商 API、Workshop 上傳；內含 `@sentry/electron` | 託管模式會把查詢送到 rimsage.com；自架模式在本機 | 本機 | 本機，除非使用遠端嵌入 API |
 | 支援遊戲 | RimWorld | RimWorld、Minecraft | RimWorld | RimWorld | RimWorld |
 | 授權 | MIT | MIT | MIT | MIT | MIT |
 
@@ -230,7 +230,7 @@ RimWorld 的 AI 輔助 modding 工具有好幾個，各自占據不同的位置�
 ## 安全與隱私
 
 - 會寫入檔案的工具只有 `create_mod`、`build_mod`、`run_test_cycle`，且只寫呼叫時指定的 Mod 目錄（測試場次另外寫入獨立的暫存存檔目錄）。本工具不設路徑白名單，請依賴 MCP client 的工具權限確認。
-- 沒有任何外部網路通訊。遊戲檔、反編譯結果、索引與診斷都只存在本機。
+- 本工具無任何外部網路連線（僅在初次建置 C# Mod 時 dotnet 可能自 NuGet 還原 API 參考套件）。遊戲檔案、反編譯結果、符號索引與診斷紀錄皆完整保留在本機。
 - Bridge 只在 `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` 存在時啟用，且只連 `127.0.0.1`。每個測試場次使用一次性 token；token 不會被寫入診斷紀錄，也不會出現在工具回應中。
 - 破壞性操作（`stop_test`）需要明確的 `confirm: true`。
 
@@ -242,7 +242,7 @@ RimWorld 的 AI 輔助 modding 工具有好幾個，各自占據不同的位置�
 | `RIMWORLD_MOD_MCP_PLAYER_LOG` | 覆寫 `Player.log` 的位置。 |
 | `RIMWORLD_MOD_MCP_BRIDGE_PORT` | 診斷 daemon 的 loopback 埠，預設 49460。 |
 | `RIMWORLD_MOD_MCP_PERF_MARKERS` | 額外的效能標記，以 `\|` 分隔。內容含 `[perf]` 或任一額外標記的 `Log.Message` 會被收成 `performance` 診斷（用 `list_test_diagnostics(type=performance)` 查詢）。 |
-| `RIMWORLD_MANAGED_DIR` | 建置時傳給 MSBuild 用於解析遊戲組件，由本工具自動注入。 |
+| `RIMWORLD_MANAGED_DIR` | 存放遊戲組件（`Assembly-CSharp.dll` 與 `UnityStubs.dll`）的目錄路徑。Bridge 建置與傳統 Mod 專案建置時由本工具自動注入；亦可在手動命令列建置時自行指定。 |
 
 ## 開發
 
