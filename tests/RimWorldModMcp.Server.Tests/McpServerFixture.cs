@@ -81,6 +81,8 @@ public sealed class McpServerFixture : IAsyncDisposable
 
     public StoreDirectories Store { get; }
 
+    public IServiceProvider Services => _host.Services;
+
     public McpClient Client { get; private set; } = null!;
 
     /// <summary>server 端日誌（含 MCP SDK 記錄的工具例外）。失敗診斷用。</summary>

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using RimWorldModMcp.Indexing.Model;
 using RimWorldModMcp.Indexing.Semantics;
 using RimWorldModMcp.Indexing.Storage;
@@ -19,7 +20,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
 
     private void SeedDatabase()
     {
-        var database = new IndexDatabase(_server.Store);
+        var database = _server.Services.GetRequiredService<IndexDatabase>();
         using var connection = database.Open();
         using var transaction = connection.BeginTransaction();
 
@@ -138,7 +139,6 @@ public sealed class IndexToolsTests : IAsyncLifetime
 
         transaction.Commit();
         connection.Close();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
     }
 
     [Fact]

@@ -163,8 +163,12 @@ public sealed class IndexDatabase(StoreDirectories store)
                 switch (Classify(connection))
                 {
                     case Usability.Ok:
-                        IndexSchema.Apply(connection);
-                        WriteUserVersion(connection, IndexSchema.Version);
+                        using (var tx = connection.BeginTransaction())
+                        {
+                            IndexSchema.Apply(connection);
+                            WriteUserVersion(connection, IndexSchema.Version);
+                            tx.Commit();
+                        }
                         _initialised = true;
                         return;
 
@@ -194,8 +198,12 @@ public sealed class IndexDatabase(StoreDirectories store)
                 fresh.Open();
                 ApplyConnectionPragmas(fresh);
                 EnsureJournalMode(fresh);
-                IndexSchema.Apply(fresh);
-                WriteUserVersion(fresh, IndexSchema.Version);
+                using (var tx = fresh.BeginTransaction())
+                {
+                    IndexSchema.Apply(fresh);
+                    WriteUserVersion(fresh, IndexSchema.Version);
+                    tx.Commit();
+                }
 
                 _initialised = true;
                 return;
