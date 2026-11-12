@@ -70,7 +70,7 @@ static async Task<int> RunDaemon()
     return 0;
 }
 
-/// <summary>以 stdio 傳輸執行 MCP server。</summary>
+// 以 stdio 傳輸執行 MCP server。
 static async Task<int> RunStdioAsync(string[] args, CancellationToken cancellationToken = default)
 {
     // 用 CreateEmptyApplicationBuilder 而不是 CreateApplicationBuilder：

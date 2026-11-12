@@ -175,7 +175,7 @@ public sealed class IndexDatabase(StoreDirectories store)
                     case Usability.Unknown:
                         // 問不到就**不要動它**。刪檔是不可逆的，而忙碌、暫時的 IO 錯誤、
                         // 權限問題都不是「壞掉」。查詢真的不行會以可讀的錯誤回報
-                        //（ToolGuard 會說「資料庫忙碌，請稍後重試」），
+                        // （ToolGuard 會說「資料庫忙碌，請稍後重試」），
                         // 真正的損毀則由 rebuild_index 的 Reset 路徑處理——那也是可恢復的。
                         //
                         // 注意：這裡刻意不標記 _initialised，下次 Open 會重試。

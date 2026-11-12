@@ -18,7 +18,10 @@ public static class Utf8Text
     /// 把 <paramref name="value"/> 截到最多 <paramref name="maxBytes"/> 個 UTF-8 位元組。
     /// 截斷點一定落在合法的字元邊界，不會切碎多位元組字元或代理對。
     /// </summary>
-    /// <param name="truncated">是否真的發生截斷。</param>
+    /// <param name="value">要截斷的原始字串。</param>
+    /// <param name="maxBytes">容許的最大 UTF-8 位元組數。</param>
+    /// <param name="truncated">輸出參數：是否真的發生截斷。</param>
+    /// <returns>截斷後的字串。</returns>
     public static string Truncate(string value, int maxBytes, out bool truncated)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);

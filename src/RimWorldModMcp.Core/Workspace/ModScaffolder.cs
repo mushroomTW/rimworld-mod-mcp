@@ -15,7 +15,11 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
     /// <summary>
     /// 在 <paramref name="parentPath"/> 底下建立一個新 Mod。
     /// </summary>
+    /// <param name="parentPath">放置新 Mod 資料夾的父目錄路徑。</param>
+    /// <param name="name">Mod 顯示名稱。</param>
+    /// <param name="packageId">Mod 唯一識別碼（需符合 RimWorld 規範）。</param>
     /// <param name="withCode">是否一併產生 C# 專案骨架。</param>
+    /// <returns>新建 Mod 的根目錄絕對路徑。</returns>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "DI instance service method")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeSmell", "S2325:Methods that don't access instance data should be 'static'", Justification = "DI instance service method")]
     public string Create(string parentPath, string name, string packageId, bool withCode)

@@ -19,10 +19,17 @@ public sealed record IndexBuildResult(
     long ElapsedMilliseconds);
 
 /// <summary>索引目前的狀態。</summary>
+/// <param name="Fresh">索引指紋是否與目前遊戲安裝相符且最新。</param>
+/// <param name="Healthy">索引資料庫結構是否完整且通過損毀檢查。</param>
 /// <param name="Busy">
 /// 有另一個寫者持有寫鎖，狀態未知。與 <paramref name="Healthy"/> 分開是必要的：
 /// 回同一個 false 會讓呼叫端在重建進行中被叫去「再重建一次」。
 /// </param>
+/// <param name="Fingerprint">索引建立時記錄的遊戲與環境指紋。</param>
+/// <param name="DefCount">已索引的 Def 數量。</param>
+/// <param name="SymbolCount">已索引的 C# 符號數量。</param>
+/// <param name="SourceIndexed">原始碼反編譯全文索引是否已建立完成。</param>
+/// <param name="SourceIndex">原始碼全文索引的詳細狀態。</param>
 public sealed record IndexStatus(
     bool Fresh,
     bool Healthy,

@@ -107,7 +107,7 @@ internal static class ToolGuard
         // 「An error occurred」，而這正是使用者最需要線索的失敗之一。
         or System.ComponentModel.Win32Exception
         // dotnet build 逾時、搜尋超過時間預算。RegexMatchTimeoutException 也在此列
-        //（它繼承 TimeoutException），而且它是「換個更精確的模式就好」這種可修正的失敗。
+        // （它繼承 TimeoutException），而且它是「換個更精確的模式就好」這種可修正的失敗。
         or TimeoutException
         // 呼叫端取消（例如長輪詢期間 client 斷線）。回報取消比回報「發生錯誤」誠實。
         or OperationCanceledException;

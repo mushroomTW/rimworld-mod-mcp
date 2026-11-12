@@ -45,7 +45,10 @@ public static class AboutXml
     /// 讀取一個 Mod 目錄的 About.xml。
     /// 缺少 packageId 或檔案無法解析時回傳 null——那代表這個目錄不是 Mod。
     /// </summary>
+    /// <param name="modDirectory">Mod 的根目錄路徑。</param>
+    /// <param name="source">Mod 來源分類（如 local, workshop, core）。</param>
     /// <param name="gameVersion">遊戲的 major.minor（例如 1.6）；給了才會套用 *ByVersion 清單。</param>
+    /// <returns>解析成功的 <see cref="ModInfo"/>；若缺少 packageId 或檔案無法解析則為 null。</returns>
     public static ModInfo? Parse(string modDirectory, string source, string? gameVersion = null)
     {
         var aboutPath = System.IO.Path.Combine(modDirectory, "About", "About.xml");

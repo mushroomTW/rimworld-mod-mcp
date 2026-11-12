@@ -12,7 +12,7 @@ namespace RimWorldModMcp.Indexing.Defs;
 /// <para>
 /// 過去 Def 掃描與引用分析各自走訪並解析同一批 XML。引用分析需要完整的
 /// defName 名冊才能過濾，而名冊要等掃描結束才存在——這裡的解法是候選
-/// 先不過濾（經 <paramref name="emitCandidate"/> 落進 SQLite 暫存表），
+/// 先不過濾（經 <c>emitCandidate</c> 落進 SQLite 暫存表），
 /// 最後用一次 join 收斂，因此內容只需要過一遍。
 /// </para>
 /// </summary>

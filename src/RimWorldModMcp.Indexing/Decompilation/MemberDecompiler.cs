@@ -107,8 +107,11 @@ public sealed class MemberDecompiler(RimWorldLocator locator) : IDisposable
     /// 第一次 MoveNext 前被淘汰」的空隙。
     /// </para>
     /// </summary>
+    /// <param name="assemblyPath">目標組件檔案路徑。</param>
     /// <param name="onUnavailable">組件無法載入時呼叫一次，參數是給人看的原因。</param>
     /// <param name="onTypeSkipped">個別型別反編譯失敗被跳過時呼叫一次，參數是型別全名（F12 的略過統計用）。</param>
+    /// <param name="cancellationToken">取消語彙基元。</param>
+    /// <returns>每個反編譯檔案的相對路徑與 C# 原始碼文字的列舉。</returns>
     public IEnumerable<(string Path, string Text)> DecompileAll(
         string assemblyPath,
         Action<string>? onUnavailable = null,
