@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 
 /// <summary>驗證衍生索引檔損毀時，重建作業能自行建立乾淨資料庫。</summary>
 // 兩個類別都改寫行程共用的 RIMWORLD_MOD_MCP_GAME_PATH，不能平行跑。
-[Collection("GamePathEnvironment")]
+[NonParallelizable]
 public sealed class IndexBuilderRecoveryTests : IDisposable
 {
     private readonly string _root;
@@ -32,7 +32,7 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void RebuildResetsAMalformedDerivedDatabaseAndRetriesOnce()
     {
         var install = Path.Combine(_root, "RimWorld");
@@ -79,7 +79,7 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
     /// F11：索引已損毀時，狀態查詢必須按結構化契約回報 healthy=false，
     /// 不可再讀損毀資料表而把 NOTADB／CORRUPT 拋給呼叫端。
     /// </summary>
-    [Fact]
+    [Test]
     public void StatusOnACorruptDatabaseReportsUnhealthyInsteadOfThrowing()
     {
         var store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));

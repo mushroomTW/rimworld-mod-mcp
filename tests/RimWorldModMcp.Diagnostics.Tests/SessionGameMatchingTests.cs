@@ -13,10 +13,9 @@ public sealed class SessionGameMatchingTests
     private static readonly string SaveData = Path.Combine(Path.GetTempPath(), "RimWorldModMcp", "test-savedata", "1790611144-ea19e12d");
 
     /// <summary>GameLauncher 啟動時的形式，與 GenCommandLine.Restart 把每個參數加上引號後的形式。</summary>
-    [Theory]
-    [InlineData("\"{exe}\" -savedatafolder={save} -quicktest")]
-    [InlineData("{exe} \"-savedatafolder={save}\" \"-quicktest\"")]
-    [InlineData("{exe} -savedatafolder={save}")]
+    [TestCase("\"{exe}\" -savedatafolder={save} -quicktest")]
+    [TestCase("{exe} \"-savedatafolder={save}\" \"-quicktest\"")]
+    [TestCase("{exe} -savedatafolder={save}")]
     public void LaunchAndRestartCommandLinesMatch(string template)
     {
         var commandLine = template.Replace("{exe}", "RimWorldWin64.exe").Replace("{save}", SaveData);
@@ -25,11 +24,10 @@ public sealed class SessionGameMatchingTests
     }
 
     /// <summary>使用者自己開的遊戲、別的場次（run id 只差後綴）都不能被當成本場次而被終止。</summary>
-    [Theory]
-    [InlineData("RimWorldWin64.exe")]
-    [InlineData("RimWorldWin64.exe -savedatafolder={save}0 -quicktest")]
-    [InlineData("RimWorldWin64.exe -savedatafolder={save}-other")]
-    [InlineData(null)]
+    [TestCase("RimWorldWin64.exe")]
+    [TestCase("RimWorldWin64.exe -savedatafolder={save}0 -quicktest")]
+    [TestCase("RimWorldWin64.exe -savedatafolder={save}-other")]
+    [TestCase(null)]
     public void OtherGamesDoNotMatch(string? template)
     {
         var commandLine = template?.Replace("{save}", SaveData);
@@ -38,7 +36,7 @@ public sealed class SessionGameMatchingTests
     }
 
     /// <summary>用真的行程走一遍：同名行程裡只挑出命令列帶本場次目錄的那一個。</summary>
-    [Fact]
+    [Test]
     public void FindSessionGamesPicksTheProcessCarryingTheSaveDataFolder()
     {
         var saveData = Path.Combine(Path.GetTempPath(), "rwmm-session " + Guid.NewGuid().ToString("N"));

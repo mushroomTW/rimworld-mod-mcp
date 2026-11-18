@@ -7,7 +7,7 @@ namespace RimWorldModMcp.Core.Tests;
 /// 本工具只支援 1.7 的 .NET 安裝結構：受控組件在安裝根目錄、日誌在 Logs/。
 /// 以假安裝目錄與假家目錄驗證偵測結果。
 /// </summary>
-[Collection(ProcessEnvironmentCollection.Name)]
+[NonParallelizable]
 public sealed class RimWorldLocatorTests : IDisposable
 {
     private static readonly string[] Variables = ["RIMWORLD_MOD_MCP_GAME_PATH", "RIMWORLD_MOD_MCP_PLAYER_LOG", "USERPROFILE", "HOME", "XDG_CONFIG_HOME"];
@@ -72,7 +72,7 @@ public sealed class RimWorldLocatorTests : IDisposable
         File.WriteAllBytes(Path.Combine(managed, OperatingSystem.IsWindows() ? "RimWorld.exe" : "RimWorld"), []);
     }
 
-    [Fact]
+    [Test]
     public void DotNetLayoutUsesTheInstallRootAsManagedDirectory()
     {
         CreateDotNetInstall();
@@ -86,7 +86,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     }
 
     /// <summary>1.6 的 Unity 結構不再支援：不回報受控目錄，並標出不支援的版本。</summary>
-    [Fact]
+    [Test]
     public void UnityLayoutOfAnOlderGameIsReportedAsUnsupported()
     {
         File.WriteAllText(Path.Combine(_install, "Version.txt"), "1.6.4871 rev590");
@@ -104,7 +104,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     }
 
     /// <summary>Version.txt 讀不到時，Unity 的 *_Data/Managed 結構本身就代表 1.7 以前的版本。</summary>
-    [Fact]
+    [Test]
     public void UnityLayoutWithoutAVersionIsReportedAsUnsupported()
     {
         Directory.CreateDirectory(Path.Combine(_install, "RimWorldWin64_Data", "Managed"));
@@ -116,7 +116,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     }
 
     /// <summary>舊版遊戲不能套 net10.0 + UnityStubs 的骨架：create_mod 直接說明不支援，而不是產生建置不了的專案。</summary>
-    [Fact]
+    [Test]
     public void ScaffolderRefusesAnUnsupportedGame()
     {
         File.WriteAllText(Path.Combine(_install, "Version.txt"), "1.6.4871 rev590");
@@ -130,7 +130,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     }
 
     /// <summary>版本無法讀取時不能硬說是舊版：只回報缺組件。</summary>
-    [Fact]
+    [Test]
     public void MissingAssembliesWithoutAVersionAreNotReportedAsUnsupported()
     {
         var paths = new RimWorldLocator().Detect();
@@ -143,7 +143,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     /// 1.7 還沒啟動過時 Logs/Player.log 不存在，同目錄卻留著 1.6 的 Player.log。
     /// 必須指向之後會被寫入的 Logs/Player.log，不能退回那份不再更新的舊檔。
     /// </summary>
-    [Fact]
+    [Test]
     public void DotNetLayoutPointsAtLogsPlayerLogBeforeTheFirstLaunch()
     {
         if (OperatingSystem.IsWindows())
@@ -162,7 +162,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     }
 
     /// <summary>1.7 在 Linux 上遵循 XDG_CONFIG_HOME（1.6 的 Unity 不會），日誌與設定檔都在那裡。</summary>
-    [Fact]
+    [Test]
     public void DotNetLayoutOnLinuxHonoursXdgConfigHome()
     {
         if (!OperatingSystem.IsLinux())
@@ -183,7 +183,7 @@ public sealed class RimWorldLocatorTests : IDisposable
         Assert.Equal(Path.Combine(logRoot, "Config", "ModsConfig.xml"), paths.ModsConfig);
     }
 
-    [Fact]
+    [Test]
     public void DotNetLayoutWithoutAnyDataFolderHasNoPlayerLog()
     {
         if (OperatingSystem.IsWindows())
@@ -197,7 +197,7 @@ public sealed class RimWorldLocatorTests : IDisposable
     }
 
     /// <summary>1.7 的遊戲跑在 .NET 10 上，create_mod 的 C# 骨架以 net10.0 和 Krafs.Rimworld.Ref 建置。</summary>
-    [Fact]
+    [Test]
     public void ScaffolderGeneratesANet10ProjectForTheDotNetGame()
     {
         CreateDotNetInstall();
@@ -218,7 +218,6 @@ public sealed class RimWorldLocatorTests : IDisposable
 }
 
 /// <summary>改寫行程共用環境變數（遊戲路徑、家目錄）的測試不能與其他測試平行跑。</summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class ProcessEnvironmentCollection
 {
     public const string Name = "ProcessEnvironment";

@@ -90,13 +90,13 @@ public sealed class AssemblySymbolReaderTests : IDisposable
     private SymbolRecord Find(string fqn, SymbolKind kind)
         => _symbols.Single(s => s.Fqn == fqn && s.Kind == kind);
 
-    [Fact]
+    [Test]
     public void AssemblyNameIsRecorded()
     {
         Assert.All(_symbols, s => Assert.Equal("Assembly-CSharp", s.Assembly));
     }
 
-    [Fact]
+    [Test]
     public void TypeKindsAreClassified()
     {
         Assert.Equal(SymbolKind.Class, Find("Verse.ThingDef", SymbolKind.Class).Kind);
@@ -110,7 +110,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
     /// Python 版的 parent_fqn 只有一層，回答不了「哪些類別繼承 ThingComp」這種
     /// RimWorld modding 的核心問題。
     /// </summary>
-    [Fact]
+    [Test]
     public void BaseChainIsComplete()
     {
         var thingDef = Find("Verse.ThingDef", SymbolKind.Class);
@@ -118,14 +118,14 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal("Verse.BuildableDef|Verse.Def|System.Object", thingDef.BaseChain);
     }
 
-    [Fact]
+    [Test]
     public void InterfacesAreRecorded()
     {
         Assert.Equal("Verse.ITickable", Find("Verse.ThingDef", SymbolKind.Class).Interfaces);
     }
 
     /// <summary>簽章是真的組出來的型別簽章，不是「宣告那一行的原始文字」。</summary>
-    [Fact]
+    [Test]
     public void MethodSignatureCarriesRealTypes()
     {
         var method = Find("Verse.ThingDef.CanEverPlaceOver", SymbolKind.Method);
@@ -135,7 +135,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.False(method.IsStatic);
     }
 
-    [Fact]
+    [Test]
     public void ConstructorsAreDistinguishedFromMethods()
     {
         var constructors = _symbols.Where(s => s.Kind == SymbolKind.Constructor && s.ParentFqn == "Verse.ThingDef").ToList();
@@ -145,7 +145,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Contains(constructors, c => c.Signature == "ThingDef(string name)");
     }
 
-    [Fact]
+    [Test]
     public void PropertiesAreNotDuplicatedAsAccessorMethods()
     {
         // get_label / set_label 是存取子，不應該另外以 method 出現。
@@ -155,7 +155,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal("string label { get; set; }", property.Signature);
     }
 
-    [Fact]
+    [Test]
     public void FieldsCarryTypeAndAccessibility()
     {
         Assert.Equal("string defName", Find("Verse.Def.defName", SymbolKind.Field).Signature);
@@ -166,7 +166,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
     /// ThingDefOf.Steel 這種靜態欄位是 RimWorld 最常見的 def 引用形式。
     /// 必須被索引到，Roslyn 的引用分析才有東西可比對。
     /// </summary>
-    [Fact]
+    [Test]
     public void StaticDefOfFieldsAreIndexed()
     {
         var field = Find("Verse.ThingDefOf.Steel", SymbolKind.Field);
@@ -175,7 +175,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal("Verse.ThingDef Steel", field.Signature);
     }
 
-    [Fact]
+    [Test]
     public void StaticClassIsMarked()
     {
         var type = Find("Verse.ThingDefOf", SymbolKind.Class);
@@ -184,7 +184,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Contains("static class", type.Signature, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void GenericTypeParametersUseTheirDeclaredNames()
     {
         var repository = Find("Verse.Repository<T>", SymbolKind.Class);
@@ -196,7 +196,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal("T Get(string name)", get.Signature);
     }
 
-    [Fact]
+    [Test]
     public void GenericMethodParametersAreResolved()
     {
         var convert = _symbols.Single(s => s.ShortName == "Convert" && s.Kind == SymbolKind.Method);
@@ -204,13 +204,13 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal("TOther Convert<TOther>(T source)", convert.Signature);
     }
 
-    [Fact]
+    [Test]
     public void CompilerGeneratedTypesAreSkipped()
     {
         Assert.DoesNotContain(_symbols, s => s.ShortName.StartsWith('<'));
     }
 
-    [Fact]
+    [Test]
     public void MetadataTokensAreUsable()
     {
         // token 是後續「單一成員反編譯」的定位入口，必須非零且唯一。
@@ -220,7 +220,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal(tokens.Count, tokens.Distinct().Count());
     }
 
-    [Fact]
+    [Test]
     public void TypeSignatureShowsDirectInheritance()
     {
         var signature = Find("Verse.ThingDef", SymbolKind.Class).Signature;
@@ -228,7 +228,7 @@ public sealed class AssemblySymbolReaderTests : IDisposable
         Assert.Equal("class Verse.ThingDef : Verse.BuildableDef, Verse.ITickable", signature);
     }
 
-    [Fact]
+    [Test]
     public void AbstractTypesAreMarked()
     {
         Assert.Contains("abstract class", Find("Verse.Def", SymbolKind.Class).Signature, StringComparison.Ordinal);

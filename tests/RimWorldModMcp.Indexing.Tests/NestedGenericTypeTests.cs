@@ -46,7 +46,7 @@ public sealed class NestedGenericTypeTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void NestedTypeKeepsItsOwnNameAndOnlyItsOwnParameters()
     {
         var comparer = _symbols.Single(s => s.Kind == SymbolKind.Class && s.ShortName == "DistanceComparer");
@@ -56,7 +56,7 @@ public sealed class NestedGenericTypeTests : IDisposable
         Assert.Equal("Verse.Dijkstra<T>+Node<TValue>", node.Fqn);
     }
 
-    [Fact]
+    [Test]
     public void NestedTypeParentIsTheOuterTypeDisplayName()
     {
         var outer = _symbols.Single(s => s.Kind == SymbolKind.Class && s.ShortName == "Dijkstra<T>");
@@ -69,7 +69,7 @@ public sealed class NestedGenericTypeTests : IDisposable
         Assert.Single(_symbols, s => s.Fqn == "Verse.Dijkstra<T>" && s.Kind != SymbolKind.Constructor);
     }
 
-    [Fact]
+    [Test]
     public void NestedConstructorIsNamedAfterTheNestedType()
     {
         var constructor = _symbols.Single(s => s.Kind == SymbolKind.Constructor && s.ParentFqn == "Verse.Dijkstra<T>+DistanceComparer");
@@ -82,7 +82,7 @@ public sealed class NestedGenericTypeTests : IDisposable
     /// F10：泛型實例化為參數時，巢狀層不可被截掉。
     /// `Take(Outer&lt;int&gt;.Nested)` 舊實作顯示為 `Take(Outer&lt;int&gt;)`。
     /// </summary>
-    [Fact]
+    [Test]
     public void NestedGenericInstantiationInParameterKeepsTheNestedLevel()
     {
         const string source = """
@@ -118,7 +118,7 @@ public sealed class NestedGenericTypeTests : IDisposable
     /// F10：巢狀泛型為基底時，基底鏈不可混淆為外層型別。
     /// `Derived : Outer&lt;int&gt;.Nested` 舊鏈為 `Outer|Object`。
     /// </summary>
-    [Fact]
+    [Test]
     public void NestedGenericBaseChainKeepsTheNestedLevel()
     {
         const string source = """

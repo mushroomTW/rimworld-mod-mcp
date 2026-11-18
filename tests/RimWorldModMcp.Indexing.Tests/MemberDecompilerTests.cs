@@ -47,7 +47,7 @@ public sealed class MemberDecompilerTests : IDisposable
     }
 
     /// <summary>反編譯器在 Windows 產出 CRLF；read_symbol 的 body 一律只回 \n。</summary>
-    [Fact]
+    [Test]
     public void DecompileMemberReturnsLfLineEndings()
     {
         var lib = SyntheticAssembly.Emit(LibSource, "Lib", _root);
@@ -60,7 +60,7 @@ public sealed class MemberDecompilerTests : IDisposable
         Assert.DoesNotContain("\r", source, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void DecompileAll_DoesNotKeepReferencedAssemblyLocked()
     {
         var lib = SyntheticAssembly.Emit(LibSource, "Lib", _root);
@@ -82,7 +82,7 @@ public sealed class MemberDecompilerTests : IDisposable
     /// 「每次都能重試」，不能被 Lazy 快取記住——否則那個路徑會被永久毒化，
     /// 使用者連 force 重建都救不回，只能重啟 server。
     /// </summary>
-    [Fact]
+    [Test]
     public void UnreadableAssembly_FailsEveryTimeWithoutThrowing()
     {
         Directory.CreateDirectory(_root);
@@ -111,7 +111,7 @@ public sealed class MemberDecompilerTests : IDisposable
     /// 真正的原生 DLL（合法的 PE，但沒有 CLI metadata）。這是 Assemblies/ 底下最常見的
     /// 「不是 .NET 組件」形態，而且它跟「不是 PE」走的是不同的失敗路徑。
     /// </summary>
-    [Fact]
+    [Test]
     public void NativeAssemblyWithoutMetadata_IsReportedNotThrown()
     {
         var native = FindNativeLibrary();
@@ -146,7 +146,7 @@ public sealed class MemberDecompilerTests : IDisposable
     /// 「這個會期檢視過的 Mod 數」單調成長且永不回收。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void DecompiledAssembliesAreEvictedBeyondTheCacheLimit()
     {
         var assemblies = new List<string>();

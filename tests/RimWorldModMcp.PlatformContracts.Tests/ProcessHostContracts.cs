@@ -13,7 +13,7 @@ public sealed class ProcessHostContracts
     private readonly ProcessHost _processes = new();
 
     /// <summary>契約：活著→true、已結束→false、PID 非正數→false。</summary>
-    [Fact]
+    [Test]
     public void IsAliveDistinguishesLiveFromExited()
     {
         Assert.True(_processes.IsAlive(Environment.ProcessId));
@@ -37,7 +37,7 @@ public sealed class ProcessHostContracts
     /// PID 1（Unix init）／PID 4（Windows System）都不是我們能開啟的程序。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void IsAliveTreatsInaccessibleProcessesAsAlive()
     {
         var systemPid = OperatingSystem.IsWindows() ? 4 : 1;
@@ -48,7 +48,7 @@ public sealed class ProcessHostContracts
     }
 
     /// <summary>契約：能終止自己啟動的程序，且對無效 PID 回傳 false。</summary>
-    [Fact]
+    [Test]
     public void TerminateStopsAProcessWeStarted()
     {
         using var process = StartLongRunningProcess();
@@ -66,7 +66,7 @@ public sealed class ProcessHostContracts
     /// 契約：啟動時間可用來配合 PID 辨識同一個程序。
     /// 這是 Python 版沒有的防護——單看 PID 會在 PID 重用時誤判。
     /// </summary>
-    [Fact]
+    [Test]
     public void StartTimeDistinguishesRecycledPids()
     {
         var mine = _processes.StartTimeUtc(Environment.ProcessId);
@@ -80,7 +80,7 @@ public sealed class ProcessHostContracts
     /// 契約：讀得到自己啟動的程序的命令列，對無效 PID 回傳 null。
     /// stop_test 靠它認出遊戲自己重開後的新行程（命令列帶著同一個 -savedatafolder）。
     /// </summary>
-    [Fact]
+    [Test]
     public void CommandLineOfAProcessWeStartedIsReadable()
     {
         var marker = "-savedatafolder=" + Path.Combine(Path.GetTempPath(), "cmdline contract " + Guid.NewGuid().ToString("N"));

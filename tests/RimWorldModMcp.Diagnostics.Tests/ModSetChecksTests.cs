@@ -21,7 +21,7 @@ public sealed class ModSetChecksTests : IDisposable
     /// Bridge 自帶 0Harmony.dll。受測 Mod 用了 Harmony 卻沒宣告 brrainz.harmony 時，
     /// 測試場次照樣能跑，玩家那邊卻會壞——必須明說。
     /// </summary>
-    [Fact]
+    [Test]
     public void ModReferencingHarmonyWithoutTheDependencyIsWarned()
     {
         var mod = ModReferencingHarmony();
@@ -32,7 +32,7 @@ public sealed class ModSetChecksTests : IDisposable
         Assert.Contains("brrainz.harmony", warning, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void HarmonyInTheActiveSetSilencesTheWarning()
     {
         var mod = ModReferencingHarmony();
@@ -40,7 +40,7 @@ public sealed class ModSetChecksTests : IDisposable
         Assert.Null(TestCycleService.HarmonyDependencyWarning(mod, ["ludeon.rimworld", "brrainz.harmony", "me.mod"]));
     }
 
-    [Fact]
+    [Test]
     public void ModWithoutHarmonyReferenceIsNotWarned()
     {
         var mod = Path.Combine(_root, "Plain");
@@ -54,7 +54,7 @@ public sealed class ModSetChecksTests : IDisposable
     /// 測到的可能是舊副本。Workshop 副本不算（RimWorld 會給它加 _steam 後綴），
     /// 本工具自己的連結殘骸也不算。
     /// </summary>
-    [Fact]
+    [Test]
     public void OnlyOtherLocalCopiesCountAsDuplicates()
     {
         var workspace = Path.Combine(_root, "workspace", "MyMod");

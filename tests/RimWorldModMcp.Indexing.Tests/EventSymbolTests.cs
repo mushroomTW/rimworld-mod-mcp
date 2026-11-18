@@ -41,7 +41,7 @@ public sealed class EventSymbolTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void EventsAreIndexedWithTypeAccessibilityAndStaticness()
     {
         var events = _symbols.Where(s => s.Kind == SymbolKind.Event).ToDictionary(s => s.ShortName);
@@ -58,7 +58,7 @@ public sealed class EventSymbolTests : IDisposable
         Assert.Equal("private", events["hidden"].Accessibility);
     }
 
-    [Fact]
+    [Test]
     public void EventAccessorsAreStillNotListedAsMethods()
     {
         Assert.DoesNotContain(_symbols, s => s.Kind == SymbolKind.Method && s.ShortName.StartsWith("add_", StringComparison.Ordinal));

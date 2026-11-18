@@ -28,7 +28,7 @@ public sealed class SourceIndexResumerTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public async Task StartAndStopHostedService()
     {
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());

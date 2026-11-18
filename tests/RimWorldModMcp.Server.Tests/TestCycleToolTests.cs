@@ -3,27 +3,29 @@ using RimWorldModMcp.Diagnostics;
 namespace RimWorldModMcp.Server.Tests;
 
 /// <summary>測試工具回傳給 agent 的形狀：以 daemon 寫進 store 的資料為輸入，經完整的 MCP 管線讀出。</summary>
-public sealed class TestCycleToolTests : IAsyncLifetime
+public sealed class TestCycleToolTests
 {
     private McpServerFixture _server = null!;
     private DiagnosticStore _diagnostics = null!;
     private GameStateStore _gameState = null!;
 
-    public async Task InitializeAsync()
+    [SetUp]
+    public async Task SetUp()
     {
         _server = await McpServerFixture.StartAsync();
         _diagnostics = new DiagnosticStore(_server.Store);
         _gameState = new GameStateStore(_server.Store);
     }
 
-    public async Task DisposeAsync() => await _server.DisposeAsync();
+    [TearDown]
+    public async Task TearDown() => await _server.DisposeAsync();
 
     private static Dictionary<string, object?> Args(params (string Key, object? Value)[] pairs)
         => pairs.ToDictionary(p => p.Key, p => p.Value);
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-    [Fact]
+    [Test]
     public async Task StatusIsIdleWithoutGameStateOnAFreshStore()
     {
         var status = await _server.CallAsync("test_status");
@@ -32,7 +34,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
         Assert.False(status.TryGetProperty("game", out _));
     }
 
-    [Fact]
+    [Test]
     public async Task StatusReportsTheBridgeGameState()
     {
         _gameState.Write(new GameStateRecord
@@ -63,7 +65,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
     }
 
     /// <summary>wait_for_state 在狀態到達前持續等待，到達後立刻回來。</summary>
-    [Fact]
+    [Test]
     public async Task WaitForStateReturnsOnceTheStateIsReached()
     {
         _gameState.Write(new GameStateRecord { ProgramState = "Entry", At = Now() });
@@ -80,7 +82,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
     }
 
     /// <summary>逾時不是錯誤：回目前狀態，讓 agent 自己判斷要不要再等。</summary>
-    [Fact]
+    [Test]
     public async Task WaitForStateTimesOutWithTheCurrentState()
     {
         _gameState.Write(new GameStateRecord { ProgramState = "Entry", At = Now() });
@@ -90,7 +92,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
         Assert.Equal("Entry", status.GetProperty("game").GetProperty("program_state").GetString());
     }
 
-    [Fact]
+    [Test]
     public async Task DiagnosticsListFiltersByTypeButCountsTheWholeSession()
     {
         _diagnostics.Add("error", "NullReferenceException", "NullReferenceException\n  at Verse.Thing.Tick()", "bridge", "run-1");
@@ -114,7 +116,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
         Assert.False(entry.GetProperty("text_truncated").GetBoolean());
     }
 
-    [Fact]
+    [Test]
     public async Task DiagnosticsListTruncatesLongTextAndSaysSo()
     {
         var stack = string.Join("\n", Enumerable.Range(0, 40).Select(i => $"  at Verse.Frame{i}.Tick()"));
@@ -137,7 +139,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
     /// 游標是複合鍵 (latest_at, latest_sequence)——同毫秒可能有多筆，只傳時間會漏掉
     /// 同一毫秒的下半批或把同毫秒的舊筆重複撈回。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task SinceAtCursorOnlyReturnsNewerEntries()
     {
         _diagnostics.Add("error", "first", "first", "bridge", "run-1");
@@ -166,7 +168,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
     /// 游標是複合鍵 (latest_at, latest_sequence)：只追時間的話，同毫秒的多筆
     /// 會在下一頁被重複帶上或漏掉。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task CursorNeverSkipsEntriesCutOffByTheLimit()
     {
         for (var i = 0; i < 5; i++)
@@ -195,7 +197,7 @@ public sealed class TestCycleToolTests : IAsyncLifetime
         Assert.Equal(["e0", "e1", "e2", "e3", "e4"], seen);
     }
 
-    [Fact]
+    [Test]
     public async Task StopTestRequiresConfirmation()
     {
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => _server.CallAsync("stop_test"));

@@ -20,7 +20,7 @@ public sealed class DiagnosticPayloadContracts
     /// <summary>全部 C0 控制字元。RimWorld 的 log 常含 tab 與其他控制字元。</summary>
     private static readonly string AllC0Controls = new([.. Enumerable.Range(0, 32).Select(i => (char)i)]);
 
-    public static TheoryData<string> NastyInputs() =>
+    public static string[] NastyInputs() =>
     [
         string.Empty,
         "plain text",
@@ -34,8 +34,7 @@ public sealed class DiagnosticPayloadContracts
         "\"}{\"type\":\"injected\",\"token\":\"stolen\"",
     ];
 
-    [Theory]
-    [MemberData(nameof(NastyInputs))]
+    [TestCaseSource(nameof(NastyInputs))]
     public void OutputIsValidJsonAndRoundTripsLosslessly(string text)
     {
         var line = DiagnosticPayload.BuildLine("error", "test-token", "probe", text);
@@ -51,7 +50,7 @@ public sealed class DiagnosticPayloadContracts
         Assert.Equal(text, root.GetProperty("text").GetString());
     }
 
-    [Fact]
+    [Test]
     public void TextCannotBreakOutOfTheJsonEnvelope()
     {
         var attack = "\"}{\"type\":\"injected\",\"token\":\"stolen\"";
@@ -68,7 +67,7 @@ public sealed class DiagnosticPayloadContracts
     }
 
     /// <summary>欄位順序是協定的一部分，不可以隨手調換。</summary>
-    [Fact]
+    [Test]
     public void FieldOrderIsStable()
     {
         var line = DiagnosticPayload.BuildLine("diagnostic", "tok", "first", "body");
@@ -80,7 +79,7 @@ public sealed class DiagnosticPayloadContracts
     /// 負向對照組：證明前面的正向測試不是碰巧通過的。
     /// 裸的控制字元在 JSON 裡是非法的，沒有轉義就一定解析失敗。
     /// </summary>
-    [Fact]
+    [Test]
     public void UnescapedControlCharacterWouldBeRejected()
     {
         // 用 ThrowsAny：實際拋的是 JsonReaderException，而 Assert.Throws 要求型別完全相符。
@@ -93,7 +92,7 @@ public sealed class DiagnosticPayloadContracts
         Assert.Equal("has\ttab", document.RootElement.GetProperty("text").GetString());
     }
 
-    [Fact]
+    [Test]
     public void ControlCharactersUseUnicodeEscapes()
     {
         var line = DiagnosticPayload.BuildLine("error", "t", "f", "");
@@ -104,7 +103,7 @@ public sealed class DiagnosticPayloadContracts
     }
 
     /// <summary>Mod 的日誌可能含單獨的 surrogate；換成 U+FFFD 送出，不能讓整筆診斷因例外而消失。</summary>
-    [Fact]
+    [Test]
     public void LoneSurrogateIsReplacedNotThrown()
     {
         var line = DiagnosticPayload.BuildLine("error", "t", "f", "a\ud800b");
@@ -114,7 +113,7 @@ public sealed class DiagnosticPayloadContracts
     }
 
     /// <summary>null 欄位送空字串而不是 JSON null：daemon 對非字串的 type 會丟掉整行。</summary>
-    [Fact]
+    [Test]
     public void NullFieldsAreSentAsEmptyStrings()
     {
         var line = DiagnosticPayload.BuildLine(null!, "t", "f", null!);

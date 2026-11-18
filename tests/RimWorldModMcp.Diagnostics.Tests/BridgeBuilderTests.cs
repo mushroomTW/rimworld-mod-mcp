@@ -40,7 +40,7 @@ public sealed class BridgeBuilderTests : IDisposable
         Path.Combine(_modDirectory, "Assemblies"),
         Path.Combine(_modDirectory, ".build-stamp"));
 
-    [Fact]
+    [Test]
     public void CopiesAssembliesAndAboutIntoTheModDirectory()
     {
         var result = Ensure();
@@ -57,7 +57,7 @@ public sealed class BridgeBuilderTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_modDirectory, "Assemblies", "game-version.txt")));
     }
 
-    [Fact]
+    [Test]
     public void UnchangedPrebuiltIsNotCopiedAgain()
     {
         Ensure();
@@ -70,7 +70,7 @@ public sealed class BridgeBuilderTests : IDisposable
     }
 
     /// <summary>工具更新後預編譯檔會變，快取裡的舊 DLL 必須被換掉。</summary>
-    [Fact]
+    [Test]
     public void UpdatedPrebuiltIsCopiedAgain()
     {
         Ensure();

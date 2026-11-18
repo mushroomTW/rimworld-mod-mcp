@@ -12,13 +12,14 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// 需要本機安裝 RimWorld 的測試。沒有遊戲時**略過**（不是靜默通過）——
 /// 這一類測試要跑真實的 Def 掃描與十萬筆符號索引，CI 上沒有遊戲。
 /// </summary>
-public sealed class RequiresGameFactAttribute : FactAttribute
+public sealed class RequiresGameAttribute : Attribute, NUnit.Framework.Interfaces.IApplyToTest
 {
-    public RequiresGameFactAttribute()
+    public void ApplyToTest(NUnit.Framework.Internal.Test test)
     {
         if (Environment.GetEnvironmentVariable("RIMWORLD_MOD_MCP_TEST_GAME") != "1")
         {
-            Skip = "需要本機 RimWorld：設 RIMWORLD_MOD_MCP_TEST_GAME=1 才會執行。";
+            test.RunState = NUnit.Framework.Interfaces.RunState.Ignored;
+            test.Properties.Set(NUnit.Framework.Internal.PropertyNames.SkipReason, "需要本機 RimWorld：設 RIMWORLD_MOD_MCP_TEST_GAME=1 才會執行。");
         }
     }
 }
@@ -92,7 +93,7 @@ public sealed class RebuildAndModIndexConcurrencyTests : IDisposable
     /// 在 rebuild 的寫交易進行中提交 Mod 索引：必須「等」而不是失敗，
     /// 而且兩者完成後 Mod 的索引必須完整、可搜尋。
     /// </summary>
-    [RequiresGameFact]
+    [Test, RequiresGame]
     public void ModIndexCommitWaitsForAnInFlightRebuild()
     {
         var modPath = EmitMod();
@@ -134,7 +135,7 @@ public sealed class RebuildAndModIndexConcurrencyTests : IDisposable
     /// 修正前會在第一次 BUSY 之後變成 <c>Error</c> 非 null 且永久不再重試。
     /// </para>
     /// </summary>
-    [RequiresGameFact]
+    [Test, RequiresGame]
     public async Task TransientWriteLockConflictDoesNotBecomeAPermanentError()
     {
         var modPath = EmitMod();

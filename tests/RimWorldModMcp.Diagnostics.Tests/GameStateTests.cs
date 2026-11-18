@@ -47,7 +47,7 @@ public sealed class GameStateTests : IDisposable
         return JsonSerializer.Serialize(payload);
     }
 
-    [Fact]
+    [Test]
     public void GameStateIsStoredSeparatelyFromDiagnostics()
     {
         _sessions.Write(new TestSession { State = "running", RunId = "run-1" });
@@ -86,7 +86,7 @@ public sealed class GameStateTests : IDisposable
     }
 
     /// <summary>只保留最新一份；舊的直接被覆蓋。</summary>
-    [Fact]
+    [Test]
     public void LatestReportWins()
     {
         _listener.Accept(Line(Token, new { program_state = "Entry" }), Token);
@@ -100,7 +100,7 @@ public sealed class GameStateTests : IDisposable
     }
 
     /// <summary>token 驗證對 game_state 一樣生效。</summary>
-    [Fact]
+    [Test]
     public void WrongTokenIsRejected()
     {
         _listener.Accept(Line("forged", new { program_state = "Playing" }), Token);
@@ -109,7 +109,7 @@ public sealed class GameStateTests : IDisposable
     }
 
     /// <summary>欄位缺漏或型別錯誤時各自退回預設值，其餘欄位照常。</summary>
-    [Fact]
+    [Test]
     public void MissingOrMistypedFieldsFallBackToDefaults()
     {
         _listener.Accept(Line(Token, new { program_state = "Entry", tick = "not-a-number", open_windows = "not-an-array" }), Token);
@@ -123,7 +123,7 @@ public sealed class GameStateTests : IDisposable
         Assert.False(state.MapLoaded);
     }
 
-    [Fact]
+    [Test]
     public void ClearRemovesTheReport()
     {
         _listener.Accept(Line(Token, new { program_state = "Playing" }), Token);

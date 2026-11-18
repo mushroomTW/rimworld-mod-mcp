@@ -25,7 +25,7 @@ public sealed class IndexDatabaseTests : IDisposable
 
     private IndexDatabase NewDatabase() => new(new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache")));
 
-    [Fact]
+    [Test]
     public void CorruptDatabaseIsResetOnFirstOpen()
     {
         var database = NewDatabase();
@@ -52,7 +52,7 @@ public sealed class IndexDatabaseTests : IDisposable
         Assert.Equal(0, DefRepository.Count(fresh));
     }
 
-    [Fact]
+    [Test]
     public void ResetRemovesEveryFileAndTheNextOpenStartsClean()
     {
         var database = NewDatabase();
@@ -73,7 +73,7 @@ public sealed class IndexDatabaseTests : IDisposable
     }
 
     /// <summary>全新的空白檔（沒有表、user_version = 0）必須被接受，走正常的建結構路徑。</summary>
-    [Fact]
+    [Test]
     public void BrandNewDatabaseIsAcceptedAndInitialised()
     {
         using var connection = NewDatabase().Open();
@@ -93,7 +93,7 @@ public sealed class IndexDatabaseTests : IDisposable
     /// 呼叫端只會看到「An error occurred」。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void DatabaseWithTablesButNoVersionStampIsRebuilt()
     {
         var database = NewDatabase();
@@ -109,7 +109,7 @@ public sealed class IndexDatabaseTests : IDisposable
     }
 
     /// <summary>結構版本不符時整個丟掉重建——索引是衍生資料，不需要 migration。</summary>
-    [Fact]
+    [Test]
     public void DatabaseWithAnOlderSchemaVersionIsRebuilt()
     {
         var database = NewDatabase();
@@ -153,7 +153,7 @@ public sealed class IndexDatabaseTests : IDisposable
     /// 也**不會**觸發刪檔重建。用 DELETE journal 模式才測得到——WAL 允許讀寫並行。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void BusyDatabaseIsReportedAsBusyAndNeverDeleted()
     {
         var database = NewDatabase();
@@ -207,7 +207,7 @@ public sealed class IndexDatabaseTests : IDisposable
     /// 逾時，使用者卻只看到「稍後重試即可」。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void BusyTimeoutIsFiveSecondsNotTheThirtySecondDefault()
     {
         var database = NewDatabase();

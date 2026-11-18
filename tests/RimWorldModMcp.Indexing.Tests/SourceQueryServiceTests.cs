@@ -41,7 +41,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// file_pattern 的 glob 轉換曾經完全失效（先跳脫再替換找不到目標序列），
     /// 任何帶樣式的搜尋都靜默回傳零筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void FilePatternNarrowsResults()
     {
         var hits = SourceQueryService.Search(_connection, "class", "Verse/*", 10).Hits;
@@ -58,7 +58,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 遊戲搜尋不能混入 Mod 的原始碼：多版本 Mod 的同一行會重複好幾次，
     /// 而且呼叫端以為自己查的是遊戲本體。Mod 搜尋則一定帶組件樣式。
     /// </summary>
-    [Fact]
+    [Test]
     public void GameSearchExcludesModAssembliesAndTrimsIndentation()
     {
         var hits = SourceQueryService.Search(_connection, "TryStartJob", null, 10).Hits;
@@ -71,7 +71,7 @@ public sealed class SourceQueryServiceTests : IDisposable
         Assert.Equal(["mod:pkg:Extra:abcd"], modHits.Select(hit => hit.Assembly).Distinct().ToArray());
     }
 
-    [Fact]
+    [Test]
     public void AlternationFindsFilesContainingEitherBranch()
     {
         var hits = SourceQueryService.Search(_connection, "TryStartJob|EndCurrentJob", null, 10).Hits;
@@ -88,7 +88,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 目標刻意在 50 個 filler 之後插入（rowid 在後），舊 fallback（前 40 個檔）
     /// 必然看不到它們；只有 OR 聯集能召回。
     /// </summary>
-    [Fact]
+    [Test]
     public void AlternationRecallsTargetsBeyondTheFallbackWindow()
     {
         for (var i = 0; i < 50; i++)
@@ -114,7 +114,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 分組寫法 (a|b) 的關鍵字也要能抽出，不能退回全掃。
     /// 50 個 filler 保證全掃的前 40 個檔看不到目標。
     /// </summary>
-    [Fact]
+    [Test]
     public void GroupedAlternationUsesTheFtsIndex()
     {
         for (var i = 0; i < 50; i++)
@@ -138,9 +138,8 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 50 個 filler 在目標之前插入（rowid 在前）：全掃 fallback 只看前 limit*4=40 個檔，
     /// 目標排在後面必然看不到；只有「抽到 Foo、走 FTS」能召回。
     /// </summary>
-    [Theory]
-    [InlineData(@"RenderZone(Quick|Slow)?")]
-    [InlineData(@"RenderZone(?!Async)")]
+    [TestCase(@"RenderZone(Quick|Slow)?")]
+    [TestCase(@"RenderZone(?!Async)")]
     public void AlternationInsideGroupDoesNotExcludeThePrefix(string pattern)
     {
         for (var i = 0; i < 50; i++)
@@ -165,7 +164,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// FooBar 仍可召回，但關鍵字變成 Foo AND Bar，含 Foo 的其他檔
     /// 會在候選階段消失，等於把 regex 的決定權提前搶走。
     /// </summary>
-    [Fact]
+    [Test]
     public void AlternationInsideRequiredGroupStillFindsTheTarget()
     {
         for (var i = 0; i < 50; i++)
@@ -188,7 +187,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     }
 
     /// <summary>組件過濾必須在 SQL 層生效，Mod 的搜尋才不會被遊戲本體的命中擠掉。</summary>
-    [Fact]
+    [Test]
     public void AssemblyFilterRestrictsResults()
     {
         var hits = SourceQueryService.Search(_connection, "TryStartJob", null, 10, assemblyLike: "mod:pkg:%").Hits;
@@ -201,7 +200,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 關鍵字抽取曾把 \bFoo\b 抽成 bFoo：反斜線被拿掉、b 黏上去，
     /// FTS 零候選、regex 沒機會跑，最常見的 regex 寫法直接靜默回零筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void WordBoundaryPatternFindsTheIdentifier()
     {
         var hits = SourceQueryService.Search(_connection, @"\bTryStartJob\b", null, 10).Hits;
@@ -213,7 +212,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// regex 本來就會命中識別字的子字串，候選階段也必須找得到（trigram tokenizer）；
     /// unicode61 以整個識別字為 token，Pistol 永遠找不到 Autopistol。
     /// </summary>
-    [Fact]
+    [Test]
     public void SubstringOfAnIdentifierIsFound()
     {
         var hits = SourceQueryService.Search(_connection, "StartJob", null, 10).Hits;
@@ -222,17 +221,16 @@ public sealed class SourceQueryServiceTests : IDisposable
     }
 
     /// <summary>可選片段與字元類裡的字面不是必定出現，抽成必要關鍵字會把正確的檔案濾掉。</summary>
-    [Theory]
-    [InlineData(@"(Missing)?EndCurrentJob")]
-    [InlineData(@"EndCurrentJo[bB]")]
-    [InlineData(@"EndCurrentJobs?")]
-    [InlineData(@"^\s*public void EndCurrentJob\(\)")]
+    [TestCase(@"(Missing)?EndCurrentJob")]
+    [TestCase(@"EndCurrentJo[bB]")]
+    [TestCase(@"EndCurrentJobs?")]
+    [TestCase(@"^\s*public void EndCurrentJob\(\)")]
     // 巢狀群組：外層可選或外層是 alternation 時，內層字面同樣不是必定出現。
-    [InlineData(@"(Missing(Inner))?EndCurrentJob")]
-    [InlineData(@"EndCurrent(Qzq(Xyz)?|Job)")]
+    [TestCase(@"(Missing(Inner))?EndCurrentJob")]
+    [TestCase(@"EndCurrent(Qzq(Xyz)?|Job)")]
     // \k<name> 的群組名與 \p{...} 的 Unicode 類別名都不是來源文字。
-    [InlineData(@"(?<word>End)CurrentJob\k<word>?")]
-    [InlineData(@"\p{IsBasicLatin}EndCurrentJob")]
+    [TestCase(@"(?<word>End)CurrentJob\k<word>?")]
+    [TestCase(@"\p{IsBasicLatin}EndCurrentJob")]
     public void OptionalPartsDoNotExcludeCandidates(string pattern)
     {
         var hits = SourceQueryService.Search(_connection, pattern, null, 10).Hits;
@@ -244,7 +242,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// Windows 上反編譯輸出是 \r\n 換行；只以 \n 切行時每行尾端殘留 \r，
     /// 使用 $ 錨點的模式在 Windows 上一律零筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void EndAnchorMatchesCrLfSource()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/CrLf.cs",
@@ -256,7 +254,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     }
 
     /// <summary>正常搜尋必須明確回報「預算沒有用完」——結果是完整的。</summary>
-    [Fact]
+    [Test]
     public void NormalSearchReportsThatTheBudgetWasNotExhausted()
     {
         var result = SourceQueryService.Search(_connection, "TryStartJob", null, 10);
@@ -274,7 +272,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 對 <c>^(a+)+$</c> 是 2^40 等級的回溯），所以會實際等滿 5 秒的逾時。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void CatastrophicBacktrackingBecomesAnActionableTimeout()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Slow.cs", new string('a', 40) + "!");
@@ -290,7 +288,7 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// 舊實作只看前 limit*4 個檔：5 個不符檔 + 目標，limit=1 時目標永遠看不到，
     /// 卻同時回報零筆、未達上限、未超預算（誤導為「不存在」）。
     /// </summary>
-    [Fact]
+    [Test]
     public void TargetBeyondTheOldCandidateWindowIsFoundByPaging()
     {
         for (var i = 0; i < 5; i++)
@@ -314,9 +312,8 @@ public sealed class SourceQueryServiceTests : IDisposable
     /// `(?&lt;!Async)RenderZone` 的 Async 只是條件，`(?&lt;capture&gt;RenderZone)` 的 capture 只是組名；
     /// 把它們當必現詞會在 FTS 預篩選就剔除正確檔案，regex 沒機會執行。
     /// </summary>
-    [Theory]
-    [InlineData("(?<!Async)RenderZone")]
-    [InlineData("(?<capture>RenderZone)")]
+    [TestCase("(?<!Async)RenderZone")]
+    [TestCase("(?<capture>RenderZone)")]
     public void LookbehindAndNamedGroupDoNotBecomeRequiredKeywords(string pattern)
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Zone.cs",

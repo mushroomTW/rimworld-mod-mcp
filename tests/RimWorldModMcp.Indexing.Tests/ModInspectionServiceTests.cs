@@ -59,7 +59,7 @@ public sealed class ModInspectionServiceTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void AssemblyKeyIsTheRelativePathInsideTheMod()
     {
         var assemblies = _service.Inspect("pkg", _modPath);
@@ -74,7 +74,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     /// Source/ 底下的 bin／obj 是使用者自己的建置產物（常含測試組件），
     /// 遊戲不會載入它們，索引只是雜訊，還會讓 dotnet build 撞上被佔用的 DLL。
     /// </summary>
-    [Fact]
+    [Test]
     public void BuildOutputsUnderSourceAreNotTreatedAsModAssemblies()
     {
         SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "Source", "Widget.Tests", "bin", "Debug", "net472"));
@@ -92,7 +92,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     /// 遊戲只從 Assemblies/ 載入。實機上 Mod 內的 LastVersion/1.5/X.dll 這類備份被索引後，
     /// 同一行在搜尋結果裡重複出現三次，符號數也跟著灌水。
     /// </summary>
-    [Fact]
+    [Test]
     public void DllsOutsideAnAssembliesFolderAreIgnored()
     {
         SyntheticAssembly.Emit(Source, "Widget", Path.Combine(_modPath, "LastVersion", "1.5"));
@@ -105,7 +105,7 @@ public sealed class ModInspectionServiceTests : IDisposable
             assemblies.Select(a => a.Key).Order().ToArray());
     }
 
-    [Fact]
+    [Test]
     public void LockNameIsPerPackageAndFilesystemSafe()
     {
         var a = ModInspectionService.LockName("brrainz.framework");
@@ -118,7 +118,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     }
 
     /// <summary>同一個類別在兩份 DLL 各有一筆；帶版本片段篩選後只剩一筆。</summary>
-    [Fact]
+    [Test]
     public void AssemblyFilterPicksOneVersion()
     {
         _service.Inspect("pkg", _modPath);
@@ -132,7 +132,7 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.Equal("mod:pkg:1.6/Assemblies/Widget.dll", only16[0].Assembly);
     }
 
-    [Fact]
+    [Test]
     public void SearchSourceHonoursTheAssemblyFilter()
     {
         // 先同步索引好，這裡只驗證篩選。
@@ -149,7 +149,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     /// rebuild_index 會把 symbol 與 source_file 整表清掉（不分遊戲與 Mod）。
     /// 之後 Mod 的 stamp 若還在，Inspect 會誤判已快取而回傳零符號、search_source 也回 source_indexed=true 卻零命中。
     /// </summary>
-    [Fact]
+    [Test]
     public void RebuildClearsModIndexSoNextInspectReindexes()
     {
         _service.Inspect("pkg", _modPath);
@@ -167,7 +167,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     }
 
     /// <summary>Mod 更新後移除的版本目錄，下一次檢視就要把它的索引清掉。</summary>
-    [Fact]
+    [Test]
     public void RemovedAssemblyIsForgottenOnNextInspect()
     {
         _service.Inspect("pkg", _modPath);
@@ -189,7 +189,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     /// 舊 IsIndexed 只比對現存 DLL 的 stamp，集合縮小不觸發重整；
     /// 必須把殘留鍵視為未索引（觸發背景重整），而不是回 SourceIndexed=true 的幽靈命中。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task SearchAfterAssemblyRemovalDoesNotServeStaleContent()
     {
         _service.Inspect("pkg", _modPath);
@@ -219,7 +219,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     /// 第一次搜尋不同步反編譯：立刻回「索引中」，背景完成後再搜就有結果。
     /// 大 Mod 同步反編譯要幾分鐘，MCP client 的呼叫逾時通常只有一兩分鐘。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task FirstSearchStartsIndexingInBackgroundAndLaterSearchesHit()
     {
         var first = _service.TrySearchSource("pkg", _modPath, "TryStartJob", 10);
@@ -246,7 +246,7 @@ public sealed class ModInspectionServiceTests : IDisposable
         Assert.Equal(2, done.Hits.Count);
     }
 
-    [Fact]
+    [Test]
     public void SearchOnXmlOnlyModReportsNotIndexedWithoutIndexing()
     {
         var xmlOnly = Path.Combine(_root, "xml-only");
@@ -264,7 +264,7 @@ public sealed class ModInspectionServiceTests : IDisposable
     /// 一顆載入不了的 DLL 不該讓整個 Mod 的索引失敗，也不該讓其餘組件連帶失去索引——
     /// 那正是 Lazy 快取毒化 bug 的放大途徑。
     /// </summary>
-    [Fact]
+    [Test]
     public void UnloadableAssemblyIsSkippedAndReported()
     {
         var native = FindNativeLibrary();

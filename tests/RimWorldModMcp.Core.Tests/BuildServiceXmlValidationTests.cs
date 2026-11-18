@@ -7,7 +7,7 @@ namespace RimWorldModMcp.Core.Tests;
 /// F07：XML-only Mod 的有效性檢查必須檢查 Def XML。
 /// 舊實作只驗 About.xml，沒有 C# 專案就宣告成功，未閉合的 Defs 也放行。
 /// </summary>
-[Collection(ProcessEnvironmentCollection.Name)]
+[NonParallelizable]
 public sealed class BuildServiceXmlValidationTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "rwmm-build-" + Guid.NewGuid().ToString("n")[..12]);
@@ -24,7 +24,7 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void BrokenDefXmlFailsTheBuild()
     {
         var mod = NewMod();
@@ -37,7 +37,7 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
         Assert.Contains("line 1", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [Test]
     public void BrokenPatchXmlFailsTheBuild()
     {
         var mod = NewMod();
@@ -48,9 +48,8 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
     }
 
     /// <summary>版本資料夾（1.6/Defs、Common/Patches）同樣會被遊戲載入，壞了一樣要擋。</summary>
-    [Theory]
-    [InlineData("1.6", "Defs")]
-    [InlineData("Common", "Patches")]
+    [TestCase("1.6", "Defs")]
+    [TestCase("Common", "Patches")]
     public void BrokenXmlInAVersionFolderFailsTheBuild(string folder, string kind)
     {
         var mod = NewMod();
@@ -66,7 +65,7 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
     /// C# Mod 的 Defs 也要驗：舊實作只在 XML-only 路徑驗，C# Mod 的 Defs 壞了照樣回 success。
     /// 驗證在 dotnet build 之前，所以這個測試不需要 SDK 建置成功。
     /// </summary>
-    [Fact]
+    [Test]
     public void BrokenDefXmlFailsACSharpModBeforeBuilding()
     {
         var mod = NewMod();
@@ -80,7 +79,7 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
         Assert.Contains("Defs/Broken.xml", error.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void ValidXmlOnlyModStillPasses()
     {
         var mod = NewMod();
@@ -95,7 +94,7 @@ public sealed class BuildServiceXmlValidationTests : IDisposable
         Assert.True(result.Success);
     }
 
-    [Fact]
+    [Test]
     public void LegacyCSharpProjectReceivesDetectedGameAssemblyDirectory()
     {
         var mod = NewMod();

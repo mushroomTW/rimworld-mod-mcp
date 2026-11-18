@@ -15,32 +15,26 @@ public sealed class GameVersionTests : IDisposable
             Directory.Delete(_root, recursive: true);
         }
     }
-
-    [Theory]
-    [InlineData("1.6.4871 rev590", "1.6")]
-    [InlineData("1.5.4409 rev1114\n", "1.5")]
-    [InlineData("1.6", "1.6")]
+    [TestCase("1.6.4871 rev590", "1.6")]
+    [TestCase("1.5.4409 rev1114\n", "1.5")]
+    [TestCase("1.6", "1.6")]
     public void ReadsMajorMinor(string content, string expected)
     {
         File.WriteAllText(Path.Combine(_root, "Version.txt"), content);
 
         Assert.Equal(expected, GameVersion.ReadMajorMinor(_root));
     }
-
-    [Theory]
-    [InlineData("1.7.4976 rev1043\n", "1.7.4976 rev1043")]
-    [InlineData("1.7", "1.7")]
+    [TestCase("1.7.4976 rev1043\n", "1.7.4976 rev1043")]
+    [TestCase("1.7", "1.7")]
     public void ReadsFullVersion(string content, string expected)
     {
         File.WriteAllText(Path.Combine(_root, "Version.txt"), content);
 
         Assert.Equal(expected, GameVersion.ReadFull(_root));
     }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("garbage")]
-    [InlineData("1")]
+    [TestCase("")]
+    [TestCase("garbage")]
+    [TestCase("1")]
     public void MalformedContentIsNull(string content)
     {
         File.WriteAllText(Path.Combine(_root, "Version.txt"), content);
@@ -48,7 +42,7 @@ public sealed class GameVersionTests : IDisposable
         Assert.Null(GameVersion.ReadMajorMinor(_root));
     }
 
-    [Fact]
+    [Test]
     public void MissingFileOrRootIsNull()
     {
         Assert.Null(GameVersion.ReadMajorMinor(_root));

@@ -44,7 +44,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 第三筆診斷在修正前會整行消失。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void InvalidUtf8DoesNotSkipLaterLines()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -73,7 +73,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 沒有結尾換行的最後一段要留到下一輪。
     /// 當成完整行分類的話，半行會變成一筆診斷，剩下的部分下一輪又變成另一筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void PartialTrailingLineIsHeldUntilItIsCompleted()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -99,7 +99,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 遊戲重啟會截斷 Player.log。位置必須歸零，否則會一直停在舊的位元組位置
     /// 而什麼都讀不到。
     /// </summary>
-    [Fact]
+    [Test]
     public void TruncatedLogIsReadFromTheStart()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -118,7 +118,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>BOM 不影響讀取，而且第一行仍必須被分類（Normalise 會剝掉它）。</summary>
-    [Fact]
+    [Test]
     public void ByteOrderMarkDoesNotHideTheFirstLine()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -138,7 +138,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 新檔開頭（XML 載入錯誤正好在這裡）會被當成「上一場的內容」跳過。
     /// 以 Player-prev.log 的戳記變化判定輪替。
     /// </summary>
-    [Fact]
+    [Test]
     public void RotationBeforeTheFirstReadStartsFromTheBeginningOfTheNewLog()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -161,7 +161,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>只讀「這次測試新增」的內容：LogOffset 之前的不算。</summary>
-    [Fact]
+    [Test]
     public void ContentBeforeLogOffsetIsNotReported()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -185,7 +185,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     ///（200 筆）瞬間塞滿、把真正的錯誤擠掉，同時把 error_count 灌成假的高數字。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void StackTraceContinuationLinesMergeIntoThePrecedingDiagnostic()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -209,7 +209,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 孤立的堆疊行（所屬紀錄不是診斷，或前面根本沒有紀錄）要丟棄，不能誤併到更早的紀錄——
     /// 那會讓不相關的堆疊混進一筆診斷，去重簽章也跟著失真。
     /// </summary>
-    [Fact]
+    [Test]
     public void OrphanStackTraceLinesAreDroppedInsteadOfMergingIntoAnEarlierEntry()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -226,7 +226,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>帶效能標記的 Log.Message 要被收成 performance，且標記優先於層級與 error 字樣；沒標記的 INFO 仍被忽略。</summary>
-    [Fact]
+    [Test]
     public void PerformanceMarkedLinesAreClassifiedAsPerformance()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -240,7 +240,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>環境變數追加的標記以 | 分隔，空白與空項目會被忽略；預設標記永遠存在。</summary>
-    [Fact]
+    [Test]
     public void ExtraPerformanceMarkersAreAppendedToTheDefault()
     {
         var markers = PerformanceMarkers.Load(" [FGL InGameTests] | |timing]");
@@ -251,7 +251,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>兩個例外各自成筆，堆疊不會跨過空行或下一筆紀錄混在一起。</summary>
-    [Fact]
+    [Test]
     public void TwoSeparateExceptionsStaySeparate()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -273,7 +273,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 1.7 的日誌每行帶層級：照層級分類，而不是關鍵字。「 WARN」不含 warning 字樣，
     /// 靠關鍵字會整個漏掉；含 error 字樣的 INFO 也不能算成錯誤。
     /// </summary>
-    [Fact]
+    [Test]
     public void DotNetLogLinesAreClassifiedByTheirLevel()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -295,7 +295,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 時間戳記與分類要剝掉：同一個錯誤每次發生時間不同，留著的話去重簽章全都不同，
     /// 也對不上 Bridge 回報的原始訊息。
     /// </summary>
-    [Fact]
+    [Test]
     public void RepeatedDotNetErrorsShareTheSameText()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -312,7 +312,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 1.7 的一筆紀錄可跨多行（多行訊息、四格縮排的堆疊），直到下一個帶層級的行為止。
     /// 錯誤的後續行全部併入；INFO 的後續行即使含 exception 字樣也不能被當成另一筆錯誤。
     /// </summary>
-    [Fact]
+    [Test]
     public void DotNetRecordContinuationLinesBelongToTheirRecord()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -335,7 +335,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 引擎替每筆紀錄附的呼叫端堆疊不能進診斷：去重簽章只看 at 行，同一呼叫點的不同錯誤
     /// 會被併成一筆，也對不上不帶堆疊的 Bridge 回報。訊息本身的例外堆疊（沒有 [0x..]）要留著。
     /// </summary>
-    [Fact]
+    [Test]
     public void DotNetEngineStackFramesAreNotPartOfTheDiagnostic()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -363,7 +363,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 輪詢邊界切在 1.7 紀錄中間：下一批開頭的行屬於上一批尾那一筆。
     /// 是 INFO 就丟掉，不能併到更早的錯誤；是錯誤就併進去，不能被關鍵字分類成另一筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void DotNetRecordSplitAcrossPollsStaysWithItsRecord()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -389,7 +389,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 訊息以換行開頭時標題行沒有內容：第一個續行就是訊息，不能因為標題空白就整筆丟掉。
     /// 標題空白、後面也沒有續行的紀錄沒有可回報的文字，不產生診斷。
     /// </summary>
-    [Fact]
+    [Test]
     public void ErrorWhoseMessageStartsWithANewlineUsesItsFirstContinuationLine()
     {
         var batch = PlayerLogTailer.ClassifyBatch([
@@ -406,7 +406,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>1.7 的時間以文化格式化，時間分隔符號不一定是冒號（例如 fi-FI 用句點）。</summary>
-    [Fact]
+    [Test]
     public void DotNetLinesWithANonColonTimeSeparatorAreStillStructured()
     {
         var entry = Assert.Single(PlayerLogTailer.ClassifyBatch([
@@ -417,7 +417,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     }
 
     /// <summary>效能標記優先於層級：帶標記的 INFO 也要收成 performance。</summary>
-    [Fact]
+    [Test]
     public void PerformanceMarkedDotNetLinesAreClassifiedAsPerformance()
     {
         var entry = Assert.Single(PlayerLogTailer.ClassifyBatch([
@@ -432,7 +432,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 僅以 length &lt; offset 判斷換檔時，重建後的新檔若已超過舊 offset，
     /// 會被誤認為原檔而直接跳過開頭。
     /// </summary>
-    [Fact]
+    [Test]
     public void RecreatedLogLongerThanTheOldOffsetIsReadFromTheStart()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -458,7 +458,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// F09：錯誤標題與堆疊分處兩輪輪詢時，堆疊不可遺失。
     /// 上一批尾是診斷、本批頭是不帶層級的續行（`at ...`）時，必須併入同一筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void StackTraceAcrossPollsIsMergedIntoTheSameDiagnostic()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -480,7 +480,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 同一筆錯誤重複回報、跨輪詢的堆疊也接不上。檔案時間戳粒度粗，追加若落在同一刻度
     /// 會碰巧沒事，所以這裡先把修改時間往前調，讓追加必然改變 Linux 上的建立時間。
     /// </summary>
-    [Fact]
+    [Test]
     public void AppendAfterTheTimestampTickDoesNotRestartReading()
     {
         var log = Path.Combine(_root, "Player.log");
@@ -501,7 +501,7 @@ public sealed class PlayerLogTailerTests : IDisposable
     /// 場次開始前就存在、場次中持續被追加的 Player.log 不是「本場次建立的新檔」。
     /// Linux 上建立時間會隨追加更新，若據此判斷就會把 LogOffset 之前（上一場）的內容當成本場診斷。
     /// </summary>
-    [Fact]
+    [Test]
     public void LogAppendedDuringTheSessionIsNotMistakenForANewFile()
     {
         var log = Path.Combine(_root, "Player.log");

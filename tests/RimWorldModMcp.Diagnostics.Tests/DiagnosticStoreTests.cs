@@ -23,7 +23,7 @@ public sealed class DiagnosticStoreTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void AddRangeMergesDuplicatesWithinTheBatch()
     {
         _diagnostics.AddRange(
@@ -42,7 +42,7 @@ public sealed class DiagnosticStoreTests : IDisposable
     /// 同一個例外 Bridge 與 Player.log 各送一次：Bridge 的堆疊行帶縮排，Player.log 的已被 trim。
     /// 兩者必須併成一筆，error_count 只算一次，count 也不被另一個來源重複累加。
     /// </summary>
-    [Fact]
+    [Test]
     public void SameExceptionFromBridgeAndPlayerLogIsCountedOnce()
     {
         _diagnostics.Add("error", "Exception ticking X: boom",
@@ -61,7 +61,7 @@ public sealed class DiagnosticStoreTests : IDisposable
         Assert.Equal(1, _diagnostics.Totals.Error);
     }
 
-    [Fact]
+    [Test]
     public async Task ReadSinceReturnsNewAndReoccurringRecordsOnly()
     {
         _diagnostics.Add("error", "old", "old failure", "bridge", "run-1");
@@ -86,7 +86,7 @@ public sealed class DiagnosticStoreTests : IDisposable
     /// 容量淘汰必須按「最久未更新」而不是 list 位置——按位置砍的話，
     /// 出現最頻繁的錯誤（最早進來、持續被更新）反而最先被丟掉。
     /// </summary>
-    [Fact]
+    [Test]
     public void FrequentlyUpdatedRecordSurvivesEviction()
     {
         var fill = Enumerable.Range(0, 200)
@@ -110,7 +110,7 @@ public sealed class DiagnosticStoreTests : IDisposable
         Assert.Contains(records, r => r.Hash == updated.Hash);
     }
 
-    [Fact]
+    [Test]
     public void OversizedTextIsCappedOnWrite()
     {
         var huge = new string('x', 200_000);
@@ -120,7 +120,7 @@ public sealed class DiagnosticStoreTests : IDisposable
         Assert.True(_diagnostics.Read()[0].Text.Length <= 64 * 1024);
     }
 
-    [Fact]
+    [Test]
     public void ClearEmptiesTheStore()
     {
         _diagnostics.Add("error", "boom", "boom", "bridge", "run-1");
@@ -138,7 +138,7 @@ public sealed class DiagnosticStoreTests : IDisposable
     /// 甚至掉到 0，然後據此判定「測試無錯誤」——而那是錯的。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void TotalsDoNotDecreaseWhenRecordsAreEvicted()
     {
         for (var i = 0; i < 300; i++)
@@ -154,7 +154,7 @@ public sealed class DiagnosticStoreTests : IDisposable
     }
 
     /// <summary>同一個簽章重複出現時累計只算一次——它是一筆診斷，只是次數變多。</summary>
-    [Fact]
+    [Test]
     public void RepeatedIdenticalDiagnosticsDoNotInflateTheTotal()
     {
         for (var i = 0; i < 50; i++)
@@ -166,7 +166,7 @@ public sealed class DiagnosticStoreTests : IDisposable
         Assert.Equal(50, _diagnostics.Read()[0].Count);
     }
 
-    [Fact]
+    [Test]
     public void TotalsCountErrorsAndWarningsSeparately()
     {
         _diagnostics.Add("error", "e", "e", "bridge", "run-1");
@@ -179,7 +179,7 @@ public sealed class DiagnosticStoreTests : IDisposable
     }
 
     /// <summary>累計數屬於「這一場」，換場次必須歸零。</summary>
-    [Fact]
+    [Test]
     public void ClearResetsTheTotals()
     {
         _diagnostics.Add("error", "boom", "boom", "bridge", "run-1");

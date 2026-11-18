@@ -43,6 +43,9 @@ internal sealed class UnityStubsResolver(IAssemblyResolver inner, string stubsPa
     public Task<MetadataFile?> ResolveModuleAsync(MetadataFile mainModule, string moduleName)
         => inner.ResolveModuleAsync(mainModule, moduleName);
 
+    public IDisposable? BeginSnapshot()
+        => inner.BeginSnapshot();
+
     internal static bool IsRedirected(string name)
         => name.StartsWith("UnityEngine", StringComparison.Ordinal)
             || (name.StartsWith("Unity.", StringComparison.Ordinal) && name != "Unity.Newtonsoft.Json")

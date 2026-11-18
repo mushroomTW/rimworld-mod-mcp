@@ -19,8 +19,31 @@
     <DebugType>embedded</DebugType>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == ''">$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
+    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\RimWorld\Assembly-CSharp.dll')">C:\Program Files (x86)\Steam\steamapps\common\RimWorld</RimWorldManagedDir>
+    <HasLocalRimWorld Condition="'$(RimWorldManagedDir)' != '' and Exists('$(RimWorldManagedDir)\Assembly-CSharp.dll') and Exists('$(RimWorldManagedDir)\UnityStubs.dll')">true</HasLocalRimWorld>
+    <HasLocalRimWorld Condition="'$(HasLocalRimWorld)' == ''">false</HasLocalRimWorld>
+  </PropertyGroup>
+
+  <!-- 優先參考本機遊戲組件 -->
+  <ItemGroup Condition="'$(HasLocalRimWorld)' == 'true'">
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityStubs">
+      <HintPath>$(RimWorldManagedDir)\UnityStubs.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 找不到時改用官方套件 -->
+  <ItemGroup Condition="'$(HasLocalRimWorld)' != 'true'">
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4998-unstable" />
+  </ItemGroup>
+
   <ItemGroup>
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.*-*" />
     <PackageReference Include="Lib.Harmony.Ref" Version="2.4.3" />
     <ProjectReference Include="..\Third-Party\DevTools\DevTools\DevTools.csproj">
       <SetProperties>ModDir=$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\Mod\'))</SetProperties>

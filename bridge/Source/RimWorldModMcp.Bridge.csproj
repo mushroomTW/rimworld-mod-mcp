@@ -17,14 +17,18 @@
 
   <PropertyGroup>
     <!--
-      一律參考本機安裝的遊戲組件，由 run_test_cycle 就地建置時以 RIMWORLD_MANAGED_DIR 注入。
-      1.7 的 Assembly-CSharp.dll 與 UnityStubs.dll（提供 UnityEngine 型別）都在安裝根目錄。
-      不使用 NuGet 的公開參考組件（Krafs.Rimworld.Ref）：它沒有 1.7 版。
+      優先參考本機安裝遊戲目錄之組件；run_test_cycle 就地建置時會以 RIMWORLD_MANAGED_DIR 注入，
+      手動建置亦可透過環境變數或 -p:RimWorldManagedDir 指定。
+      若本機找不到遊戲組件（如無安裝遊戲的環境或 CI），則退回使用官方套件（Krafs.Rimworld.Ref）。
     -->
     <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == ''">$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
+    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\RimWorld\Assembly-CSharp.dll')">C:\Program Files (x86)\Steam\steamapps\common\RimWorld</RimWorldManagedDir>
+    <HasLocalRimWorld Condition="'$(RimWorldManagedDir)' != '' and Exists('$(RimWorldManagedDir)\Assembly-CSharp.dll') and Exists('$(RimWorldManagedDir)\UnityStubs.dll')">true</HasLocalRimWorld>
+    <HasLocalRimWorld Condition="'$(HasLocalRimWorld)' == ''">false</HasLocalRimWorld>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- 優先參考本機遊戲組件 -->
+  <ItemGroup Condition="'$(HasLocalRimWorld)' == 'true'">
     <Reference Include="Assembly-CSharp">
       <HintPath>$(RimWorldManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
@@ -35,13 +39,13 @@
     </Reference>
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  <!-- 找不到時改用官方套件 -->
+  <ItemGroup Condition="'$(HasLocalRimWorld)' != 'true'">
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4998-unstable" />
   </ItemGroup>
 
-  <!-- 沒有遊戲組件就編不出來；明講原因，免得只看到一串找不到 Verse 型別的編譯錯誤。 -->
-  <Target Name="RequireRimWorldManagedDir" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(RimWorldManagedDir)\Assembly-CSharp.dll') or !Exists('$(RimWorldManagedDir)\UnityStubs.dll')">
-    <Error Text="Bridge 需要本機 RimWorld 1.7 的遊戲組件：請把 RIMWORLD_MANAGED_DIR 設為 RimWorld 1.7 的安裝根目錄（需含 Assembly-CSharp.dll 與 UnityStubs.dll）。目前的值：'$(RimWorldManagedDir)'" />
-  </Target>
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.4.3" />
+  </ItemGroup>
 
 </Project>

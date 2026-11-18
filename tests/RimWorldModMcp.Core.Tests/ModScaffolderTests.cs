@@ -25,7 +25,7 @@ public sealed class ModScaffolderTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void CreatesTheStandardModLayout()
     {
         var mod = _scaffolder.Create(_workspace, "MyMod", "author.mymod", withCode: false);
@@ -42,7 +42,7 @@ public sealed class ModScaffolderTests : IDisposable
         Assert.Contains("<name>MyMod</name>", about, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void WithCodeGeneratesANet10Project()
     {
         var mod = _scaffolder.Create(_workspace, "CodeMod", "author.codemod", withCode: true);
@@ -59,7 +59,7 @@ public sealed class ModScaffolderTests : IDisposable
         Assert.Contains("PackageReference", content, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void XmlOnlyModHasNoProject()
     {
         var mod = _scaffolder.Create(_workspace, "XmlMod", "author.xmlmod", withCode: false);
@@ -67,7 +67,7 @@ public sealed class ModScaffolderTests : IDisposable
         Assert.Empty(Directory.GetFiles(Path.Combine(mod, "Source"), "*.csproj"));
     }
 
-    [Fact]
+    [Test]
     public void PackageIdIsNormalisedToLowercase()
     {
         var mod = _scaffolder.Create(_workspace, "CaseMod", "Author.CaseMod", withCode: false);
@@ -75,18 +75,16 @@ public sealed class ModScaffolderTests : IDisposable
         var about = File.ReadAllText(Path.Combine(mod, "About", "About.xml"));
         Assert.Contains("<packageId>author.casemod</packageId>", about, StringComparison.Ordinal);
     }
-
-    [Theory]
-    [InlineData("has space")]
-    [InlineData("has/slash")]
-    [InlineData("")]
-    [InlineData("has!bang")]
+    [TestCase("has space")]
+    [TestCase("has/slash")]
+    [TestCase("")]
+    [TestCase("has!bang")]
     public void InvalidPackageIdIsRejected(string packageId)
     {
         Assert.Throws<ArgumentException>(() => _scaffolder.Create(_workspace, "Mod", packageId, withCode: false));
     }
 
-    [Fact]
+    [Test]
     public void MissingParentDirectoryIsRejected()
     {
         var missing = Path.Combine(_root, "missing");
@@ -94,7 +92,7 @@ public sealed class ModScaffolderTests : IDisposable
         Assert.Throws<DirectoryNotFoundException>(() => _scaffolder.Create(missing, "Mod", "author.mod", withCode: false));
     }
 
-    [Fact]
+    [Test]
     public void ExistingTargetIsRejected()
     {
         _scaffolder.Create(_workspace, "Dupe", "author.dupe", withCode: false);
@@ -106,7 +104,7 @@ public sealed class ModScaffolderTests : IDisposable
     /// 重現端對端測試中遇到的情境：以工具鏈的實際路徑形式（Windows 反斜線、
     /// 可能帶大小寫差異）建立 Mod。
     /// </summary>
-    [Fact]
+    [Test]
     public void WorksWithThePathFormTheToolLayerPasses()
     {
         var asPassed = _workspace.Replace('/', Path.DirectorySeparatorChar);

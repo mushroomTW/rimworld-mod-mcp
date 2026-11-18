@@ -44,7 +44,7 @@ public sealed class AboutXmlTests : IDisposable
     /// RimWorld 的 InitVersionedData：*ByVersion 裡有目前版本的條目時，**取代**基本清單。
     /// 忽略它的話，只在 ByVersion 宣告的硬相依不會被帶進測試場次。
     /// </summary>
-    [Fact]
+    [Test]
     public void ByVersionEntryForTheGameVersionReplacesTheBaseList()
     {
         var info = AboutXml.Parse(_mod, "local", "1.6")!;
@@ -53,7 +53,7 @@ public sealed class AboutXmlTests : IDisposable
         Assert.Equal(["after.one"], info.LoadAfter);
     }
 
-    [Fact]
+    [Test]
     public void BaseListIsUsedWhenNoEntryMatchesTheVersion()
     {
         var info = AboutXml.Parse(_mod, "local", "1.4")!;
@@ -63,7 +63,7 @@ public sealed class AboutXmlTests : IDisposable
     }
 
     /// <summary>DLC 之間的順序只寫在 forceLoadAfter／forceLoadBefore；沒讀到就只能照字母序排。</summary>
-    [Fact]
+    [Test]
     public void ForceLoadListsAreParsed()
     {
         var info = AboutXml.Parse(_mod, "local", "1.6")!;

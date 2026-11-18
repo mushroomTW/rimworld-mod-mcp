@@ -6,17 +6,19 @@ using RimWorldModMcp.Indexing.Storage;
 
 namespace RimWorldModMcp.Server.Tests;
 
-public sealed class IndexToolsTests : IAsyncLifetime
+public sealed class IndexToolsTests
 {
     private McpServerFixture _server = null!;
 
-    public async Task InitializeAsync()
+    [SetUp]
+    public async Task SetUp()
     {
         _server = await McpServerFixture.StartAsync();
         SeedDatabase();
     }
 
-    public async Task DisposeAsync() => await _server.DisposeAsync();
+    [TearDown]
+    public async Task TearDown() => await _server.DisposeAsync();
 
     private void SeedDatabase()
     {
@@ -141,7 +143,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         connection.Close();
     }
 
-    [Fact]
+    [Test]
     public async Task RimWorldStatusReturnsDetectionPayload()
     {
         var result = await _server.CallAsync("rimworld_status");
@@ -150,7 +152,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.True(index.TryGetProperty("fresh", out _));
     }
 
-    [Fact]
+    [Test]
     public async Task SearchDefsAndReadDefReturnExpectedResults()
     {
         var searchResult = await _server.CallAsync("search_defs", new Dictionary<string, object?>
@@ -175,7 +177,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
     /// 預設 encoder 會把 XML 的 &lt; &gt; " 跳脫成 \uXXXX 形式，回傳膨脹三到四成。
     /// 檢查的是 client 實際拿到的 text，不是 structuredContent。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task ReadDefTextDoesNotUnicodeEscapeXml()
     {
         var result = await _server.Client.CallToolAsync("read_def", new Dictionary<string, object?>
@@ -189,7 +191,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.DoesNotContain("\\u003C", text, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [Test]
     public async Task ReadSymbolAndSuggestions()
     {
         var readResult = await _server.CallAsync("read_symbol", new Dictionary<string, object?>
@@ -210,7 +212,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.True(missResult.TryGetProperty("suggestions", out _));
     }
 
-    [Fact]
+    [Test]
     public async Task ListSymbolsAndFindDescendants()
     {
         var listResult = await _server.CallAsync("list_symbols", new Dictionary<string, object?>
@@ -242,7 +244,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
     /// 型別的 signature 已含 kind 與完整名稱，name／kind 再列一次只是重複付 token；
     /// 成員的 kind 從 signature 的形狀（括號、get/set、event）就看得出來。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task SymbolBriefsCarryNoFieldsRedundantWithSignature()
     {
         var descendants = await _server.CallAsync("find_descendants", new Dictionary<string, object?>
@@ -266,7 +268,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
     }
 
     /// <summary>組件全部相同時提到結果層，命中依檔案分組：每列重複 assembly 與 file 是最大宗的浪費。</summary>
-    [Fact]
+    [Test]
     public async Task SearchSourceGroupsHitsByFile()
     {
         var result = await _server.CallAsync("search_source", new Dictionary<string, object?>
@@ -284,7 +286,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
     }
 
     /// <summary>依檔案分組；confidence 只在不是 exact 時出現。</summary>
-    [Fact]
+    [Test]
     public async Task FindDefUsagesGroupsHitsByFile()
     {
         var result = await _server.CallAsync("find_def_usages", new Dictionary<string, object?>
@@ -302,7 +304,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
     }
 
     /// <summary>命中橫跨多個組件時結果層 assembly 為 null，各檔案群組必須自帶，否則無法接 read_source_file。</summary>
-    [Fact]
+    [Test]
     public async Task SearchSourceGroupsCarryAssemblyWhenHitsSpanAssemblies()
     {
         var result = await _server.CallAsync("search_source", new Dictionary<string, object?>
@@ -316,7 +318,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
             result.GetProperty("results").EnumerateArray().Select(f => f.GetProperty("assembly").GetString()).Order());
     }
 
-    [Fact]
+    [Test]
     public async Task FindDefUsagesKeepsHeuristicConfidence()
     {
         var result = await _server.CallAsync("find_def_usages", new Dictionary<string, object?>
@@ -329,7 +331,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.Equal("heuristic", hit.GetProperty("confidence").GetString());
     }
 
-    [Fact]
+    [Test]
     public async Task SearchDefsTruncatesDescriptionTo80Chars()
     {
         var result = await _server.CallAsync("search_defs", new Dictionary<string, object?>
@@ -341,7 +343,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.Equal(new string('p', 80) + "…", def.GetProperty("description").GetString());
     }
 
-    [Fact]
+    [Test]
     public async Task SearchSourceAndReadSourceFile()
     {
         var searchResult = await _server.CallAsync("search_source", new Dictionary<string, object?>
@@ -370,7 +372,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.True(pagedResult.TryGetProperty("text", out _));
     }
 
-    [Fact]
+    [Test]
     public async Task FindDefUsagesReturnsResolvedUsages()
     {
         var usagesResult = await _server.CallAsync("find_def_usages", new Dictionary<string, object?>
@@ -382,7 +384,7 @@ public sealed class IndexToolsTests : IAsyncLifetime
         Assert.True(usagesResult.TryGetProperty("count", out var count) && count.GetInt32() == 1);
     }
 
-    [Fact]
+    [Test]
     public async Task RebuildIndexTriggerAsync()
     {
         var result = await _server.CallAsync("rebuild_index", new Dictionary<string, object?>

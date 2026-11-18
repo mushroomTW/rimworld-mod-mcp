@@ -16,7 +16,7 @@ public sealed class EmbeddedBridgeTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void ExtractsEveryEmbeddedFileUnderItsRelativePath()
     {
         var directory = EmbeddedBridge.Extract(typeof(EmbeddedBridgeTests).Assembly, _target);
@@ -27,7 +27,7 @@ public sealed class EmbeddedBridgeTests : IDisposable
     }
 
     /// <summary>同一個執行檔重複呼叫沿用已解出的檔案；換了執行檔（戳記不同）才整個重解，不留舊版殘檔。</summary>
-    [Fact]
+    [Test]
     public void OnlyReExtractsWhenTheExecutableChanges()
     {
         var assembly = typeof(EmbeddedBridgeTests).Assembly;
@@ -47,7 +47,7 @@ public sealed class EmbeddedBridgeTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_target, "About", "About.xml")));
     }
 
-    [Fact]
+    [Test]
     public void AssemblyWithoutEmbeddedBridgeReturnsNull()
     {
         Assert.Null(EmbeddedBridge.Extract(typeof(object).Assembly, _target));

@@ -12,7 +12,7 @@ public sealed class DefRepositoryTests : IDisposable
     /// 候選只 join def_name 的話，CollectCandidates 特地收集的 ParentName 引用會全數被丟掉，
     /// find_def_usages("BaseGun") 永遠零筆。
     /// </summary>
-    [Fact]
+    [Test]
     public void ParentNameReferencesToAbstractDefsAreResolved()
     {
         using (var candidates = new DefReferenceCandidateWriter(_connection))
@@ -71,7 +71,7 @@ public sealed class DefRepositoryTests : IDisposable
         transaction.Commit();
     }
 
-    [Fact]
+    [Test]
     public void SearchByDefNameFindsTheDef()
     {
         var hits = DefRepository.Search(_connection, "Steel", null, 25, includeXml: false);
@@ -84,7 +84,7 @@ public sealed class DefRepositoryTests : IDisposable
     /// 契約：預設不回傳 xml 欄位。單筆 Def 的 XML 可能上百 KB，
     /// 一次搜尋就會灌爆呼叫端的 context。
     /// </summary>
-    [Fact]
+    [Test]
     public void SearchOmitsXmlByDefault()
     {
         var hits = DefRepository.Search(_connection, "Steel", null, 25, includeXml: false);
@@ -94,7 +94,7 @@ public sealed class DefRepositoryTests : IDisposable
     }
 
     /// <summary>原檔多為 CRLF；回傳時統一成 \n，\r 每行都要多付一個跳脫字元的 token。</summary>
-    [Fact]
+    [Test]
     public void ReadNormalizesCrLfInXml()
     {
         DefRepository.Insert(_connection, [
@@ -106,7 +106,7 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Equal("<ThingDef>\n  <defName>Plasteel</defName>\n</ThingDef>", hit.Xml);
     }
 
-    [Fact]
+    [Test]
     public void SearchTruncatesXmlWhenRequested()
     {
         var hits = DefRepository.Search(_connection, "fighter", null, 25, includeXml: true);
@@ -117,7 +117,7 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Equal(DefRepository.SearchXmlBytes, hits[0].Xml!.Length);
     }
 
-    [Fact]
+    [Test]
     public void SearchFiltersByDefType()
     {
         Assert.Empty(DefRepository.Search(_connection, "Steel", "PawnKindDef", 25, includeXml: false));
@@ -128,14 +128,13 @@ public sealed class DefRepositoryTests : IDisposable
     /// 契約：FTS5 的運算子字元不得讓查詢炸掉。
     /// 這些輸入直接轉送給 FTS5 都會拋語法錯誤。
     /// </summary>
-    [Theory]
-    [InlineData("steel\"")]
-    [InlineData("NEAR")]
-    [InlineData("^steel")]
-    [InlineData("a:b")]
-    [InlineData("*")]
-    [InlineData("-steel")]
-    [InlineData("steel OR gun")]
+    [TestCase("steel\"")]
+    [TestCase("NEAR")]
+    [TestCase("^steel")]
+    [TestCase("a:b")]
+    [TestCase("*")]
+    [TestCase("-steel")]
+    [TestCase("steel OR gun")]
     public void OperatorCharactersDoNotBreakTheQuery(string query)
     {
         // 不拋出即通過；結果內容不是這條測試的重點。
@@ -147,7 +146,7 @@ public sealed class DefRepositoryTests : IDisposable
     /// 契約：只有 * 的查詢沒有可用搜尋詞，應退化成「無條件回傳到上限」
     /// 而不是變成錯誤或回傳空集合。
     /// </summary>
-    [Fact]
+    [Test]
     public void BareWildcardReturnsEverythingUpToTheLimit()
     {
         Assert.Equal(string.Empty, FtsQuery.Match("*"));
@@ -156,14 +155,14 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Equal(4, hits.Count);
     }
 
-    [Fact]
+    [Test]
     public void PrefixSearchIsSupported()
     {
         Assert.Equal("\"Steel\"*", FtsQuery.Match("Steel*"));
         Assert.Single(DefRepository.Search(_connection, "Ste*", null, 25, includeXml: false));
     }
 
-    [Fact]
+    [Test]
     public void LimitIsClampedToTheAllowedRange()
     {
         Assert.Equal(4, DefRepository.Search(_connection, "*", null, 9999, includeXml: false).Count);
@@ -174,7 +173,7 @@ public sealed class DefRepositoryTests : IDisposable
     }
 
     /// <summary>抽象 Def 沒有 defName，只能靠 Name 屬性讀出來。</summary>
-    [Fact]
+    [Test]
     public void ReadResolvesAbstractDefsByInheritName()
     {
         var hits = DefRepository.Read(_connection, "BaseGun", null, DefRepository.ReadDefXmlBytes);
@@ -185,7 +184,7 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Contains("Abstract", hits[0].Xml!, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Test]
     public void ReadReturnsFullXml()
     {
         var hits = DefRepository.Read(_connection, "Steel", null, DefRepository.ReadDefXmlBytes);
@@ -203,7 +202,7 @@ public sealed class DefRepositoryTests : IDisposable
     /// 卻回讀不到內容，症狀是搜尋結果數量對但欄位全空。這條測試守住那個不變式。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void ClearLeavesNoOrphanFtsEntries()
     {
         Assert.NotEmpty(DefRepository.Search(_connection, "Steel", null, 25, includeXml: false));
@@ -222,7 +221,7 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Equal(0L, (long)command.ExecuteScalar()!);
     }
 
-    [Fact]
+    [Test]
     public void DefNamesExcludesAbstractDefs()
     {
         var names = DefRepository.DefNames(_connection);
@@ -237,14 +236,14 @@ public sealed class DefRepositoryTests : IDisposable
     /// RimWorld 的 defName 大量使用底線，這個行為直接影響搜尋手感，
     /// 因此明確測起來——日後若有人加上 tokenchars '_'，這條會紅。
     /// </summary>
-    [Fact]
+    [Test]
     public void UnderscoreIsATokenSeparator()
     {
         Assert.Single(DefRepository.Search(_connection, "revolver", null, 25, includeXml: false));
         Assert.Single(DefRepository.Search(_connection, "Gun_Revolver", null, 25, includeXml: false));
     }
 
-    [Fact]
+    [Test]
     public void LikeLiteralEscapesWildcards()
     {
         Assert.Equal(@"Pawn\_X", FtsQuery.LikeLiteral("Pawn_X"));
@@ -252,7 +251,7 @@ public sealed class DefRepositoryTests : IDisposable
         Assert.Equal(@"a\\b", FtsQuery.LikeLiteral(@"a\b"));
     }
 
-    [Fact]
+    [Test]
     public void SchemaMismatchRebuildsTheDatabase()
     {
         using (var command = _connection.CreateCommand())

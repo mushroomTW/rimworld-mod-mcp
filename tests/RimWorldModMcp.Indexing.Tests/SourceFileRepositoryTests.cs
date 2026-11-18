@@ -46,7 +46,7 @@ public sealed class SourceFileRepositoryTests : IDisposable
         return (long)command.ExecuteScalar()!;
     }
 
-    [Fact]
+    [Test]
     public void InsertingTheSameKeyTwiceDoesNotThrow()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Thing.cs", "hello world");
@@ -58,7 +58,7 @@ public sealed class SourceFileRepositoryTests : IDisposable
     }
 
     /// <summary>更新後舊內容的關鍵字必須查不到——否則就是幽靈索引項。</summary>
-    [Fact]
+    [Test]
     public void UpdateReplacesTheFtsEntry()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Thing.cs", "hello world");
@@ -68,7 +68,7 @@ public sealed class SourceFileRepositoryTests : IDisposable
         Assert.Equal(1, FtsMatches("moon"));
     }
 
-    [Fact]
+    [Test]
     public void DeleteWhereAssemblyLikeRemovesRowsAndFtsEntries()
     {
         SourceFileRepository.Insert(_connection, "mod:pkg:Alpha:aaaa", "A.cs", "alphaonly content");
@@ -81,7 +81,7 @@ public sealed class SourceFileRepositoryTests : IDisposable
         Assert.Equal(1, FtsMatches("betaonly"));
     }
 
-    [Fact]
+    [Test]
     public void ReadReturnsTheFullTextForAnExactKeyAndNullOtherwise()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "Verse/Thing.cs", "hello world");
@@ -90,7 +90,7 @@ public sealed class SourceFileRepositoryTests : IDisposable
         Assert.Null(SourceFileRepository.Read(_connection, "Assembly-CSharp", "Verse/Missing.cs"));
     }
 
-    [Fact]
+    [Test]
     public void ClearRemovesEverything()
     {
         SourceFileRepository.Insert(_connection, "Assembly-CSharp", "A.cs", "somecontent");

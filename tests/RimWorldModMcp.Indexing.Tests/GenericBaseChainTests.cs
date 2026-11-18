@@ -54,7 +54,7 @@ public sealed class GenericBaseChainTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void GenericBaseAppearsInTheChainWithoutInstantiationArguments()
     {
         var foo = _symbols.Single(s => s.Fqn == "TestNs.Foo");
@@ -68,7 +68,7 @@ public sealed class GenericBaseChainTests : IDisposable
         Assert.Contains("System.Object", chain);
     }
 
-    [Fact]
+    [Test]
     public void DescendantsFindsSubclassesOfGenericBases()
     {
         var storeRoot = Path.Combine(_root, "db");
@@ -95,7 +95,7 @@ public sealed class GenericBaseChainTests : IDisposable
     /// out 與 ref 必須能區分——Harmony patch 的 prefix 要照著簽章寫，
     /// 兩者混淆會讓產生的 patch 無法編譯。
     /// </summary>
-    [Fact]
+    [Test]
     public void OutAndRefParametersAreDistinguished()
     {
         var method = _symbols.Single(s => s.Fqn == "TestNs.Widget.Configure");

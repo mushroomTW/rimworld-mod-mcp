@@ -7,16 +7,18 @@ namespace RimWorldModMcp.Server.Tests;
 /// <summary>
 /// 錯誤訊息是給 LLM 呼叫端自我修正用的：拋錯的「位置」與「型別」決定它到底看不看得到。
 /// </summary>
-public sealed class ToolErrorTests : IAsyncLifetime
+public sealed class ToolErrorTests
 {
     private McpServerFixture _server = null!;
 
-    public async Task InitializeAsync() => _server = await McpServerFixture.StartAsync();
+    [SetUp]
+    public async Task SetUp() => _server = await McpServerFixture.StartAsync();
 
-    public async Task DisposeAsync() => await _server.DisposeAsync();
+    [TearDown]
+    public async Task TearDown() => await _server.DisposeAsync();
 
     /// <summary>參數驗證拋在 ToolGuard 之外時，呼叫端只會看到「An error occurred」。</summary>
-    [Fact]
+    [Test]
     public async Task InvalidSymbolKindIsReportedByName()
     {
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -29,10 +31,9 @@ public sealed class ToolErrorTests : IAsyncLifetime
     /// 列舉型參數打錯不能靜默吞掉：find_def_usages 會回「沒有引用」、list_test_diagnostics
     /// 會回空清單（加上 wait_seconds 還白等 50 秒）、test_status 會阻塞到逾時。
     /// </summary>
-    [Theory]
-    [InlineData("find_def_usages", "source_kind", "xml", "def_name", "Steel")]
-    [InlineData("list_test_diagnostics", "type", "errors", null, null)]
-    [InlineData("test_status", "wait_for_state", "Play", null, null)]
+    [TestCase("find_def_usages", "source_kind", "xml", "def_name", "Steel")]
+    [TestCase("list_test_diagnostics", "type", "errors", null, null)]
+    [TestCase("test_status", "wait_for_state", "Play", null, null)]
     public async Task UnknownEnumValueIsRejectedWithTheValidValues(string tool, string parameter, string value, string? otherName, string? otherValue)
     {
         var arguments = new Dictionary<string, object?> { [parameter] = value };
@@ -49,9 +50,8 @@ public sealed class ToolErrorTests : IAsyncLifetime
     }
 
     /// <summary>索引損毀時每個查詢工具都會失敗；訊息必須指向 rebuild_index。</summary>
-    [Theory]
-    [InlineData(11)] // SQLITE_CORRUPT
-    [InlineData(26)] // SQLITE_NOTADB
+    [TestCase(11)] // SQLITE_CORRUPT
+    [TestCase(26)] // SQLITE_NOTADB
     public void CorruptIndexTellsTheCallerToRebuild(int sqliteErrorCode)
     {
         var error = Assert.Throws<McpException>(
@@ -61,7 +61,7 @@ public sealed class ToolErrorTests : IAsyncLifetime
         Assert.Contains("rebuild_index", error.Message);
     }
 
-    [Fact]
+    [Test]
     public void BusyIndexTellsTheCallerToRetry()
     {
         var error = Assert.Throws<McpException>(
@@ -71,7 +71,7 @@ public sealed class ToolErrorTests : IAsyncLifetime
     }
 
     /// <summary>其他 SQLite 錯誤是程式問題，維持原樣讓它進 stderr 日誌。</summary>
-    [Fact]
+    [Test]
     public void OtherSqliteErrorsAreNotMasked()
     {
         Assert.Throws<SqliteException>(
@@ -83,7 +83,7 @@ public sealed class ToolErrorTests : IAsyncLifetime
     /// 路徑過長）。它的訊息含 Win32 錯誤碼，是可操作的線索——不轉換的話
     /// 呼叫端只看到「An error occurred」，而那正是使用者最需要線索的失敗之一。
     /// </summary>
-    [Fact]
+    [Test]
     public void PlatformApiFailuresAreReportedWithTheirWin32Message()
     {
         var error = Assert.Throws<McpException>(
@@ -96,7 +96,7 @@ public sealed class ToolErrorTests : IAsyncLifetime
     /// dotnet build 逾時與搜尋模式逾時都必須送達。<c>RegexMatchTimeoutException</c>
     /// 繼承 <c>TimeoutException</c>，所以兩者走同一條路徑——這個測試同時守住那個繼承關係。
     /// </summary>
-    [Fact]
+    [Test]
     public void TimeoutsAreReported()
     {
         var build = Assert.Throws<McpException>(
@@ -109,7 +109,7 @@ public sealed class ToolErrorTests : IAsyncLifetime
     }
 
     /// <summary>非預期的例外不能被包成 McpException，否則程式錯誤會被誤當成使用者問題。</summary>
-    [Fact]
+    [Test]
     public void UnexpectedExceptionsAreNotMasked()
     {
         Assert.Throws<NullReferenceException>(

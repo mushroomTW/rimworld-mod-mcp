@@ -50,7 +50,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void NamespaceListsItsTopLevelTypes()
     {
         var hits = SymbolRepository.Children(_connection, "Verse", null, null, 100);
@@ -58,7 +58,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Equal(["Verse.Thing"], hits.Select(h => h.Fqn).ToArray());
     }
 
-    [Fact]
+    [Test]
     public void TypeListsMembersAndNestedTypesWithKindFilter()
     {
         var all = SymbolRepository.Children(_connection, "Verse.Thing", null, null, 100);
@@ -68,7 +68,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Equal(["Verse.Thing.Tick()"], methods.Select(h => h.Fqn).ToArray());
     }
 
-    [Fact]
+    [Test]
     public void ChildNamespacesAreOneLevelDeepAndSkipNestedTypeParents()
     {
         Assert.Equal(["Verse.AI"], SymbolRepository.ChildNamespaces(_connection, "Verse", null));
@@ -76,7 +76,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Equal(["RimWorld", "Verse", "Widgets"], SymbolRepository.ChildNamespaces(_connection, "", null));
     }
 
-    [Fact]
+    [Test]
     public void AssemblyFilterAppliesToBrowsing()
     {
         var assemblyLike = "%mod:pkg%";
@@ -85,7 +85,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Empty(SymbolRepository.Children(_connection, "Verse", null, assemblyLike, 100));
     }
 
-    [Fact]
+    [Test]
     public void SuggestSplitsCamelCaseAndMatchesEachToken()
     {
         // 「Verse.ThingWidget」不存在，但拆成 Thing / Widget 後各自能命中。
@@ -95,7 +95,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Contains("Widgets.Widget", suggestions);
     }
 
-    [Fact]
+    [Test]
     public void SuggestPrefersTypesOverMembersAndIsEmptyWhenNothingResembles()
     {
         var suggestions = SymbolRepository.Suggest(_connection, "Tick", 5);
@@ -109,7 +109,7 @@ public sealed class SymbolBrowsingTests : IDisposable
     /// 有精確命中就只回精確命中（型別在前），模糊命中另外計數；
     /// 混著回的話查 ThingDef 會拿到上千筆成員與 ThingDefCount 之類的雜訊。
     /// </summary>
-    [Fact]
+    [Test]
     public void ReadPrefersExactAndSkipsPartialWhenExactExists()
     {
         var hits = SymbolRepository.Read(_connection, "Thing", 10);
@@ -120,7 +120,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Equal(["Verse.Thing"], SymbolRepository.Read(_connection, "Verse.Thing", 10).Select(h => h.Fqn).ToArray());
     }
 
-    [Fact]
+    [Test]
     public void ReadFallsBackToPartialWhenNoExact()
     {
         var hits = SymbolRepository.Read(_connection, "Thin", 10);
@@ -133,7 +133,7 @@ public sealed class SymbolBrowsingTests : IDisposable
     /// 大小寫打錯是 LLM 呼叫端最常見的失誤。之前存在性用 LIKE 判（不分大小寫）、
     /// 列子項用 = 查（分大小寫），verse 會通過檢查卻回空清單。
     /// </summary>
-    [Fact]
+    [Test]
     public void ResolveParentIsCaseInsensitiveAndReturnsTheCanonicalName()
     {
         Assert.Equal("Verse", SymbolRepository.ResolveParent(_connection, "verse", null));
@@ -147,7 +147,7 @@ public sealed class SymbolBrowsingTests : IDisposable
     }
 
     /// <summary>thingdef 該拿到 Verse.ThingDef，而不是落到子字串比對抓一堆 thingDefsToCheck 之類的欄位。</summary>
-    [Fact]
+    [Test]
     public void ReadFallsBackToCaseInsensitiveExactMatchBeforePartial()
     {
         var hits = SymbolRepository.Read(_connection, "verse.thing", 10);
@@ -160,7 +160,7 @@ public sealed class SymbolBrowsingTests : IDisposable
         Assert.Equal(0, SymbolRepository.CountPartial(_connection, "verse.thing") - SymbolRepository.CountPartial(_connection, "Verse.Thing"));
     }
 
-    [Fact]
+    [Test]
     public void ParentExistsForNamespacesTypesAndNotForUnknown()
     {
         Assert.True(ResolveParent(_connection, "Verse", null) is not null);

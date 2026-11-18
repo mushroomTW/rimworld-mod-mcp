@@ -7,7 +7,7 @@ public sealed class SourceExcerptTests
 {
     private const string Text = "line1\r\nline2\r\nline3\r\nline4";
 
-    [Fact]
+    [Test]
     public void WholeFileFitsWhenUnderTheLimit()
     {
         var excerpt = SourceExcerpt.Take(Text, 1, 1024);
@@ -16,7 +16,7 @@ public sealed class SourceExcerptTests
         Assert.Equal((1, 4, 4, false), (excerpt.StartLine, excerpt.EndLine, excerpt.TotalLines, excerpt.Truncated));
     }
 
-    [Fact]
+    [Test]
     public void PagesStopAtWholeLinesAndChainByEndLine()
     {
         // 每行 5 bytes 加換行；12 bytes 剛好放兩行。
@@ -30,7 +30,7 @@ public sealed class SourceExcerptTests
         Assert.False(second.Truncated);
     }
 
-    [Fact]
+    [Test]
     public void OversizedSingleLineIsCutInsteadOfReturningNothing()
     {
         var excerpt = SourceExcerpt.Take("abcdefghij", 1, 4);
@@ -44,7 +44,7 @@ public sealed class SourceExcerptTests
     /// 於是呼叫端用 end_line + 1 翻頁時會永遠拿到同一行，而且那頁是非空的
     ///（看起來像還有資料），分不出「還有內容」與「已經到底」。
     /// </summary>
-    [Fact]
+    [Test]
     public void StartLineBeyondTheEndReturnsAnEmptyPage()
     {
         var excerpt = SourceExcerpt.Take(Text, 99, 1024);
@@ -64,7 +64,7 @@ public sealed class SourceExcerptTests
     ///（Text 缺兩行，StartLine/EndLine 卻照原始行數推進）。
     /// 舊實作以 buffer.Length 判斷分隔符，空字串 Length 仍為 0 而不加換行。
     /// </summary>
-    [Fact]
+    [Test]
     public void LeadingBlankLinesArePreserved()
     {
         var excerpt = SourceExcerpt.Take("\n\nclass Demo {}", 1, 1024);
@@ -74,7 +74,7 @@ public sealed class SourceExcerptTests
     }
 
     /// <summary>照文件用 end_line + 1 翻頁必須能前進，且最後會停在空頁。</summary>
-    [Fact]
+    [Test]
     public void PagingByEndLineReachesAnEmptyPageAndStops()
     {
         var page = SourceExcerpt.Take(Text, 1, 12);

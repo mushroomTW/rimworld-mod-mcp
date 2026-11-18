@@ -6,20 +6,16 @@ namespace RimWorldModMcp.Diagnostics.Tests;
 public sealed class TestEnvironmentPreparerTests
 {
     private const string Folder = "RimWorldModMcp-Test-author.mymod";
-
-    [Theory]
-    [InlineData("Mod_MyMod_MyModSettings.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyModSettings.xml")]
-    [InlineData("Mod_2900000000_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
-    [InlineData("Mod_My_Mod_Folder_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
-    [InlineData("Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
+    [TestCase("Mod_MyMod_MyModSettings.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyModSettings.xml")]
+    [TestCase("Mod_2900000000_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
+    [TestCase("Mod_My_Mod_Folder_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
+    [TestCase("Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml", "Mod_RimWorldModMcp-Test-author.mymod_MyMod.xml")]
     public void SeedFileName_rewrites_mod_settings_folder_segment(string input, string expected)
     {
         Assert.Equal(expected, TestEnvironmentPreparer.SeedFileName(input, Folder, []));
     }
-
-    [Theory]
-    [InlineData("Mod_2009463077_FGLSettings.xml")]
-    [InlineData("Mod_my_companion_CompanionSettings.xml")]
+    [TestCase("Mod_2009463077_FGLSettings.xml")]
+    [TestCase("Mod_my_companion_CompanionSettings.xml")]
     public void SeedFileName_keeps_settings_of_other_active_mods(string input)
     {
         // 附屬 Mod 在測試場次裡沿用原本的資料夾名，改名反而讓它讀不到設定。
@@ -27,13 +23,11 @@ public sealed class TestEnvironmentPreparerTests
 
         Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder, otherFolders));
     }
-
-    [Theory]
-    [InlineData("Prefs.xml")]
-    [InlineData("KeyPrefs.xml")]
-    [InlineData("Mod_NoClass.xml")]
-    [InlineData("Mod_Trailing_.xml")]
-    [InlineData("Mod_MyMod_MyMod.txt")]
+    [TestCase("Prefs.xml")]
+    [TestCase("KeyPrefs.xml")]
+    [TestCase("Mod_NoClass.xml")]
+    [TestCase("Mod_Trailing_.xml")]
+    [TestCase("Mod_MyMod_MyMod.txt")]
     public void SeedFileName_leaves_other_files_alone(string input)
     {
         Assert.Equal(input, TestEnvironmentPreparer.SeedFileName(input, Folder, []));
@@ -49,7 +43,7 @@ public sealed class TestEnvironmentPreparerTests
         </PrefsData>
         """;
 
-    [Fact]
+    [Test]
     public void ApplyFullscreen_turns_fullscreen_on_and_leaves_the_rest_alone()
     {
         var root = XDocument.Parse(Prefs).Root!;
@@ -62,7 +56,7 @@ public sealed class TestEnvironmentPreparerTests
         Assert.Equal("1.25", root.Element("uiScale")!.Value);
     }
 
-    [Fact]
+    [Test]
     public void ApplyFullscreen_adds_a_missing_element()
     {
         // RimWorld 不一定寫出預設值（false）的欄位，缺了也要補上。
@@ -105,7 +99,7 @@ public sealed class TestEnvironmentPreparerTests
         </ModsConfigData>
         """;
 
-    [Fact]
+    [Test]
     public void WriteModsConfig_prefers_installed_version_over_stale_user_config()
     {
         // 使用者設定檔還是 1.6 版號時，沿用它會讓 1.7 判定為舊資料並重置啟用清單。
@@ -115,7 +109,7 @@ public sealed class TestEnvironmentPreparerTests
         Assert.Equal("ludeon.rimworld.royalty", config.Element("knownExpansions")!.Element("li")!.Value);
     }
 
-    [Fact]
+    [Test]
     public void WriteModsConfig_falls_back_to_existing_then_default_version()
     {
         Assert.Equal("1.6.4871 rev590", WriteConfig(OldConfig, null).Element("version")!.Value);
@@ -125,13 +119,13 @@ public sealed class TestEnvironmentPreparerTests
     private static readonly string Root =OperatingSystem.IsWindows() ? @"C:\Games\RimWorld" : "/opt/rimworld";
     private static readonly string ModsDir = Path.Combine(Root, "Mods");
 
-    [Fact]
+    [Test]
     public void IsDirectlyUnderModsDirectory_true_for_mod_folder_in_mods()
     {
         Assert.True(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(Path.Combine(ModsDir, "RimAgent"), ModsDir));
     }
 
-    [Fact]
+    [Test]
     public void IsDirectlyUnderModsDirectory_ignores_trailing_separators()
     {
         var mod = Path.Combine(ModsDir, "RimAgent") + Path.DirectorySeparatorChar;
@@ -140,7 +134,7 @@ public sealed class TestEnvironmentPreparerTests
         Assert.True(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(mod, mods));
     }
 
-    [Fact]
+    [Test]
     public void IsDirectlyUnderModsDirectory_follows_platform_case_rules()
     {
         var mod = Path.Combine(Root, "mods", "RimAgent");
@@ -148,13 +142,13 @@ public sealed class TestEnvironmentPreparerTests
         Assert.Equal(!OperatingSystem.IsLinux(), TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(mod, ModsDir));
     }
 
-    [Fact]
+    [Test]
     public void IsDirectlyUnderModsDirectory_false_for_nested_folder()
     {
         Assert.False(TestEnvironmentPreparer.IsDirectlyUnderModsDirectory(Path.Combine(ModsDir, "Dev", "RimAgent"), ModsDir));
     }
 
-    [Fact]
+    [Test]
     public void IsDirectlyUnderModsDirectory_false_for_workshop_and_mods_dir_itself()
     {
         var workshop = Path.Combine(Root, "..", "..", "workshop", "content", "294100", "123456");
@@ -173,7 +167,7 @@ public sealed class TestEnvironmentPreparerTests
     /// 併進新場次的追蹤清單。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void RemoveLinksReportsWhatItCouldNotRemove()
     {
         var root = Path.Combine(Path.GetTempPath(), "rwmm-prep-" + Guid.NewGuid().ToString("n")[..12]);
@@ -208,7 +202,7 @@ public sealed class TestEnvironmentPreparerTests
     }
 
     /// <summary>已經不存在的連結不算「清不掉」——那只是先前就清乾淨了。</summary>
-    [Fact]
+    [Test]
     public void RemoveLinksIgnoresLinksThatAreAlreadyGone()
     {
         var root = Path.Combine(Path.GetTempPath(), "rwmm-prep-" + Guid.NewGuid().ToString("n")[..12]);

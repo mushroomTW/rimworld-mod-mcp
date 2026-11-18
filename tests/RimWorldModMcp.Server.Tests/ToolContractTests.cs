@@ -5,19 +5,21 @@ using ModelContextProtocol;
 namespace RimWorldModMcp.Server.Tests;
 
 /// <summary>工具清單與 schema 的契約：名稱與參數名一變，agent 的提示與工作流程就會失效。</summary>
-public sealed partial class ToolContractTests : IAsyncLifetime
+public sealed partial class ToolContractTests
 {
     private McpServerFixture _server = null!;
 
     [GeneratedRegex("^[a-z][a-z0-9_]*$")]
     private static partial Regex SnakeCasePattern();
 
-    public async Task InitializeAsync() => _server = await McpServerFixture.StartAsync();
+    [SetUp]
+    public async Task SetUp() => _server = await McpServerFixture.StartAsync();
 
-    public async Task DisposeAsync() => await _server.DisposeAsync();
+    [TearDown]
+    public async Task TearDown() => await _server.DisposeAsync();
 
     /// <summary>README 與 server instructions 列出的工具，一個都不能少、也不能多出未文件化的。</summary>
-    [Fact]
+    [Test]
     public async Task ExposesTheDocumentedToolSet()
     {
         var tools = await _server.Client.ListToolsAsync();
@@ -36,7 +38,7 @@ public sealed partial class ToolContractTests : IAsyncLifetime
     }
 
     /// <summary>參數一律 snake_case：LLM 呼叫端對 camelCase 與 snake_case 混用的 schema 最容易打錯。</summary>
-    [Fact]
+    [Test]
     public async Task AllParametersAreSnakeCase()
     {
         var tools = await _server.Client.ListToolsAsync();
@@ -58,7 +60,7 @@ public sealed partial class ToolContractTests : IAsyncLifetime
         Assert.Empty(offenders);
     }
 
-    [Fact]
+    [Test]
     public async Task EveryToolAndParameterHasADescription()
     {
         var tools = await _server.Client.ListToolsAsync();
@@ -88,7 +90,7 @@ public sealed partial class ToolContractTests : IAsyncLifetime
     /// 未知參數必須被拒絕而不是靜默忽略——打錯參數名拿到一大包無關結果，
     /// 比一行錯誤訊息貴得多。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task UnknownArgumentsAreRejectedWithTheValidNames()
     {
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -100,7 +102,7 @@ public sealed partial class ToolContractTests : IAsyncLifetime
     }
 
     /// <summary>驗證經 MCP 傳輸後的四個旗標及 JSON 型別，避免 SDK 預設值掩蓋缺漏。</summary>
-    [Fact]
+    [Test]
     public async Task EveryToolDeclaresAllFourBooleanHintsMatchingItsBehavior()
     {
         var tools = await _server.Client.ListToolsAsync();

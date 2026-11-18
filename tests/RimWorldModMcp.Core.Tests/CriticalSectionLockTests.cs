@@ -23,7 +23,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void SecondAcquireIsRejectedWhileHolderIsAlive()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
@@ -42,7 +42,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     /// 有界等待版本：鎖被持有時等不到就拋出，放掉之後就取得得到。
     /// 這是「Mod 索引等 rebuild_index 寫完」那條路徑的基礎。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task AcquireWithTimeoutWaitsForTheHolderToRelease()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
@@ -70,7 +70,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     /// 建檔撞上既有鎖檔、但在判斷前持有者就釋放了：那是「剛好放掉」，必須重試，
     /// 不能讓 IOException 漏出去——有界等待只重試 LockHeldException，漏出去就整個失敗。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task ContendedAcquireNeverLeaksIOExceptionWhenTheHolderReleases()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
@@ -93,7 +93,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     }
 
     /// <summary>等不到就必須拋出，不能無限期卡住——呼叫端要能把它當成可重試的失敗。</summary>
-    [Fact]
+    [Test]
     public void AcquireWithTimeoutThrowsWhenTheHolderKeepsIt()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
@@ -108,7 +108,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.True(elapsed < TimeSpan.FromSeconds(10), $"不該無限期等待，實際 {elapsed.TotalMilliseconds:0}ms");
     }
 
-    [Fact]
+    [Test]
     public void ReleaseAllowsTheNextAcquire()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
@@ -121,7 +121,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.NotNull(nextToken);
     }
 
-    [Fact]
+    [Test]
     public void ReleaseWithWrongTokenDoesNothing()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });
@@ -132,7 +132,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.Throws<LockHeldException>(() => locks.Acquire("index"));
     }
 
-    [Fact]
+    [Test]
     public void StaleLockFromDeadHolderIsReclaimed()
     {
         var alive = new FakeProcessHost { Alive = true };
@@ -148,7 +148,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     /// Unix 上 FileShare.None 是「先建檔、再上 flock」兩步：中間有一瞬間鎖檔是空的且沒鎖住。
     /// 剛建立的空檔是正在寫入的活鎖，不能當殘骸接管，否則兩個程序會同時持有臨界區。
     /// </summary>
-    [Fact]
+    [Test]
     public void FreshlyCreatedEmptyLockFileIsTreatedAsHeld()
     {
         Directory.CreateDirectory(_store.LocksDirectory);
@@ -160,7 +160,7 @@ public sealed class CriticalSectionLockTests : IDisposable
     }
 
     /// <summary>寫到一半就崩潰留下的空鎖檔，過了寬限期仍要能接管，否則工具永遠卡住。</summary>
-    [Fact]
+    [Test]
     public void StaleEmptyLockFileIsReclaimed()
     {
         Directory.CreateDirectory(_store.LocksDirectory);
@@ -173,7 +173,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.NotNull(locks.Acquire("index"));
     }
 
-    [Fact]
+    [Test]
     public void LockIsReclaimedWhenPidWasRecycled()
     {
         var original = new FakeProcessHost { Alive = true, StartTime = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
@@ -186,7 +186,7 @@ public sealed class CriticalSectionLockTests : IDisposable
         Assert.NotNull(token);
     }
 
-    [Fact]
+    [Test]
     public void HoldReleasesOnDispose()
     {
         var locks = new CriticalSectionLock(_store, new FakeProcessHost { Alive = true });

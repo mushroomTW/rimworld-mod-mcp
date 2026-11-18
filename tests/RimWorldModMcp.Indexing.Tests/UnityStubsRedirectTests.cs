@@ -52,7 +52,7 @@ public sealed class UnityStubsRedirectTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public void ModBuiltAgainstUnityEngineResolvesTypesFromUnityStubs()
     {
         SyntheticAssembly.Emit(UnitySource, "UnityStubs", Game);
@@ -64,7 +64,7 @@ public sealed class UnityStubsRedirectTests : IDisposable
     }
 
     /// <summary>Mod 自帶的真正 Unity.* 組件有 UnityStubs 沒有的型別，必須優先於導向。</summary>
-    [Fact]
+    [Test]
     public void ModShippedUnityAssemblyWinsOverStubs()
     {
         SyntheticAssembly.Emit(UnitySource, "UnityStubs", Game);
@@ -79,7 +79,7 @@ public sealed class UnityStubsRedirectTests : IDisposable
     }
 
     /// <summary>UnityStubs.dll 讀不了（例如遊戲更新中）時照常反編譯，只是 Unity 型別解析不到。</summary>
-    [Fact]
+    [Test]
     public void UnreadableStubsDoNotFailDecompilation()
     {
         Directory.CreateDirectory(Game);
@@ -89,16 +89,14 @@ public sealed class UnityStubsRedirectTests : IDisposable
 
         Assert.Contains("class Mover", text, StringComparison.Ordinal);
     }
-
-    [Theory]
-    [InlineData("UnityEngine", true)]
-    [InlineData("UnityEngine.CoreModule", true)]
-    [InlineData("Unity.Mathematics", true)]
-    [InlineData("Assembly-CSharp-firstpass", true)]
-    [InlineData("Unity.Newtonsoft.Json", false)]
-    [InlineData("Assembly-CSharp", false)]
-    [InlineData("UnityStubs", false)]
-    [InlineData("unityengine.coremodule", false)]
+    [TestCase("UnityEngine", true)]
+    [TestCase("UnityEngine.CoreModule", true)]
+    [TestCase("Unity.Mathematics", true)]
+    [TestCase("Assembly-CSharp-firstpass", true)]
+    [TestCase("Unity.Newtonsoft.Json", false)]
+    [TestCase("Assembly-CSharp", false)]
+    [TestCase("UnityStubs", false)]
+    [TestCase("unityengine.coremodule", false)]
     public void RedirectRulesMatchTheGame(string name, bool redirected)
         => Assert.Equal(redirected, UnityStubsResolver.IsRedirected(name));
 

@@ -9,7 +9,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// 使用 .deps.json 宣告的合成遊戲組件驗證原始碼索引與續跑行為。
 /// </summary>
 // 兩個類別都改寫行程共用的 RIMWORLD_MOD_MCP_GAME_PATH，不能平行跑。
-[Collection("GamePathEnvironment")]
+[NonParallelizable]
 public sealed class SourceIndexerTests : IDisposable
 {
     private readonly string _root;
@@ -53,7 +53,7 @@ public sealed class SourceIndexerTests : IDisposable
         ? Path.Combine("RimWorld.app", "Contents", "MacOS")
         : "";
 
-    [Fact]
+    [Test]
     public void RunIndexesEveryGameAssemblyAndMarksThemDone()
     {
         var progress = _indexer.Run();
@@ -74,7 +74,7 @@ public sealed class SourceIndexerTests : IDisposable
     /// 模擬被中斷：firstpass 已做完（有 done 標記），Assembly-CSharp 沒有。
     /// 續跑必須跳過 firstpass（它的內容原封不動）、只重做 Assembly-CSharp。
     /// </summary>
-    [Fact]
+    [Test]
     public void ResumeSkipsAssembliesThatWereAlreadyFinished()
     {
         _indexer.Run();
@@ -111,7 +111,7 @@ public sealed class SourceIndexerTests : IDisposable
     }
 
     /// <summary>rebuild_index 清空 source_file 時，done 標記必須一起消失，否則續跑會跳過空掉的組件。</summary>
-    [Fact]
+    [Test]
     public void ClearingSourceFilesForgetsTheDoneMarkers()
     {
         _indexer.Run();
@@ -124,7 +124,7 @@ public sealed class SourceIndexerTests : IDisposable
         Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Waylith"));
     }
 
-    [Fact]
+    [Test]
     public void FreshDatabaseIsNotConsideredInterrupted()
     {
         Assert.False(_indexer.IsInterrupted());
@@ -135,7 +135,7 @@ public sealed class SourceIndexerTests : IDisposable
     /// 舊實作在 DecompileAll 回空集合後照常寫 done 與 source_indexed=true，
     /// 壞掉的 DLL 被永久當成成功快取。
     /// </summary>
-    [Fact]
+    [Test]
     public void UnloadableGameAssemblyIsNotMarkedDone()
     {
         var managed = Path.Combine(_root, "RimWorld", ManagedRelativePath());
@@ -160,7 +160,7 @@ public sealed class SourceIndexerTests : IDisposable
     /// 另一個行程的 rebuild_index 會換掉建置世代並清空 source_file。本行程的背景索引
     /// 不受那邊的 Cancel 管，若照樣寫入完成標記，只寫了一部分的表會被標成 source_indexed=true。
     /// </summary>
-    [Fact]
+    [Test]
     public void CommitIsRefusedAfterTheGenerationChanged()
     {
         using var connection = _database.Open();

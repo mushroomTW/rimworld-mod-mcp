@@ -9,7 +9,7 @@ namespace RimWorldModMcp.PlatformContracts.Tests;
 /// </summary>
 public sealed class GameStatePayloadContracts
 {
-    [Fact]
+    [Test]
     public void OutputIsValidJsonWithTypedFields()
     {
         var line = GameStatePayload.BuildLine("tok", new GameStateSnapshot
@@ -44,7 +44,7 @@ public sealed class GameStatePayloadContracts
     }
 
     /// <summary>視窗型別名稱來自反射，理論上可控；但轉義仍要走同一條路，注入不能偽造欄位。</summary>
-    [Fact]
+    [Test]
     public void StringsAreEscaped()
     {
         var line = GameStatePayload.BuildLine("t", new GameStateSnapshot
@@ -60,7 +60,7 @@ public sealed class GameStatePayloadContracts
         Assert.Equal("\"}{\"type\":\"injected", root.GetProperty("open_windows")[0].GetString());
     }
 
-    [Fact]
+    [Test]
     public void EmptyWindowsProduceEmptyArray()
     {
         var line = GameStatePayload.BuildLine("t", new GameStateSnapshot { ProgramState = "Entry" });

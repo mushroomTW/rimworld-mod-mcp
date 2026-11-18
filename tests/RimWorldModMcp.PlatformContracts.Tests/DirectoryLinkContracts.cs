@@ -52,7 +52,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 這是選用 junction 而非 symlink 的全部理由，在 Windows 上若這條紅了，
     /// 代表實作退化成 symlink，沒有開發者模式的使用者會完全無法使用測試功能。
     /// </summary>
-    [Fact]
+    [Test]
     public void CreatingALinkDoesNotRequireElevation()
     {
         var link = LinkPath();
@@ -66,7 +66,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     }
 
     /// <summary>契約：對自己建立、指向同一目標的連結重複呼叫不得拋出。</summary>
-    [Fact]
+    [Test]
     public void EnsureLinkIsIdempotentForItsOwnLink()
     {
         var link = LinkPath();
@@ -86,7 +86,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 讓三個平台都能驗到同一組不變式。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void OwnedLinkDetectionMatchesPlatformSemantics()
     {
         var link = LinkPath();
@@ -106,7 +106,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     }
 
     /// <summary>契約：已存在但指向別處的連結不得被覆寫。</summary>
-    [Fact]
+    [Test]
     public void EnsureLinkRefusesToOverwriteALinkPointingElsewhere()
     {
         var other = Path.Combine(_root, "OtherMod");
@@ -130,7 +130,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 這條測試就是那個行為的防線。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void RemoveLinkDeletesTheLinkAndKeepsTheMod()
     {
         var link = LinkPath();
@@ -144,7 +144,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     }
 
     /// <summary>契約：沒有本工具前綴的目錄，即使位置吻合也絕不能被刪。</summary>
-    [Fact]
+    [Test]
     public void RemoveLinkIgnoresDirectoriesItDidNotCreate()
     {
         var intruder = Path.Combine(_root, "SomeUsersOwnMod");
@@ -173,7 +173,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     /// 只解析單邊的比對就會失敗。
     /// </para>
     /// </summary>
-    [Fact]
+    [Test]
     public void OwnedLinkIsRecognisedWhenTheTargetIsItselfRedirected()
     {
         var real = Path.Combine(_root, "RealLocation");
@@ -199,7 +199,7 @@ public sealed class DirectoryLinkContracts : IDisposable
     }
 
     /// <summary>契約：移除結果要能區分「已移除」「不是我們的」「失敗」，不能靜默當成成功。</summary>
-    [Fact]
+    [Test]
     public void RemoveLinkReportsWhetherTheLinkIsGone()
     {
         var link = LinkPath("Reported");

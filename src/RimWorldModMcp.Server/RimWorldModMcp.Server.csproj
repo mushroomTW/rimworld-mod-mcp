@@ -25,8 +25,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
-    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,9 +37,8 @@
   </ItemGroup>
 
   <!--
-    Bridge 以原始碼（bridge/About/、bridge/Source/）隨工具發佈，run_test_cycle 時參考使用者本機的
-    遊戲組件就地建置。目前不再預編譯：NuGet 的公開參考組件（Krafs.Rimworld.Ref）沒有 1.7 版。
-    BridgeBuilder 仍保留使用 bridge/Prebuilt/ 的執行期分支，日後恢復預編譯時可直接接回。
+    Bridge 以原始碼（bridge/About/、bridge/Source/）隨工具發佈，run_test_cycle 時就地建置。
+    BridgeBuilder 仍保留使用 bridge/Prebuilt/ 的執行期分支，日後若有預編譯需求可直接接回。
     原始碼以 bridge/<相對路徑> 內嵌進組件：Release 只發佈單一執行檔，旁邊沒有 bridge/ 目錄，
     執行期由 EmbeddedBridge 解到快取目錄。
   -->

@@ -47,7 +47,7 @@ public sealed class LoadOrderResolverTests
     /// 回報的 bug：DLC 照字母序排，Odyssey 落在 Royalty 前面，Odyssey 的 Def 找不到 Royalty 的父節點。
     /// 也不能排在一般 Mod 之後——Mod 常不宣告 loadAfter 就 patch DLC 的 Def。
     /// </summary>
-    [Fact]
+    [Test]
     public void ExpansionsFollowCoreInForcedOrderBeforeOtherMods()
     {
         var mod = Mod("a.mod");
@@ -62,7 +62,7 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>只宣告 forceLoadBefore（目標方沒有對應的 forceLoadAfter）也必須生效。</summary>
-    [Fact]
+    [Test]
     public void ForceLoadBeforePlacesTheDeclaringModFirst()
     {
         // 取 "z" 開頭讓字母序排它最後：沒有 forceLoadBefore 的反向邊時它一定排錯。
@@ -75,7 +75,7 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>forceLoad 目標沒啟用（例如只開 Odyssey）是正常組合，不該被當成略過的軟排序回報。</summary>
-    [Fact]
+    [Test]
     public void ForceLoadTargetsOutsideTheSelectionAreNotReported()
     {
         var odyssey = Expansions().Single(m => m.PackageId == "ludeon.rimworld.odyssey");
@@ -90,7 +90,7 @@ public sealed class LoadOrderResolverTests
     /// loadBefore 是 loadAfter 的反向邊，必須被納入排序——否則宣告了
     /// loadBefore 的相伴 Mod 會被排錯，錯誤只會在遊戲內以難懂的形式浮現。
     /// </summary>
-    [Fact]
+    [Test]
     public void LoadBeforePlacesTheDeclaringModFirst()
     {
         // 取 "z" 開頭讓字母序排它最後：沒有 loadBefore 處理時它一定排錯。
@@ -106,7 +106,7 @@ public sealed class LoadOrderResolverTests
         Assert.True(indexOfEarly < indexOfTarget, "宣告 loadBefore 的 Mod 必須排在目標之前");
     }
 
-    [Fact]
+    [Test]
     public void LoadAfterOrdersDependenciesFirst()
     {
         var late = Mod("a.late", loadAfter: ["b.early"]);
@@ -118,7 +118,7 @@ public sealed class LoadOrderResolverTests
         Assert.True(active.IndexOf("b.early") < active.IndexOf("a.late"));
     }
 
-    [Fact]
+    [Test]
     public void CoreIsAlwaysFirst()
     {
         var mod = Mod("a.solo");
@@ -131,7 +131,7 @@ public sealed class LoadOrderResolverTests
     /// 回報的 bug：Harmony 宣告 loadBefore Core，卻被排在 Core 之後，
     /// 遊戲模組清單以紅字標示順序錯誤，組件搜尋順序也和玩家實際的清單不同。
     /// </summary>
-    [Fact]
+    [Test]
     public void LoadBeforeCorePlacesTheModBeforeCore()
     {
         var harmony = Mod("brrainz.harmony", loadBefore: ["ludeon.rimworld"]);
@@ -147,7 +147,7 @@ public sealed class LoadOrderResolverTests
         Assert.Empty(order.LoadBeforeCoreConflicts);
     }
 
-    [Fact]
+    [Test]
     public void ForceLoadBeforeCorePlacesTheModBeforeCore()
     {
         var early = Mod("z.early", forceLoadBefore: ["ludeon.rimworld"]);
@@ -158,7 +158,7 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>排在 Core 前面的 Mod，它的硬相依也必須跟著排在前面。</summary>
-    [Fact]
+    [Test]
     public void HardDependenciesOfAModBeforeCoreAlsoComeBeforeCore()
     {
         var early = Mod("a.early", loadBefore: ["ludeon.rimworld"], dependencies: ["z.lib"]);
@@ -173,7 +173,7 @@ public sealed class LoadOrderResolverTests
     /// 宣告 loadBefore Core，卻硬相依於 loadAfter Core 的 Mod：兩個條件無法同時滿足。
     /// 維持排在 Core 之後，並回報出來讓使用者知道，而不是默默挑一邊。
     /// </summary>
-    [Fact]
+    [Test]
     public void LoadBeforeCoreThatMustFollowCoreIsReportedAsConflict()
     {
         var early = Mod("a.early", loadBefore: ["ludeon.rimworld"], dependencies: ["z.lib"]);
@@ -186,7 +186,7 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>幾乎每個 Mod 都 loadAfter Core；Core 永遠啟用，不是「被略過的軟排序」。</summary>
-    [Fact]
+    [Test]
     public void LoadAfterCoreIsNotReportedAsSkipped()
     {
         var mod = Mod("a.solo", loadAfter: ["ludeon.rimworld", "ludeon.rimworld.royalty"]);
@@ -195,7 +195,7 @@ public sealed class LoadOrderResolverTests
         Assert.Equal(["ludeon.rimworld.royalty"], order.SkippedLoadAfter);
     }
 
-    [Fact]
+    [Test]
     public void MissingHardDependencyIsReported()
     {
         var mod = Mod("a.needy", dependencies: ["b.absent"]);
@@ -205,12 +205,11 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>互相矛盾的排序規則不能默默產生違反規則的順序。</summary>
-    [Theory]
-    [InlineData("dependencies")]
-    [InlineData("loadAfter")]
-    [InlineData("loadBefore")]
-    [InlineData("forceLoadAfter")]
-    [InlineData("forceLoadBefore")]
+    [TestCase("dependencies")]
+    [TestCase("loadAfter")]
+    [TestCase("loadBefore")]
+    [TestCase("forceLoadAfter")]
+    [TestCase("forceLoadBefore")]
     public void CyclicOrderingRulesAreRejected(string rule)
     {
         ModInfo WithRule(string id, string target) => rule switch
@@ -230,7 +229,7 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>混合硬相依與軟排序形成的間接循環也必須回報。</summary>
-    [Fact]
+    [Test]
     public void MixedIndirectCycleBeforeCoreIsRejected()
     {
         ModInfo[] mods =
@@ -249,7 +248,7 @@ public sealed class LoadOrderResolverTests
     /// 回報的 bug：A 硬相依 B 且 A loadBefore B，遊戲允許這種組合（modDependencies 不要求順序），
     /// 不能被誤判成循環。明確的 loadBefore 勝出，相依順序被捨棄並回報。
     /// </summary>
-    [Fact]
+    [Test]
     public void DependencyOrderConflictingWithLoadBeforeIsDroppedNotRejected()
     {
         ModInfo[] mods =
@@ -264,7 +263,7 @@ public sealed class LoadOrderResolverTests
         Assert.Equal(["a.tests -> b.target"], order.DroppedDependencyOrder);
     }
 
-    [Fact]
+    [Test]
     public void SelfDependencyIsRejected()
     {
         var mod = Mod("a.mod", dependencies: ["a.mod"]);
@@ -275,7 +274,7 @@ public sealed class LoadOrderResolverTests
     }
 
     /// <summary>多條路徑共用前驅不構成循環，且仍須維持全部排序關係。</summary>
-    [Fact]
+    [Test]
     public void SharedPredecessorIsNotACycle()
     {
         ModInfo[] mods =

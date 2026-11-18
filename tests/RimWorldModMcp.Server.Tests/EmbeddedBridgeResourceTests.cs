@@ -8,12 +8,11 @@ namespace RimWorldModMcp.Server.Tests;
 /// </summary>
 public sealed class EmbeddedBridgeResourceTests
 {
-    [Theory]
-    [InlineData("bridge/About/About.xml")]
-    [InlineData("bridge/Source/RimWorldModMcp.Bridge.csproj")]
-    [InlineData("bridge/Source/BridgeMod.cs")]
-    [InlineData("bridge/Source/DiagnosticPayload.cs")]
-    [InlineData("bridge/Source/GameStatePayload.cs")]
+    [TestCase("bridge/About/About.xml")]
+    [TestCase("bridge/Source/RimWorldModMcp.Bridge.csproj")]
+    [TestCase("bridge/Source/BridgeMod.cs")]
+    [TestCase("bridge/Source/DiagnosticPayload.cs")]
+    [TestCase("bridge/Source/GameStatePayload.cs")]
     public void ServerAssemblyEmbedsTheBridgeFile(string name)
     {
         Assert.Contains(name, ResourceNames());

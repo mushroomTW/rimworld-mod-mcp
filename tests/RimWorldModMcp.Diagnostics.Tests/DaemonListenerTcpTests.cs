@@ -11,7 +11,7 @@ namespace RimWorldModMcp.Diagnostics.Tests;
 /// 真 TCP 層的行為：長度上限與逐行解析。
 /// Accept() 的單元測試繞過了網路層，OOM 類的缺陷正落在那個縫裡。
 /// </summary>
-[Collection(TcpTimingCollection.Name)]
+[NonParallelizable]
 public sealed class DaemonListenerTcpTests : IDisposable
 {
     private const string Token = "tcp-test-token";
@@ -69,7 +69,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
         ["text"] = text,
     });
 
-    [Fact]
+    [Test]
     public async Task ActiveConnectionOutlivesIdleTimeoutWhileLinesKeepArriving()
     {
         // 逾時是「閒置」逾時：只要持續有資料進來，連線活得比逾時長也不該被切。
@@ -130,7 +130,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
     /// 若也算進閒置，計時會在處理途中到期，下一次讀取直接被取消、連線被切，後續的行就遺失。
     /// 這裡握住診斷檔的鎖讓處理卡住超過逾時，再放開並立刻送下一行。
     /// </summary>
-    [Fact]
+    [Test]
     public async Task SlowProcessingDoesNotCountAsIdle()
     {
         var idle = TimeSpan.FromMilliseconds(300);
@@ -183,7 +183,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public async Task IdleConnectionIsClosedAfterTimeout()
     {
         var idle = TimeSpan.FromMilliseconds(300);
@@ -221,7 +221,7 @@ public sealed class DaemonListenerTcpTests : IDisposable
         }
     }
 
-    [Fact]
+    [Test]
     public async Task OversizedLinesAreDroppedWhileValidLinesAreAccepted()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -282,7 +282,6 @@ public sealed class DaemonListenerTcpTests : IDisposable
 /// 會拖慢執行緒池，用戶端送出的時間點延後數百毫秒，daemon 便如實判定為閒置而切斷。
 /// 這些測試改在其他測試之後單獨執行。
 /// </summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class TcpTimingCollection
 {
     public const string Name = "TCP timing";

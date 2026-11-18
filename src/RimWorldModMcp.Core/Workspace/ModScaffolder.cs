@@ -146,7 +146,7 @@ public sealed class ModScaffolder(RimWorldLocator? locator = null)
           </PropertyGroup>
 
           <ItemGroup>
-            <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.*-*" />
+            <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4998-unstable" />
           </ItemGroup>
 
         </Project>
