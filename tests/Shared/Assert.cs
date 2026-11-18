@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -85,8 +86,11 @@ public static class Assert
     public static void Null(object? @object)
         => NUnit.Framework.Assert.That(@object, Is.Null);
 
-    public static void NotNull(object? @object)
-        => NUnit.Framework.Assert.That(@object, Is.Not.Null);
+    public static void NotNull([NotNull] object? @object)
+    {
+        NUnit.Framework.Assert.That(@object, Is.Not.Null);
+        ArgumentNullException.ThrowIfNull(@object);
+    }
 
     public static void Equal<T>(T expected, T actual)
         => NUnit.Framework.Assert.That(actual, Is.EqualTo(expected));
@@ -192,7 +196,7 @@ public static class Assert
 
     public static void DoesNotContain(string expectedSubstring, string? actualString, StringComparison comparison = StringComparison.Ordinal)
     {
-        if (actualString is not null && actualString.IndexOf(expectedSubstring, comparison) >= 0)
+        if (actualString is not null && actualString.Contains(expectedSubstring, comparison))
         {
             throw new AssertionException($"Expected string not to contain '{expectedSubstring}' with {comparison}, but was: '{actualString}'");
         }

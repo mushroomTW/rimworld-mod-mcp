@@ -12,6 +12,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 [NonParallelizable]
 public sealed class IndexBuilderRecoveryTests : IDisposable
 {
+    private static readonly string[] ExpectedAssemblies = ["Assembly-CSharp", "Waylith"];
     private readonly string _root;
     private readonly string? _previousGamePath;
 
@@ -70,7 +71,7 @@ public sealed class IndexBuilderRecoveryTests : IDisposable
 
         Assert.Equal(0, result.DefCount);
         Assert.True(result.SymbolCount > 0);
-        Assert.Equal(new[] { "Assembly-CSharp", "Waylith" }, result.Assemblies);
+        Assert.Equal(ExpectedAssemblies, result.Assemblies);
         using var connection = database.Open();
         Assert.Equal(0, DefRepository.Count(connection));
     }

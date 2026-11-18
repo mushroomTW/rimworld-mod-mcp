@@ -12,6 +12,7 @@ namespace RimWorldModMcp.Indexing.Tests;
 /// 需要本機安裝 RimWorld 的測試。沒有遊戲時**略過**（不是靜默通過）——
 /// 這一類測試要跑真實的 Def 掃描與十萬筆符號索引，CI 上沒有遊戲。
 /// </summary>
+[AttributeUsage(AttributeTargets.Method)]
 public sealed class RequiresGameAttribute : Attribute, NUnit.Framework.Interfaces.IApplyToTest
 {
     public void ApplyToTest(NUnit.Framework.Internal.Test test)
