@@ -39,7 +39,18 @@ internal static class GameAssemblyCatalog
 
         foreach (var library in target.EnumerateObject())
         {
-            CollectLibraryAssemblies(library, libraries, managedDirectory, dependencyFile, assemblies);
+            foreach (var fileName in GetRuntimeDllFileNames(library, libraries))
+            {
+                var assemblyPath = Path.Combine(managedDirectory, fileName);
+                if (!File.Exists(assemblyPath))
+                {
+                    throw new FileNotFoundException(
+                        $"RimWorld declares runtime assembly '{fileName}' in '{dependencyFile}', but the file is missing.",
+                        assemblyPath);
+                }
+
+                assemblies.TryAdd(fileName, assemblyPath);
+            }
         }
 
         if (!assemblies.ContainsKey("Assembly-CSharp.dll"))
@@ -50,43 +61,23 @@ internal static class GameAssemblyCatalog
         return [.. assemblies.Values.OrderBy(Path.GetFileName, StringComparer.Ordinal)];
     }
 
-    private static void CollectLibraryAssemblies(
-        JsonProperty library,
-        JsonElement libraries,
-        string managedDirectory,
-        string dependencyFile,
-        Dictionary<string, string> assemblies)
+    private static IEnumerable<string> GetRuntimeDllFileNames(JsonProperty library, JsonElement libraries)
     {
         if (IsRuntimePack(libraries, library.Name))
         {
-            return;
+            return [];
         }
 
         if (!library.Value.TryGetProperty("runtime", out var runtimeAssets)
             || runtimeAssets.ValueKind != JsonValueKind.Object)
         {
-            return;
+            return [];
         }
 
-        foreach (var assetName in runtimeAssets.EnumerateObject().Select(asset => asset.Name))
-        {
-            if (!assetName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var fileName = Path.GetFileName(assetName);
-            var assemblyPath = Path.Combine(managedDirectory, fileName);
-
-            if (!File.Exists(assemblyPath))
-            {
-                throw new FileNotFoundException(
-                    $"RimWorld declares runtime assembly '{fileName}' in '{dependencyFile}', but the file is missing.",
-                    assemblyPath);
-            }
-
-            assemblies.TryAdd(fileName, assemblyPath);
-        }
+        return runtimeAssets.EnumerateObject()
+            .Select(asset => asset.Name)
+            .Where(name => name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .Select(name => Path.GetFileName(name));
     }
 
     private static bool IsRuntimePack(JsonElement libraries, string libraryName) =>

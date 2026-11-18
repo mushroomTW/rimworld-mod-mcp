@@ -88,8 +88,10 @@ public static class Assert
 
     public static void NotNull([NotNull] object? @object)
     {
-        NUnit.Framework.Assert.That(@object, Is.Not.Null);
-        ArgumentNullException.ThrowIfNull(@object);
+        if (@object is null)
+        {
+            throw new AssertionException("Expected: not null\n  But was: null");
+        }
     }
 
     public static void Equal<T>(T expected, T actual)
