@@ -207,6 +207,7 @@ public sealed class IndexTools(
         {
             string? body = null;
             bool? truncated = null;
+            string? note = null;
 
             // 優先用索引裡記錄的實際組件路徑——Mod 組件的 assembly 欄位是
             // mod:pkg:<DLL 相對路徑> 形式的索引鍵，拼 Managed\<key>.dll 出來的
@@ -218,17 +219,50 @@ public sealed class IndexTools(
             {
                 var source = decompiler.DecompileMember(assemblyPath, hit.MetadataToken);
 
-                if (source is not null)
+                if (source is null)
+                {
+                    // 沿用原行為：反編譯失敗不附 body。
+                }
+                else if (!BodyMatchesSymbol(source, hit))
+                {
+                    // 組件在索引建立後被更新時，索引記的 metadata token 會對到別的成員；
+                    // 與其回傳相鄰成員的程式碼誤導呼叫端，不如明講要重建索引。
+                    note = "Decompiled member does not match the indexed symbol; the index is stale. Call rebuild_index and retry.";
+                }
+                else
                 {
                     body = Utf8Text.Truncate(source, Math.Clamp(maxBytes, 256, 262144), out var wasTruncated);
                     truncated = wasTruncated;
                 }
             }
 
-            results.Add(ToSummary(hit) with { Body = body, BodyTruncated = truncated });
+            results.Add(ToSummary(hit) with { Body = body, BodyTruncated = truncated, BodyNote = note });
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// 反編譯結果是否仍是索引記的那個成員：原始碼中必須出現符號的識別字。
+    /// 索引子（Item）、運算子（op_*）與顯式介面實作的名稱在反編譯輸出中會改寫，不做檢查。
+    /// </summary>
+    internal static bool BodyMatchesSymbol(string source, SymbolHit hit)
+    {
+        var name = hit.ShortName;
+        var generic = name.IndexOf('<');
+        if (generic >= 0)
+        {
+            name = name[..generic];
+        }
+
+        name = name[(name.LastIndexOf('.') + 1)..];
+
+        if (name.Length == 0 || name.StartsWith("op_", StringComparison.Ordinal) || (hit.Kind == "Property" && name == "Item"))
+        {
+            return true;
+        }
+
+        return source.Contains(name, StringComparison.Ordinal);
     }
 
     [McpServerTool(Name = "list_symbols", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]

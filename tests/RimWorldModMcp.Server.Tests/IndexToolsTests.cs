@@ -212,6 +212,30 @@ public sealed class IndexToolsTests
         Assert.True(missResult.TryGetProperty("suggestions", out _));
     }
 
+    [TestCase("CanBeTrained", "Method", "public bool CanBeTrained(TrainableDef td) { }", true)]
+    [TestCase("CanBeTrained", "Method", "public bool GetWanted(TrainableDef td) { return wantedTrainables[td]; }", false)]
+    [TestCase("Comp<T>", "Class", "public class Comp<T> { }", true)]
+    [TestCase("Item", "Property", "public int this[int i] { get; }", true)]
+    [TestCase("op_Addition", "Method", "public static Foo operator +(Foo a, Foo b) { }", true)]
+    public void BodyMatchesSymbol(string shortName, string kind, string source, bool expected)
+    {
+        var hit = new SymbolHit
+        {
+            Assembly = "Assembly-CSharp",
+            Fqn = "N." + shortName,
+            ShortName = shortName,
+            Kind = kind,
+            MetadataToken = 1,
+            Signature = "",
+            BaseChain = [],
+            Interfaces = [],
+            Accessibility = "public",
+            IsStatic = false,
+        };
+
+        Assert.That(Tools.IndexTools.BodyMatchesSymbol(source, hit), Is.EqualTo(expected));
+    }
+
     [Test]
     public async Task ListSymbolsAndFindDescendants()
     {

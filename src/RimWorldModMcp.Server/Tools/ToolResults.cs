@@ -262,6 +262,11 @@ public sealed record SymbolSummary
 
     [JsonPropertyName("body_truncated")]
     public bool? BodyTruncated { get; init; }
+
+    /// <summary>Why <c>body</c> is missing although it was requested. Omitted otherwise.</summary>
+    [JsonPropertyName("body_note")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BodyNote { get; init; }
 }
 
 /// <summary>Inheritance lookup result.</summary>
