@@ -118,6 +118,66 @@ public sealed class IndexToolsTests
                 Interfaces = null,
                 Accessibility = "Public",
                 IsStatic = false,
+            },
+            new SymbolRecord
+            {
+                Assembly = "RimWorldModMcp.Server",
+                AssemblyPath = typeof(Tools.IndexTools).Assembly.Location,
+                Fqn = typeof(Tools.IndexTools).FullName!,
+                ShortName = nameof(Tools.IndexTools),
+                Kind = SymbolKind.Class,
+                ParentFqn = typeof(Tools.IndexTools).Namespace,
+                MetadataToken = typeof(Tools.IndexTools).MetadataToken,
+                Signature = "public sealed class IndexTools",
+                BaseChain = null,
+                Interfaces = null,
+                Accessibility = "Public",
+                IsStatic = false,
+            },
+            new SymbolRecord
+            {
+                Assembly = "StaleAssembly",
+                AssemblyPath = typeof(Tools.IndexTools).Assembly.Location,
+                Fqn = "RimWorldModMcp.Server.StaleClass",
+                ShortName = "StaleClass",
+                Kind = SymbolKind.Class,
+                ParentFqn = "RimWorldModMcp.Server",
+                MetadataToken = typeof(Tools.IndexTools).MetadataToken,
+                Signature = "public class StaleClass",
+                BaseChain = null,
+                Interfaces = null,
+                Accessibility = "Public",
+                IsStatic = false,
+            },
+            new SymbolRecord
+            {
+                Assembly = "RimWorldModMcp.Server",
+                AssemblyPath = typeof(Tools.IndexTools).Assembly.Location,
+                Fqn = "RimWorldModMcp.Server.NullMember",
+                ShortName = "NullMember",
+                Kind = SymbolKind.Method,
+                ParentFqn = "RimWorldModMcp.Server",
+                MetadataToken = 0x06FFFFFF,
+                Signature = "public void NullMember()",
+                BaseChain = null,
+                Interfaces = null,
+                Accessibility = "Public",
+                IsStatic = false,
+            },
+            new SymbolRecord
+            {
+                Assembly = "MissingAssembly",
+                AssemblyPath = Path.Combine(Path.GetTempPath(), "rwmm-nonexistent-assembly.dll"),
+                Fqn = "Missing.Class",
+                ShortName = "Class",
+                Kind = SymbolKind.Class,
+                ParentFqn = "Missing",
+                MetadataToken = 1,
+                Signature = "public class Class",
+                BaseChain = null,
+                Interfaces = null,
+                Accessibility = "Public",
+                IsStatic = false,
             }
         ]);
 
@@ -234,6 +294,63 @@ public sealed class IndexToolsTests
         };
 
         Assert.That(Tools.IndexTools.BodyMatchesSymbol(source, hit), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public async Task ReadSymbolWithIncludeBody()
+    {
+        // 1. 成功反編譯且符號名稱相符
+        var matchResult = await _server.CallAsync("read_symbol", new Dictionary<string, object?>
+        {
+            ["name"] = typeof(Tools.IndexTools).FullName,
+            ["include_body"] = true,
+            ["max_bytes"] = 300
+        });
+
+        var matchItems = matchResult.GetProperty("results");
+        Assert.Equal(1, matchItems.GetArrayLength());
+        var first = matchItems[0];
+        Assert.NotNull(first.GetProperty("body").GetString());
+        Assert.True(first.GetProperty("body_truncated").GetBoolean());
+        Assert.False(first.TryGetProperty("body_note", out _));
+
+        // 2. 索引過期（反編譯結果未包含符號名稱）
+        var staleResult = await _server.CallAsync("read_symbol", new Dictionary<string, object?>
+        {
+            ["name"] = "RimWorldModMcp.Server.StaleClass",
+            ["include_body"] = true
+        });
+
+        var staleItems = staleResult.GetProperty("results");
+        Assert.Equal(1, staleItems.GetArrayLength());
+        var stale = staleItems[0];
+        Assert.False(stale.TryGetProperty("body", out _));
+        Assert.True(stale.TryGetProperty("body_note", out var note) && note.GetString()!.Contains("rebuild_index", StringComparison.Ordinal));
+
+        // 3. 反編譯失敗（token 無效回傳 null）
+        var nullResult = await _server.CallAsync("read_symbol", new Dictionary<string, object?>
+        {
+            ["name"] = "RimWorldModMcp.Server.NullMember",
+            ["include_body"] = true
+        });
+
+        var nullItems = nullResult.GetProperty("results");
+        Assert.Equal(1, nullItems.GetArrayLength());
+        var nullItem = nullItems[0];
+        Assert.False(nullItem.TryGetProperty("body", out _));
+        Assert.False(nullItem.TryGetProperty("body_note", out _));
+
+        // 4. 組件檔案不存在
+        var missingResult = await _server.CallAsync("read_symbol", new Dictionary<string, object?>
+        {
+            ["name"] = "Missing.Class",
+            ["include_body"] = true
+        });
+
+        var missingItems = missingResult.GetProperty("results");
+        Assert.Equal(1, missingItems.GetArrayLength());
+        var missingItem = missingItems[0];
+        Assert.False(missingItem.TryGetProperty("body", out _));
     }
 
     [Test]

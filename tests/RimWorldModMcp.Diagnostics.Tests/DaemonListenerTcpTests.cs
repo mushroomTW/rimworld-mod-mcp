@@ -48,7 +48,14 @@ public sealed class DaemonListenerTcpTests : IDisposable
     {
         if (Directory.Exists(_root))
         {
-            Directory.Delete(_root, recursive: true);
+            try
+            {
+                Directory.Delete(_root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // 忽略測試目錄清理被短暫鎖定時的例外
+            }
         }
     }
 
