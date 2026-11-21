@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
 using RimWorldModMcp.Core.Mods;
-using RimWorldModMcp.Indexing.Pipeline;
 
 namespace RimWorldModMcp.Server.Tools;
 
@@ -10,7 +9,7 @@ namespace RimWorldModMcp.Server.Tools;
 
 /// <summary>Tools for inspecting the user's installed mods.</summary>
 [McpServerToolType]
-public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection)
+public sealed class ModTools(ModCatalog catalog)
 {
     [McpServerTool(Name = "list_installed_mods", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Find installed mods (local and Workshop; Core/DLC only with include_builtin): package_id matches a packageId or name fragment, so resolve a mod name here instead of paging the full list. Path, dependencies and versions only with include_details.")]
@@ -53,35 +52,6 @@ public sealed class ModTools(ModCatalog catalog, ModInspectionService inspection
             Total = total,
             Offset = safeOffset,
             LimitReached = safeOffset + page.Count < total,
-        };
-    });
-
-    // 檢視會覆寫組件索引並刪除過期資料；相同組件重複索引的結果相同。
-    [McpServerTool(Name = "inspect_installed_mod", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
-    [Description("Make an installed mod's C# queryable: decompiles and indexes every DLL synchronously on first use (minutes for large mods, which can exceed your tool-call timeout; search_source with package_id does the same in the background), then lists its assemblies with index keys and counts. Afterwards read_symbol, list_symbols, find_descendants, search_source and read_source_file cover the mod; pass an assembly key fragment such as 1.7/ to scope to one version.")]
-    public InspectModResult InspectInstalledMod(
-        [Description("The mod's packageId.")]
-        string package_id,
-        [Description("Ignore the cache and re-index.")]
-        bool force = false) => ToolGuard.Run(() =>
-    {
-        var mod = catalog.Find(package_id);
-        var assemblies = inspection.Inspect(mod.PackageId, mod.Path, force);
-
-        return new InspectModResult
-        {
-            Mod = ToSummary(mod),
-            Assemblies = [.. assemblies.Select(a => new ModAssemblySummary
-            {
-                Name = a.Name,
-                Assembly = a.Key,
-                Path = a.Path,
-                SymbolCount = a.SymbolCount,
-                SourceFileCount = a.SourceFileCount,
-                FromCache = a.FromCache,
-                Error = a.Error,
-            })],
-            AssemblyCount = assemblies.Count,
         };
     });
 
@@ -171,50 +141,4 @@ public sealed record ModSummary
     [JsonPropertyName("supported_versions")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? SupportedVersions { get; init; }
-}
-
-/// <summary>Result of inspecting a mod.</summary>
-public sealed record InspectModResult
-{
-    [JsonPropertyName("mod")]
-    public required ModSummary Mod { get; init; }
-
-    [JsonPropertyName("assemblies")]
-    public required IReadOnlyList<ModAssemblySummary> Assemblies { get; init; }
-
-    [JsonPropertyName("assembly_count")]
-    public required int AssemblyCount { get; init; }
-}
-
-/// <summary>One assembly inside a mod.</summary>
-public sealed record ModAssemblySummary
-{
-    [JsonPropertyName("name")]
-    public required string Name { get; init; }
-
-    /// <summary>Index key of the assembly (mod:＜packageId＞:＜relative DLL path＞); the query tools' assembly filter matches against it.</summary>
-    [JsonPropertyName("assembly")]
-    public required string Assembly { get; init; }
-
-    [JsonPropertyName("path")]
-    public required string Path { get; init; }
-
-    [JsonPropertyName("symbol_count")]
-    public required int SymbolCount { get; init; }
-
-    [JsonPropertyName("source_file_count")]
-    public required int SourceFileCount { get; init; }
-
-    /// <summary>True when the existing index was reused without re-decompiling.</summary>
-    [JsonPropertyName("from_cache")]
-    public required bool FromCache { get; init; }
-
-    /// <summary>
-    /// Set when this assembly could not be loaded as a .NET assembly (a native library, or a
-    /// corrupt/locked file). Such an assembly is skipped and contributes no symbols or source;
-    /// the rest of the mod is still indexed. Retry with force=true after fixing the file.
-    /// </summary>
-    [JsonPropertyName("error")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Error { get; init; }
 }

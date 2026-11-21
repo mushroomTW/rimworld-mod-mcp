@@ -170,17 +170,6 @@ public sealed class DaemonListenerTests : IDisposable
     }
 
     [Test]
-    public void FindLocatesADiagnosticByHash()
-    {
-        _listener.Accept(Line("error", Token, "findable"), Token);
-
-        var hash = _diagnostics.Read()[0].Hash;
-
-        Assert.NotNull(_diagnostics.Find(hash));
-        Assert.Null(_diagnostics.Find("0000000000000000"));
-    }
-
-    [Test]
     public void ControlCharactersSurviveTheRoundTrip()
     {
         var text = "tab\there\nandcontrol";

@@ -188,6 +188,10 @@ public sealed class IndexToolsTests
         SourceFileRepository.Insert(connection, "Assembly-CSharp", "Verse/Shared.cs", "class A { int sharedToken; }\n");
         SourceFileRepository.Insert(connection, "Assembly-CSharp-firstpass", "Verse/Shared.cs", "class B { int sharedToken; }\n");
 
+        // find_def_usages 的 C# 使用處：只有第 3 行是 Steel，SteelSlag 只是前綴相同。
+        SourceFileRepository.Insert(connection, "Assembly-CSharp", "RimWorld/Smelter.cs",
+            "class Smelter\n{\n    Thing a = ThingMaker.MakeThing(ThingDefOf.Steel);\n    Thing b = ThingMaker.MakeThing(ThingDefOf.SteelSlag);\n}\n");
+
         DefReferenceRepository.Insert(connection,
         [
             new DefReference("Gun_AssaultRifle", "Core/Defs/Guns.xml", 7, DefReferenceSource.DefXml, "ThingDef/comps", DefReferenceConfidence.Heuristic),
@@ -272,6 +276,14 @@ public sealed class IndexToolsTests
         Assert.True(missResult.TryGetProperty("suggestions", out _));
     }
 
+    /// <summary>Mod 組件不會被自動重建碰到：提示要指出重新索引該 Mod 的方法，而不是「稍後重試」。</summary>
+    [Test]
+    public void StaleBodyNoteTellsHowToReindexAMod()
+    {
+        Assert.Contains("search_source with package_id=cj.rimtalk", Tools.IndexTools.StaleBodyNote("mod:cj.rimtalk:1.6/Assemblies/RimTalk.dll"), StringComparison.Ordinal);
+        Assert.Contains("rebuilt automatically", Tools.IndexTools.StaleBodyNote("Assembly-CSharp"), StringComparison.Ordinal);
+    }
+
     [TestCase("CanBeTrained", "Method", "public bool CanBeTrained(TrainableDef td) { }", true)]
     [TestCase("CanBeTrained", "Method", "public bool GetWanted(TrainableDef td) { return wantedTrainables[td]; }", false)]
     [TestCase("Comp<T>", "Class", "public class Comp<T> { }", true)]
@@ -325,7 +337,7 @@ public sealed class IndexToolsTests
         Assert.Equal(1, staleItems.GetArrayLength());
         var stale = staleItems[0];
         Assert.False(stale.TryGetProperty("body", out _));
-        Assert.True(stale.TryGetProperty("body_note", out var note) && note.GetString()!.Contains("rebuild_index", StringComparison.Ordinal));
+        Assert.True(stale.TryGetProperty("body_note", out var note) && note.GetString()!.Contains("stale", StringComparison.Ordinal));
 
         // 3. 反編譯失敗（token 無效回傳 null）
         var nullResult = await _server.CallAsync("read_symbol", new Dictionary<string, object?>
@@ -426,6 +438,27 @@ public sealed class IndexToolsTests
         Assert.Equal([5, 6], file.GetProperty("hits").EnumerateArray().Select(h => h.GetProperty("line").GetInt32()));
     }
 
+    /// <summary>C# 裡以 XxxDefOf.＜defName＞ 使用 Def 的地方，帶組件鍵與該行程式碼。</summary>
+    [Test]
+    public async Task FindDefUsagesFindsDefOfUsagesInCSharp()
+    {
+        var result = await _server.CallAsync("find_def_usages", new Dictionary<string, object?>
+        {
+            ["def_name"] = "Steel",
+            ["source_kind"] = "csharp",
+        });
+
+        var file = Assert.Single(result.GetProperty("results").EnumerateArray());
+        Assert.Equal("RimWorld/Smelter.cs", file.GetProperty("file_path").GetString());
+        Assert.Equal("csharp", file.GetProperty("source_kind").GetString());
+        Assert.Equal("Assembly-CSharp", file.GetProperty("assembly").GetString());
+
+        var hit = Assert.Single(file.GetProperty("hits").EnumerateArray());
+        Assert.Equal(3, hit.GetProperty("line").GetInt32());
+        Assert.Contains("ThingDefOf.Steel", hit.GetProperty("context").GetString()!, StringComparison.Ordinal);
+        Assert.True(result.TryGetProperty("source_indexed", out _));
+    }
+
     /// <summary>依檔案分組；confidence 只在不是 exact 時出現。</summary>
     [Test]
     public async Task FindDefUsagesGroupsHitsByFile()
@@ -523,17 +556,5 @@ public sealed class IndexToolsTests
         });
 
         Assert.True(usagesResult.TryGetProperty("count", out var count) && count.GetInt32() == 1);
-    }
-
-    [Test]
-    public async Task RebuildIndexTriggerAsync()
-    {
-        var result = await _server.CallAsync("rebuild_index", new Dictionary<string, object?>
-        {
-            ["index_source"] = false,
-            ["only_source"] = true
-        });
-
-        Assert.True(result.TryGetProperty("def_count", out _));
     }
 }

@@ -74,13 +74,13 @@ internal static class ToolGuard
 
     /// <summary>
     /// 索引資料庫的狀態問題要告訴呼叫端該怎麼辦。損毀時每一個查詢工具都會失敗，
-    /// 只回「An error occurred」的話，呼叫端不知道 rebuild_index 就能重設；
+    /// 只回「An error occurred」的話，呼叫端不知道稍後重試就會自動重建；
     /// 被鎖住則是背景索引正在寫，稍後重試即可。其餘 SQLite 錯誤維持原樣進 stderr。
     /// </summary>
     internal static string? DatabaseHint(SqliteException e) => e.SqliteErrorCode switch
     {
         // SQLITE_CORRUPT / SQLITE_NOTADB
-        _ when SqliteCorruption.IsCorrupt(e) => $"The index database is corrupt ({e.Message}). Call rebuild_index to reset and rebuild it.",
+        _ when SqliteCorruption.IsCorrupt(e) => $"The index database is corrupt ({e.Message}). It is reset and rebuilt automatically on the next query tool call; retry.",
         // SQLITE_BUSY / SQLITE_LOCKED
         _ when SqliteCorruption.IsTransientBusy(e) => $"The index database is busy ({e.Message}); a background indexing job is writing. Retry shortly.",
         _ => null,

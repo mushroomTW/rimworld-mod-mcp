@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Data.Sqlite;
@@ -122,6 +123,79 @@ public static class DefReferenceAnalyzer
                 emit(new DefReferenceCandidate(parentName, filePath, Line(element), "ParentName"));
             }
         }
+    }
+
+    /// <summary>
+    /// 原始碼搜尋用的 regex：找 <c>XxxDefOf.＜defName＞</c> 形式的使用處。
+    /// 原始碼搜尋一律不分大小寫，命中後要再以 <see cref="IsDefOfUsage"/> 精確比對。
+    /// </summary>
+    public static string DefOfUsagePattern(string defName) => $@"DefOf\.{Regex.Escape(defName)}\b";
+
+    /// <summary>這一行是否以 <c>XxxDefOf.＜defName＞</c> 引用該 Def（區分大小寫，與 C# 一致）。</summary>
+    public static bool IsDefOfUsage(string line, string defName)
+        => Regex.IsMatch(line, $@"\b\w*DefOf\.{Regex.Escape(defName)}\b", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 當場掃描一個 Mod 的 Def XML，找出引用 <paramref name="defName"/> 的位置。
+    ///
+    /// <para>
+    /// Mod 的 Def 沒有建索引，所以不能靠名冊 join 過濾：直接比對要找的 defName。
+    /// RimWorld 只從載入資料夾底下的 Defs/ 讀定義，所以只看路徑經過 Defs 資料夾的檔案
+    /// （Languages、Patches 動輒上千個 XML，不必讀）；其中不含該字串的再跳過不解析，
+    /// 根節點不是 ＜Defs＞ 的也不算。檔案路徑相對於 Mod 目錄，版本資料夾（例如 1.6/）從路徑就看得出來。
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<DefReferenceCandidate> FindInModXml(string modPath, string defName, int limit)
+    {
+        var found = new List<DefReferenceCandidate>();
+
+        foreach (var file in Directory.EnumerateFiles(modPath, "*.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            var relative = Path.GetRelativePath(modPath, file).Replace('\\', '/');
+
+            if (!relative.Split('/').SkipLast(1).Contains("Defs", StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            XElement? root;
+
+            try
+            {
+                var text = File.ReadAllText(file);
+
+                if (!text.Contains(defName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                root = XDocument.Parse(text, LoadOptions.SetLineInfo).Root;
+            }
+            catch (Exception e) when (e is IOException or XmlException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (root is null || root.Name.LocalName != "Defs")
+            {
+                continue;
+            }
+
+            CollectCandidates(root, relative, candidate =>
+            {
+                if (found.Count < limit && candidate.DefName == defName)
+                {
+                    found.Add(candidate);
+                }
+            });
+
+            if (found.Count >= limit)
+            {
+                break;
+            }
+        }
+
+        return found;
     }
 
     private static int Line(XElement element)

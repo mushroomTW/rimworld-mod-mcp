@@ -99,6 +99,7 @@ public sealed class McpServerFixture : IAsyncDisposable
 
     public static async Task<McpServerFixture> StartAsync()
     {
+        // 遊戲路徑由 NoGameSetUp 在組件層級指向空目錄，這裡不必處理。
         var root = Path.Combine(Path.GetTempPath(), "rwmm-server-" + Guid.NewGuid().ToString("n")[..12]);
         var store = new StoreDirectories(Path.Combine(root, "data"), Path.Combine(root, "cache"));
 

@@ -66,8 +66,15 @@ public sealed class ModInspectionService(
     /// <summary>進行中的背景索引，鍵是 packageId；同一個 Mod 只會有一個。</summary>
     private readonly ConcurrentDictionary<string, Lazy<Task>> _indexing = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>背景索引失敗的原因。行程內狀態，重啟後消失；<see cref="Inspect"/> 成功會清掉。</summary>
-    private readonly ConcurrentDictionary<string, string> _indexErrors = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// 背景索引失敗的原因與當時組件的戳記。行程內狀態，重啟後消失；<see cref="Inspect"/> 成功會清掉。
+    /// 組件戳記變了（Mod 更新或修好了）就不再擋，下一次搜尋自動重試。
+    /// </summary>
+    private readonly ConcurrentDictionary<string, IndexFailure> _indexErrors = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed record IndexFailure(string Message, string Stamps);
+
+    private static string Stamps(IReadOnlyList<string> assemblies) => string.Join('|', assemblies.Select(MemberDecompiler.Stamp));
 
     /// <summary>
     /// 找出 Mod 的所有組件並在必要時建立索引。
@@ -211,11 +218,16 @@ public sealed class ModInspectionService(
 
         if (!IsIndexed(packageId, modPath, assemblies) || HasStaleAssemblies(packageId, modPath, assemblies))
         {
-            if (_indexErrors.TryGetValue(packageId, out var error))
+            if (_indexErrors.TryGetValue(packageId, out var failure))
             {
-                // 上一次已經失敗：不自動重跑數分鐘的反編譯，否則 agent 每次輪詢都
-                // 觸發一次必定失敗的工作。要重試請走 Inspect(force: true)。
-                return new ModSearchResult([], SourceIndexed: false, Indexing: false, Error: error);
+                // 上一次已經失敗而組件沒變：不自動重跑數分鐘的反編譯，否則 agent 每次輪詢都
+                // 觸發一次必定失敗的工作。組件變了才重試。
+                if (failure.Stamps == Stamps(assemblies))
+                {
+                    return new ModSearchResult([], SourceIndexed: false, Indexing: false, Error: failure.Message);
+                }
+
+                _indexErrors.TryRemove(packageId, out _);
             }
 
             var running = StartIndexing(packageId, modPath);
@@ -311,8 +323,10 @@ public sealed class ModInspectionService(
         }
         catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsCorrupt(e))
         {
-            // 損毀不是這個 Mod 的問題，force 重試也救不回來；要指向真正的出路。
-            _indexErrors[packageId] = $"{e.Message} The index database is corrupt; call rebuild_index, then search again.";
+            // 損毀不是這個 Mod 的問題，重試也救不回來；下一次查詢會自動重建資料庫（並清掉這筆）。
+            _indexErrors[packageId] = new IndexFailure(
+                $"{e.Message} The index database is corrupt; it is rebuilt automatically within a minute, so search again then.",
+                Stamps(FindAssemblies(modPath)));
         }
         catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsTransientBusy(e))
         {
@@ -329,7 +343,7 @@ public sealed class ModInspectionService(
         }
         catch (Exception e)
         {
-            _indexErrors[packageId] = e.Message;
+            _indexErrors[packageId] = new IndexFailure(e.Message, Stamps(FindAssemblies(modPath)));
         }
         finally
         {
@@ -338,7 +352,7 @@ public sealed class ModInspectionService(
     }
 
     /// <summary>
-    /// 忘掉所有背景索引的失敗原因。rebuild_index 重設資料庫之後呼叫：
+    /// 忘掉所有背景索引的失敗原因。自動重建（可能連同重設資料庫）之後呼叫：
     /// 留著的話，因損毀而失敗的 Mod 在資料庫已經修好後仍會被 TrySearchSource 擋下。
     /// </summary>
     public void ForgetErrors() => _indexErrors.Clear();

@@ -6,6 +6,7 @@ using RimWorldModMcp.Core.Platform;
 using RimWorldModMcp.Indexing.Decompilation;
 using RimWorldModMcp.Indexing.Pipeline;
 using RimWorldModMcp.Indexing.Query;
+using RimWorldModMcp.Indexing.Semantics;
 using RimWorldModMcp.Indexing.Storage;
 
 namespace RimWorldModMcp.Server.Tools;
@@ -24,10 +25,30 @@ public sealed class IndexTools(
     SourceIndexer sourceIndexer,
     MemberDecompiler decompiler,
     ModCatalog catalog,
-    ModInspectionService inspection)
+    ModInspectionService inspection,
+    IndexAutoRebuild autoRebuild)
 {
+    /// <summary>
+    /// 查詢工具共用的外框：先確認索引可用（必要時自動重建）；查詢途中撞上損毀時，
+    /// 讓下一次呼叫立刻重新檢查並重建，不必等滿檢查間隔。
+    /// </summary>
+    private T Query<T>(Func<T> action) => ToolGuard.Run(() =>
+    {
+        autoRebuild.EnsureReady();
+
+        try
+        {
+            return action();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException e) when (SqliteCorruption.IsCorrupt(e))
+        {
+            autoRebuild.Invalidate();
+            throw;
+        }
+    });
+
     [McpServerTool(Name = "rimworld_status", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Call first: reports RimWorld installation detection and index status. If unsupported is set, an older RimWorld is installed: tell the user this tool supports RimWorld 1.7 only and ask them to update the game; if detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.busy=true another writer holds the database, so retry shortly; if index.healthy=false and busy=false, call rebuild_index (the index database is corrupt); if index.fresh=false, call rebuild_index.")]
+    [Description("Call first: reports RimWorld installation detection and index status. If unsupported is set, an older RimWorld is installed: tell the user this tool supports RimWorld 1.7 only and ask them to update the game; if detected=false, ask the user to set RIMWORLD_MOD_MCP_GAME_PATH; if index.busy=true another writer holds the database, so retry shortly. A stale or corrupt index is rebuilt automatically by the next query tool call, and the source full-text index then continues in the background.")]
     public RimWorldStatusResult RimWorldStatus() => ToolGuard.Run(() =>
     {
         var paths = locator.Detect();
@@ -60,61 +81,6 @@ public sealed class IndexTools(
         };
     });
 
-    // 全量重建會清除既有索引並產生新世代；重複呼叫會再次重設背景索引進度。
-    [McpServerTool(Name = "rebuild_index", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
-    [Description("Call when the index is missing, stale, or the game was updated: rebuilds the Def and C# symbol index in seconds and it is queryable immediately; the source full-text index continues in the background. Pass only_source=true to skip the Def/symbol layer and only (re)start the background source index — use it when the source index is missing or failed but the first layer is fine. only_source implies index_source; pass index_source=false together with only_source=true to only report current counts without starting anything.")]
-    public RebuildIndexResult RebuildIndex(
-        [Description("Also build the source full-text index in the background (required by search_source). When only_source=true, false means do not start it and only report current counts.")]
-        bool index_source = true,
-        [Description("Only (re)start the background source index; do not clear or rebuild the Def/symbol layer. Mod background-index errors are kept (that layer is untouched); full rebuild clears them via ForgetErrors.")]
-        bool only_source = false) => ToolGuard.Run(() =>
-    {
-        if (only_source)
-        {
-            // 只續跑第三層：第一層（Def/符號）完好時，source_index_error 非空或
-            // source_indexed=false 都只需要重新啟動背景反編譯，不必把秒級的 Def/符號
-            // 索引也一起清掉重來。Mod 層沒動，它的失敗原因不能清（ForgetErrors 只給
-            // 全量重建用）；Def/Symbol 計數回目前值而非 0，避免呼叫端誤判索引是空的。
-            // ReferenceCount／Assemblies 是重建過程的產物，此路徑沒有重建，只能回 0／空。
-            if (index_source)
-            {
-                sourceIndexer.StartInBackground();
-            }
-
-            var status = builder.Status();
-
-            return new RebuildIndexResult
-            {
-                DefCount = (int)status.DefCount,
-                SymbolCount = (int)status.SymbolCount,
-                ReferenceCount = 0,
-                Assemblies = [],
-                ElapsedMilliseconds = 0,
-                SourceIndexingStarted = index_source,
-            };
-        }
-
-        var result = builder.Rebuild();
-
-        // 重建（可能連同重設）之後，Mod 背景索引先前記下的失敗原因已經過時。
-        inspection.ForgetErrors();
-
-        if (index_source)
-        {
-            sourceIndexer.StartInBackground();
-        }
-
-        return new RebuildIndexResult
-        {
-            DefCount = result.DefCount,
-            SymbolCount = result.SymbolCount,
-            ReferenceCount = result.ReferenceCount,
-            Assemblies = result.Assemblies,
-            ElapsedMilliseconds = result.ElapsedMilliseconds,
-            SourceIndexingStarted = index_source,
-        };
-    });
-
     [McpServerTool(Name = "search_defs", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Search Core and DLC Defs by name, label, or description; returns summaries. Use read_def for the full XML. Installed mods' Defs are not indexed; read their XML from the mod path.")]
     public SearchDefsResult SearchDefs(
@@ -125,7 +91,7 @@ public sealed class IndexTools(
         [Description("Maximum results, 1-200.")]
         int limit = 25,
         [Description("Include truncated XML content.")]
-        bool include_xml = false) => ToolGuard.Run(() =>
+        bool include_xml = false) => Query(() =>
     {
         using var connection = database.Open();
         var hits = DefRepository.Search(connection, query, def_type, limit, include_xml);
@@ -147,7 +113,7 @@ public sealed class IndexTools(
         [Description("Restrict to a Def type. Omit for any type.")]
         string? def_type = null,
         [Description("Byte limit for the XML content, 1024-262144.")]
-        int max_bytes = 65536) => ToolGuard.Run(() =>
+        int max_bytes = 65536) => Query(() =>
     {
         using var connection = database.Open();
         var hits = DefRepository.Read(connection, def_name, def_type, max_bytes);
@@ -171,7 +137,7 @@ public sealed class IndexTools(
         [Description("Maximum results, 1-100.")]
         int limit = 10,
         [Description("Substring of the assembly key to restrict results, e.g. Assembly-CSharp, mod:cj.rimtalk, or 1.7/ to pick one version of a multi-version mod.")]
-        string? assembly = null) => ToolGuard.Run(() =>
+        string? assembly = null) => Query(() =>
     {
         using var connection = database.Open();
         var assemblyLike = AssemblyLike(assembly);
@@ -226,8 +192,13 @@ public sealed class IndexTools(
                 else if (!BodyMatchesSymbol(source, hit))
                 {
                     // 組件在索引建立後被更新時，索引記的 metadata token 會對到別的成員；
-                    // 與其回傳相鄰成員的程式碼誤導呼叫端，不如明講要重建索引。
-                    note = "Decompiled member does not match the indexed symbol; the index is stale. Call rebuild_index and retry.";
+                    // 與其回傳相鄰成員的程式碼誤導呼叫端，不如明講索引過期。
+                    // 遊戲組件由自動重建處理（讓下一次查詢立刻重新檢查）；Mod 組件只有 search_source 會重新索引。
+                    note = StaleBodyNote(hit.Assembly);
+                    if (!hit.Assembly.StartsWith("mod:", StringComparison.Ordinal))
+                    {
+                        autoRebuild.Invalidate();
+                    }
                 }
                 else
                 {
@@ -240,6 +211,20 @@ public sealed class IndexTools(
         }
 
         return results;
+    }
+
+    /// <summary>反編譯結果與索引對不上時的提示。Mod 組件鍵是 mod:＜packageId＞:＜DLL 相對路徑＞。</summary>
+    internal static string StaleBodyNote(string assembly)
+    {
+        const string Mismatch = "Decompiled member does not match the indexed symbol; the index is stale";
+
+        if (assembly.StartsWith("mod:", StringComparison.Ordinal))
+        {
+            var packageId = assembly.Split(':')[1];
+            return $"{Mismatch}. Call search_source with package_id={packageId} to re-index the mod, then retry.";
+        }
+
+        return $"{Mismatch} and is rebuilt automatically on the next call, so retry.";
     }
 
     /// <summary>
@@ -275,7 +260,7 @@ public sealed class IndexTools(
         [Description("Substring of the assembly key to restrict results, e.g. mod:cj.rimtalk or 1.7/.")]
         string? assembly = null,
         [Description("Maximum results, 1-500.")]
-        int limit = 100) => ToolGuard.Run(() =>
+        int limit = 100) => Query(() =>
         {
             string? kindName = null;
 
@@ -328,7 +313,7 @@ public sealed class IndexTools(
         [Description("First line to return, 1-based.")]
         int start_line = 1,
         [Description("Byte limit for the excerpt, 1024-262144.")]
-        int max_bytes = 16384) => ToolGuard.Run(() =>
+        int max_bytes = 16384) => Query(() =>
     {
         using var connection = database.Open();
         var text = SourceFileRepository.Read(connection, assembly, file)
@@ -358,7 +343,7 @@ public sealed class IndexTools(
         [Description("Base type: full name (Verse.ThingComp) or short name (ThingComp) when unambiguous.")]
         string base_type,
         [Description("Maximum results, 1-500.")]
-        int limit = 100) => ToolGuard.Run(() =>
+        int limit = 100) => Query(() =>
     {
         using var connection = database.Open();
         var resolved = ResolveTypeName(connection, base_type);
@@ -414,7 +399,7 @@ public sealed class IndexTools(
         [Description("Mod only: substring of the assembly key, e.g. 1.7/ to search one version of a multi-version mod.")]
         string? assembly = null,
         [Description("Maximum results, 1-800.")]
-        int limit = 50) => ToolGuard.Run(() =>
+        int limit = 50) => Query(() =>
     {
         var effectiveLimit = Math.Clamp(limit, 1, 800);
         var modSearch = !string.IsNullOrWhiteSpace(package_id);
@@ -485,39 +470,105 @@ public sealed class IndexTools(
         })]);
     }
 
-    [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Find where a Def is referenced: cross-references in Def XML and DefOf static fields in C#.")]
+    // 指定 Mod 時與 search_source 相同：首次查詢會在背景反編譯並寫入索引。
+    [McpServerTool(Name = "find_def_usages", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
+    [Description("Find where a Def is referenced, in the game by default or in one installed mod with package_id: Def XML cross-references (def_xml) and C# code using XxxDefOf.<defName> (csharp; for the game also the DefOf field declaration). The C# part searches decompiled source: indexing=true means that index is still building, so retry in a while.")]
     public FindDefUsagesResult FindDefUsages(
-        [Description("The defName to look up.")]
+        [Description("The defName to look up (case-sensitive).")]
         string def_name,
-        [Description("Restrict to a source kind: def_xml or game_source. Omit for both.")]
+        [Description("packageId of an installed mod to search instead of the game: its Def XML (scanned on demand) and its decompiled C#. First use starts decompiling in the background.")]
+        string? package_id = null,
+        [Description("Restrict to a source kind: def_xml or csharp. Omit for both.")]
         string? source_kind = null,
-        [Description("Maximum results, 1-500.")]
-        int limit = 100) => ToolGuard.Run(() =>
+        [Description("Maximum results per source kind, 1-500.")]
+        int limit = 100) => Query(() =>
     {
-        var kind = ToolGuard.OneOf(source_kind, nameof(source_kind), "def_xml", "game_source");
+        var kind = ToolGuard.OneOf(source_kind, nameof(source_kind), "def_xml", "csharp");
+        var effectiveLimit = Math.Clamp(limit, 1, 500);
+        var mod = string.IsNullOrWhiteSpace(package_id) ? null : catalog.Find(package_id);
+        var usages = new List<(string FilePath, string SourceKind, string? Assembly, DefUsageHit Hit)>();
 
-        using var connection = database.Open();
-        var usages = DefReferenceRepository.Find(connection, def_name, kind, limit);
+        if (mod is null)
+        {
+            // 遊戲本體：索引裡的 XML 交叉引用與 DefOf 欄位宣告（存成 game_source）。
+            using var connection = database.Open();
+            var stored = kind switch
+            {
+                "def_xml" => DefReferenceRepository.Find(connection, def_name, "def_xml", effectiveLimit),
+                "csharp" => DefReferenceRepository.Find(connection, def_name, "game_source", effectiveLimit),
+                _ => DefReferenceRepository.Find(connection, def_name, null, effectiveLimit),
+            };
+
+            usages.AddRange(stored.Select(u => (
+                u.FilePath,
+                u.SourceKind == "def_xml" ? "def_xml" : "csharp",
+                (string?)null,
+                new DefUsageHit { Line = u.Line, Context = u.Context, Confidence = u.Confidence == "exact" ? null : u.Confidence })));
+        }
+        else if (kind is null or "def_xml")
+        {
+            usages.AddRange(DefReferenceAnalyzer.FindInModXml(mod.Path, def_name, effectiveLimit).Select(c => (
+                c.FilePath,
+                "def_xml",
+                (string?)null,
+                new DefUsageHit { Line = c.Line, Context = c.Context })));
+        }
+
+        CodeSearchStatus? code = null;
+
+        if (kind is null or "csharp")
+        {
+            var pattern = DefReferenceAnalyzer.DefOfUsagePattern(def_name);
+            IReadOnlyList<SourceHit> hits;
+
+            if (mod is not null)
+            {
+                var result = inspection.TrySearchSource(mod.PackageId, mod.Path, pattern, effectiveLimit);
+                hits = result.Hits;
+                code = new CodeSearchStatus(result.SourceIndexed, result.Indexing, result.Error, result.IncompleteReason);
+            }
+            else
+            {
+                using var connection = database.Open();
+                var search = SourceQueryService.Search(connection, pattern, null, effectiveLimit);
+                var progress = sourceIndexer.Progress;
+                hits = search.Hits;
+                code = new CodeSearchStatus(
+                    IndexMetaRepository.Get(connection, "source_indexed") == "true",
+                    progress.Running,
+                    progress.Error,
+                    search.IncompleteReason);
+            }
+
+            // 原始碼搜尋不分大小寫；C# 的 DefOf 欄位名區分大小寫，這裡再精確比對一次。
+            // 被截斷的長行看不到完整內容，比對不了，就保留 regex 的命中。
+            usages.AddRange(hits
+                .Where(h => h.Text.Length >= SourceQueryService.MaxLineLength || DefReferenceAnalyzer.IsDefOfUsage(h.Text, def_name))
+                .Select(h => (h.File, "csharp", (string?)h.Assembly, new DefUsageHit { Line = h.Line, Context = h.Text.Trim() })));
+        }
 
         return new FindDefUsagesResult
         {
             DefName = def_name,
-            // 一個 Def 常在同一檔案被引用十幾次；逐列重複檔案路徑與幾乎恆為 exact 的 confidence 佔了一半篇幅。
-            Results = [.. usages.GroupBy(u => (u.FilePath, u.SourceKind)).Select(g => new DefUsageFile
+            PackageId = mod?.PackageId,
+            // 一個 Def 常在同一檔案被引用十幾次；逐列重複檔案路徑佔了一半篇幅。
+            Results = [.. usages.GroupBy(u => (u.FilePath, u.SourceKind, u.Assembly)).Select(g => new DefUsageFile
             {
                 FilePath = g.Key.FilePath,
                 SourceKind = g.Key.SourceKind,
-                Hits = [.. g.Select(u => new DefUsageHit
-                {
-                    Line = u.Line,
-                    Context = u.Context,
-                    Confidence = u.Confidence == "exact" ? null : u.Confidence,
-                })],
+                Assembly = g.Key.Assembly,
+                Hits = [.. g.Select(u => u.Hit)],
             })],
             Count = usages.Count,
+            SourceIndexed = code?.SourceIndexed,
+            Indexing = code?.Indexing,
+            IndexError = code?.Error,
+            IncompleteReason = code?.IncompleteReason,
         };
     });
+
+    /// <summary>find_def_usages 的 C# 部分：原始碼索引的狀態，讓呼叫端分得出「沒有引用」與「還沒建好」。</summary>
+    private sealed record CodeSearchStatus(bool SourceIndexed, bool Indexing, string? Error, string? IncompleteReason);
 
     /// <summary>
     /// search_defs 的描述字元上限。ThingDef 的描述動輒兩三百字，25 筆清單裡大半 token 都花在這；

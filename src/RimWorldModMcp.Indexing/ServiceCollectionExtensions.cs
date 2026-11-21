@@ -16,6 +16,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IndexBuilder>();
         services.AddSingleton<SourceIndexer>();
         services.AddSingleton<ModInspectionService>();
+        services.AddSingleton<IndexAutoRebuild>();
 
         // 反編譯器持有組件的解析狀態，重複建立成本高（30MB 組件約 2.7 秒），
         // 所以做成單例讓初始化只付一次。內部對每個組件各自上鎖。

@@ -46,7 +46,7 @@ public sealed record IndexStatusPayload
 
     /// <summary>
     /// Whether the database itself passes a corruption check. False with busy=false means every
-    /// query tool will fail; call rebuild_index to reset it. False with busy=true only means
+    /// query tool call resets and rebuilds it automatically. False with busy=true only means
     /// another writer holds the lock — retry shortly instead.
     /// </summary>
     [JsonPropertyName("healthy")]
@@ -86,31 +86,9 @@ public sealed record SourceIndexPayload
     [JsonPropertyName("indexed_files")]
     public required int IndexedFiles { get; init; }
 
-    /// <summary>Last failure reason; call rebuild_index to retry.</summary>
+    /// <summary>Last failure reason; retried automatically once per server start.</summary>
     [JsonPropertyName("error")]
     public string? Error { get; init; }
-}
-
-/// <summary>Result of rebuilding the index.</summary>
-public sealed record RebuildIndexResult
-{
-    [JsonPropertyName("def_count")]
-    public required int DefCount { get; init; }
-
-    [JsonPropertyName("symbol_count")]
-    public required int SymbolCount { get; init; }
-
-    [JsonPropertyName("reference_count")]
-    public required long ReferenceCount { get; init; }
-
-    [JsonPropertyName("assemblies")]
-    public required IReadOnlyList<string> Assemblies { get; init; }
-
-    [JsonPropertyName("elapsed_ms")]
-    public required long ElapsedMilliseconds { get; init; }
-
-    [JsonPropertyName("source_indexing_started")]
-    public required bool SourceIndexingStarted { get; init; }
 }
 
 /// <summary>Def search result.</summary>
@@ -367,7 +345,7 @@ public sealed record SearchSourceResult
     [JsonPropertyName("indexing")]
     public required bool Indexing { get; init; }
 
-    /// <summary>Why the last indexing attempt failed. Mod searches are not retried automatically; call inspect_installed_mod with force=true to retry.</summary>
+    /// <summary>Why the last indexing attempt failed. Retried automatically once the mod's DLLs change.</summary>
     [JsonPropertyName("index_error")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IndexError { get; init; }
@@ -417,6 +395,11 @@ public sealed record FindDefUsagesResult
     [JsonPropertyName("def_name")]
     public required string DefName { get; init; }
 
+    /// <summary>The mod searched; absent when searching the game.</summary>
+    [JsonPropertyName("package_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PackageId { get; init; }
+
     /// <summary>References grouped by file.</summary>
     [JsonPropertyName("results")]
     public required IReadOnlyList<DefUsageFile> Results { get; init; }
@@ -424,6 +407,26 @@ public sealed record FindDefUsagesResult
     /// <summary>Total references across all files.</summary>
     [JsonPropertyName("count")]
     public required int Count { get; init; }
+
+    /// <summary>C# part only: whether the decompiled source index is complete. Absent when C# was not searched.</summary>
+    [JsonPropertyName("source_indexed")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SourceIndexed { get; init; }
+
+    /// <summary>C# part only: true while the source index is still building, so C# usages may be missing; retry later.</summary>
+    [JsonPropertyName("indexing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Indexing { get; init; }
+
+    /// <summary>C# part only: why the source index failed.</summary>
+    [JsonPropertyName("index_error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IndexError { get; init; }
+
+    /// <summary>C# part only: set when the search stopped early, so C# usages may be incomplete.</summary>
+    [JsonPropertyName("incomplete_reason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IncompleteReason { get; init; }
 }
 
 /// <summary>References to a Def within one file.</summary>
@@ -432,9 +435,14 @@ public sealed record DefUsageFile
     [JsonPropertyName("file_path")]
     public required string FilePath { get; init; }
 
-    /// <summary>def_xml or game_source.</summary>
+    /// <summary>def_xml or csharp.</summary>
     [JsonPropertyName("source_kind")]
     public required string SourceKind { get; init; }
+
+    /// <summary>Assembly key of a decompiled C# file; read it with read_source_file.</summary>
+    [JsonPropertyName("assembly")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Assembly { get; init; }
 
     [JsonPropertyName("hits")]
     public required IReadOnlyList<DefUsageHit> Hits { get; init; }
@@ -446,7 +454,7 @@ public sealed record DefUsageHit
     [JsonPropertyName("line")]
     public required int Line { get; init; }
 
-    /// <summary>Context where the reference appears, e.g. ThingDef/costList/Steel or RimWorld.ThingDefOf.Steel.</summary>
+    /// <summary>Context where the reference appears, e.g. ThingDef/costList/Steel, RimWorld.ThingDefOf.Steel, or the C# line.</summary>
     [JsonPropertyName("context")]
     public string? Context { get; init; }
 

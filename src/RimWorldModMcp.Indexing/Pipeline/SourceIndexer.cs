@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using RimWorldModMcp.Core.Locking;
 using RimWorldModMcp.Core.Paths;
 using RimWorldModMcp.Indexing.Decompilation;
 using RimWorldModMcp.Indexing.Storage;
@@ -21,8 +22,15 @@ public sealed record SourceIndexProgress(bool Running, bool Completed, int Files
 /// 在快取目錄產生的檔案樹，每次 search_source 都要整個掃過一遍。
 /// </para>
 /// </summary>
-public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locator)
+/// <remarks>
+/// <paramref name="locks"/> 有值時，背景索引以跨行程鎖互斥：同一台機器常同時開著好幾個 server，
+/// 各自看到「沒建完、本行程也沒在跑」就會各跑一份，重複反編譯同一批組件並互搶寫鎖。
+/// </remarks>
+public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locator, CriticalSectionLock? locks = null)
 {
+    /// <summary>背景原始碼索引的跨行程鎖名。</summary>
+    public const string LockName = "source-index";
+
     private readonly Lock _gate = new();
     private Task? _current;
     private CancellationTokenSource? _cancellation;
@@ -93,7 +101,7 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
             var token = _cancellation.Token;
 
             _progress = new SourceIndexProgress(true, false, 0, 0, null);
-            _current = Task.Run(() => Run(token), token);
+            _current = Task.Run(() => RunExclusive(token), token);
 
             return _progress;
         }
@@ -126,6 +134,28 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         catch (AggregateException)
         {
             // 取消或失敗的結果已經記錄在 _progress，這裡不需要重拋。
+        }
+    }
+
+    /// <summary>
+    /// 取得跨行程鎖後執行；另一個行程正在建時直接收手，不記成錯誤——
+    /// 那邊建完的結果大家共用，之後的檢查看到 source_indexed=true 就不會再啟動。
+    /// </summary>
+    private SourceIndexProgress RunExclusive(CancellationToken cancellationToken)
+    {
+        if (locks is null)
+        {
+            return Run(cancellationToken);
+        }
+
+        try
+        {
+            using var _ = locks.Hold(LockName, new Dictionary<string, string> { ["operation"] = "source_index" });
+            return Run(cancellationToken);
+        }
+        catch (LockHeldException)
+        {
+            return Report(new SourceIndexProgress(false, false, 0, 0, null));
         }
     }
 
@@ -321,26 +351,6 @@ public sealed class SourceIndexer(IndexDatabase database, RimWorldLocator locato
         var written = batch.Count;
         batch.Clear();
         return written;
-    }
-
-    /// <summary>
-    /// 尚未完成、也沒有失敗紀錄的原始碼索引是「被中斷」的（多半是行程重啟）。
-    /// 呼叫端據此決定要不要在啟動時續跑。
-    /// CountGame ＞ 0 的取捨：第一批 200 檔寫入前就中斷的話，資料表是空的，
-    /// 這裡回 false，啟動時不續跑——那些檔案在 rebuild_index 之後本來就會重跑，
-    /// 沒有「只差一點就完成」的便宜續跑可省；要讓它把「從零開始」也當續跑的話，
-    /// 每次啟動都會多跑一次背景索引，而正常完成後 source_indexed=true 根本不會
-    /// 走到這裡。回 false 的後果只是 rimworld_status 顯示「未建」而非「中斷」，
-    /// 呼叫端 rebuild_index 即可。
-    /// </summary>
-    public bool IsInterrupted()
-    {
-        using var connection = database.Open();
-
-        return IndexMetaRepository.Get(connection, "fingerprint") is { Length: > 0 }
-            && IndexMetaRepository.Get(connection, "source_indexed") != "true"
-            && string.IsNullOrEmpty(IndexMetaRepository.Get(connection, SourceIndexErrorKey))
-            && SourceFileRepository.CountGame(connection) > 0;
     }
 
     /// <summary>

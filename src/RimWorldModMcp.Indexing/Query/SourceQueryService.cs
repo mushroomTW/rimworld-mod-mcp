@@ -36,7 +36,7 @@ public sealed record SourceSearchResult(IReadOnlyList<SourceHit> Hits, bool Budg
 public static class SourceQueryService
 {
     /// <summary>單行回傳的字元上限，避免壓縮過的長行灌爆輸出。</summary>
-    private const int MaxLineLength = 1000;
+    public const int MaxLineLength = 1000;
 
     /// <summary>結果不完整的原因代碼（見 <see cref="SourceSearchResult"/>）。</summary>
     public const string IncompleteTimeBudget = "time_budget";

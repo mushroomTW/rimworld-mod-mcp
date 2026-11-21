@@ -1,5 +1,4 @@
 using RimWorldModMcp.Core.Paths;
-using RimWorldModMcp.Core.Workspace;
 
 namespace RimWorldModMcp.Core.Tests;
 
@@ -115,20 +114,6 @@ public sealed class RimWorldLocatorTests : IDisposable
         Assert.Equal("RimWorld pre-1.7 detected; this tool supports RimWorld 1.7 only.", paths.UnsupportedMessage);
     }
 
-    /// <summary>舊版遊戲不能套 net10.0 + UnityStubs 的骨架：create_mod 直接說明不支援，而不是產生建置不了的專案。</summary>
-    [Test]
-    public void ScaffolderRefusesAnUnsupportedGame()
-    {
-        File.WriteAllText(Path.Combine(_install, "Version.txt"), "1.6.4871 rev590");
-        var workspace = Path.Combine(_root, "workspace");
-        Directory.CreateDirectory(workspace);
-
-        var error = Assert.Throws<NotSupportedException>(() => new ModScaffolder(new RimWorldLocator()).Create(workspace, "OldMod", "author.oldmod", withCode: true));
-
-        Assert.Contains("supports RimWorld 1.7 only", error.Message, StringComparison.Ordinal);
-        Assert.False(Directory.Exists(Path.Combine(workspace, "OldMod")));
-    }
-
     /// <summary>版本無法讀取時不能硬說是舊版：只回報缺組件。</summary>
     [Test]
     public void MissingAssembliesWithoutAVersionAreNotReportedAsUnsupported()
@@ -194,26 +179,6 @@ public sealed class RimWorldLocatorTests : IDisposable
         CreateDotNetInstall();
 
         Assert.Null(new RimWorldLocator().Detect().PlayerLog);
-    }
-
-    /// <summary>1.7 的遊戲跑在 .NET 10 上，create_mod 的 C# 骨架以 net10.0 和 Krafs.Rimworld.Ref 建置。</summary>
-    [Test]
-    public void ScaffolderGeneratesANet10ProjectForTheDotNetGame()
-    {
-        CreateDotNetInstall();
-        File.WriteAllText(Path.Combine(_install, "Version.txt"), "1.7.4976 rev1043");
-        var workspace = Path.Combine(_root, "workspace");
-        Directory.CreateDirectory(workspace);
-
-        var mod = new ModScaffolder(new RimWorldLocator()).Create(workspace, "CodeMod", "author.codemod", withCode: true);
-
-        var project = File.ReadAllText(Path.Combine(mod, "Source", "author.codemod.csproj"));
-        Assert.Contains("<TargetFramework>net10.0</TargetFramework>", project, StringComparison.Ordinal);
-        Assert.Contains("Krafs.Rimworld.Ref", project, StringComparison.Ordinal);
-        Assert.DoesNotContain("UnityStubs.dll", project, StringComparison.Ordinal);
-        Assert.DoesNotContain("RIMWORLD_MANAGED_DIR", project, StringComparison.Ordinal);
-        Assert.DoesNotContain("UnityEngine.CoreModule", project, StringComparison.Ordinal);
-        Assert.Contains("<li>1.7</li>", File.ReadAllText(Path.Combine(mod, "About", "About.xml")), StringComparison.Ordinal);
     }
 }
 

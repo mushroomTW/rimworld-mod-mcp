@@ -18,7 +18,6 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 - **Reads IL metadata directly to build the symbol index** — roughly a hundred thousand symbols in seconds, with complete inheritance chains and real type signatures.
 - SQLite FTS5 full-text search over Defs, symbols, and decompiled source.
 - In-process decompilation via `ICSharpCode.Decompiler`. No external tools, no toolchain setup step.
-- Build failures return **structured diagnostics** (error code, file, line, column) instead of a wall of MSBuild output.
 - Tests mods with an isolated save folder and temporary directory links, leaving your real saves and settings untouched.
 - Merges diagnostics from the in-game bridge and `Player.log`. If the bridge cannot connect, `Player.log` still works and the reason is reported rather than silently degraded.
 - The bridge also reports **in-game state** (main menu vs. playing, map loaded, tick, paused, loading, open dialogs), so an agent can wait for the map to come up before judging a test instead of guessing from log silence.
@@ -28,12 +27,12 @@ This project is inspired by [Modmixer](https://github.com/lebek/modmixer) but is
 ## Requirements
 
 - A legitimately installed copy of RimWorld 1.7 (RimWorld 1.6 is not supported)
-- [.NET SDK 10](https://dotnet.microsoft.com/download), for `build_mod` (compiling C# mods), for `run_test_cycle` (building the bridge), or for installing from source
+- [.NET SDK 10](https://dotnet.microsoft.com/download), for `run_test_cycle` (building the bridge) or for installing from source
 
 > [!NOTE]
-> The release executable is self-contained: running the server needs no .NET Runtime. The in-game bridge is embedded in the tool as source; `run_test_cycle` compiles it once against the RimWorld assemblies it detects (which needs the SDK) and reuses that build until the bridge or the game changes. Mod projects created by `create_mod` reference the RimWorld API through the `Krafs.Rimworld.Ref` NuGet package instead of the game's own assemblies; this repository itself contains no RimWorld binaries.
+> The release executable is self-contained: running the server needs no .NET Runtime. The in-game bridge is embedded in the tool as source; `run_test_cycle` compiles it once against the RimWorld assemblies it detects (which needs the SDK) and reuses that build until the bridge or the game changes. This repository itself contains no RimWorld binaries.
 
-RimWorld 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root. The in-game bridge builds against those local assemblies, while `create_mod` C# projects target `net10.0` and resolve the RimWorld API via the `Krafs.Rimworld.Ref` NuGet package.
+RimWorld 1.7 no longer runs on Unity: it runs on .NET 10 with its assemblies in the install root. The in-game bridge builds against those local assemblies; your own C# mods target `net10.0` (for example through the `Krafs.Rimworld.Ref` NuGet package).
 
 ## Installation
 
@@ -45,7 +44,7 @@ If you use Claude Code, Codex, or another coding agent, you can hand the whole s
 Please install rimworld-mod-mcp for me, following https://github.com/mushroomTW/rimworld-mod-mcp (README.md).
 Download the executable for my platform from the latest release, put it in a stable folder, and register it
 as an MCP server named "rimworld" with the argument "stdio" in my MCP client. Then call rimworld_status
-to confirm RimWorld was detected, and call rebuild_index once.
+to confirm RimWorld was detected.
 ```
 
 The agent downloads the file, registers it in your client's configuration, and verifies it. Restart or reload your MCP client afterwards if the new server does not appear.
@@ -121,7 +120,7 @@ On macOS and Linux, use the absolute path to the downloaded file instead. When i
 }
 ```
 
-`create_mod`, `build_mod`, and `run_test_cycle` accept any local directory path; there is no write boundary — scoping writes is left to your MCP client's permission prompts and to you.
+`run_test_cycle` accepts any local mod directory path; there is no write boundary — scoping writes is left to your MCP client's permission prompts and to you.
 
 Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp.json), [Codex](examples/codex-mcp.toml), [custom port and game path](examples/custom-port.mcp.json).
 
@@ -129,7 +128,7 @@ Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp
 
 1. Configure the server in your MCP client.
 2. Call `rimworld_status` to confirm RimWorld was detected.
-3. Call `rebuild_index` once. Def and symbol indexing finishes in seconds and is immediately usable; the source-code full-text index continues in the background, and `search_source` reports `source_indexed: false` until it completes.
+3. Start querying. The first query tool call builds the index automatically (Def and symbol indexing takes seconds), and the server rebuilds it the same way whenever the game is updated or the index database is damaged — there is no rebuild tool to call. The source-code full-text index continues in the background, and `search_source` reports `source_indexed: false` until it completes.
 
 ## Tools
 
@@ -138,7 +137,6 @@ Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp
 | Tool | Purpose |
 | --- | --- |
 | `rimworld_status` | Detected paths and index state. `index.source_index` says whether the source full-text layer is running, failed (`error`), or done. |
-| `rebuild_index` | Rebuild the Def and symbol indexes. |
 | `search_defs` | Search Defs by name, label, or description. |
 | `read_def` | Read one Def's full XML. Look up abstract Defs by their `Name` attribute. |
 | `read_symbol` | Signature, full inheritance chain, and interfaces for a symbol; optionally decompiled source. Exact name matches win: when any exist, substring matches are left out and counted in `partial_count`. `assembly` narrows to one assembly (or one version of a multi-version mod). Zero hits return `suggestions`. |
@@ -146,23 +144,17 @@ Templates live in [examples/](examples/): [Claude Code](examples/claude-code.mcp
 | `find_descendants` | Find every class deriving from a given type; a short name works when unambiguous. Zero hits return `suggestions`. |
 | `search_source` | Regex search (.NET syntax, always case-insensitive) over decompiled source: the game by default, or one installed mod with `package_id` (first use decompiles in the background; `indexing=true` means retry shortly). `assembly` (e.g. `1.7/`) restricts a mod search to one version's DLL. Prefer simple literals (`CurTimeSpeed`); `a|b` matches either branch. |
 | `read_source_file` | Read a whole decompiled file (game or mod) by the `assembly` and `file` a search returned, paging by line (`start_line` + `max_bytes`). Check `source_indexed` before trusting empty results. |
-| `find_def_usages` | Find where a Def is referenced, across XML cross-references and C# `DefOf` fields. Use it to verify translatable fields before hand-writing `Languages/` XML. |
+| `find_def_usages` | Find where a Def is referenced: XML cross-references, plus C# code that uses it through `XxxDefOf.<defName>` (searched in decompiled source, so `indexing=true` means retry shortly). Covers the game by default, or one installed mod with `package_id` (its Def XML is scanned on demand). Use it to verify translatable fields before hand-writing `Languages/` XML. |
 
 ### Installed mods
 
 | Tool | Purpose |
 | --- | --- |
 | `list_installed_mods` | List local and Workshop mods. Filter with `package_id` and page with `limit`/`offset`; `include_details` adds the path, dependencies and versions. |
-| `inspect_installed_mod` | Decompile and index a mod's assemblies on demand. Locks are per-`packageId`, so a large mod (minutes on first run) does not block other mods. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.7/Assemblies/RimTalk.dll`. |
 
-### Build
+`search_source`, `find_def_usages`, and the symbol tools decompile and index an installed mod in the background the first time you scope them to it. Each assembly is keyed `mod:<packageId>:<relative DLL path>`, e.g. `mod:cj.rimtalk:1.7/Assemblies/RimTalk.dll`.
 
-| Tool | Purpose |
-| --- | --- |
-| `create_mod` | Create a mod skeleton, optionally with a C# project whose csproj already references the RimWorld API via the `Krafs.Rimworld.Ref` NuGet package. |
-| `build_mod` | Validate an XML mod, or build a C# mod and deploy its DLL; compiler errors come back as structured diagnostics. |
-
-The tool set deliberately covers only what an AI coding agent cannot do on its own: querying Defs and decompiled source from the game and other mods, building, and launching the game in an isolated test session. Copying files, creating directories, and snapshots are things the agent already does natively, so no tools are provided for them — use Git for version control.
+The tool set deliberately covers only what an AI coding agent cannot do on its own: querying Defs and decompiled source from the game and other mods, and launching the game in an isolated test session. Creating files, building with `dotnet build`, and snapshots are things the agent already does natively, so no tools are provided for them — use Git for version control.
 
 ### Testing and diagnostics
 
@@ -171,8 +163,7 @@ The tool set deliberately covers only what an AI coding agent cannot do on its o
 | `run_test_cycle` | Launch RimWorld in an isolated session to test a mod. Use it for in-game acceptance (time-speed feel, rendering) that static analysis cannot cover. |
 | `test_status` | Current session state: whether the bridge and daemon are healthy, and `game`, the in-game state the bridge last reported (`program_state` Entry/MapInitializing/Playing, `map_loaded`, `tick`, `paused`, `time_speed`, `loading`, `open_windows`, `colonists`, `age_ms`). Pass `wait_for_state=Playing` to block until the map is up. |
 | `stop_test` | Stop the session and clean up; requires `confirm: true`. |
-| `list_test_diagnostics` | List collected errors and warnings. Poll with `since_at` (the previous `latest_at`) and `wait_seconds` to long-poll for new entries instead of re-reading the list. |
-| `get_test_diagnostic` | Fetch one diagnostic in full by hash. |
+| `list_test_diagnostics` | List collected errors and warnings. Poll with `since_at` (the previous `latest_at`) and `wait_seconds` to long-poll for new entries instead of re-reading the list. Raise `max_text_length` for a full stack trace. |
 
 ## The three indexing tiers
 
@@ -180,7 +171,7 @@ Indexing is deliberately layered so the most useful data is ready first:
 
 | Tier | Contents | Cost |
 | --- | --- | --- |
-| 1 | Def XML and IL metadata symbols | Seconds; the bulk of `rebuild_index` |
+| 1 | Def XML and IL metadata symbols | Seconds; rebuilt automatically when stale |
 | 2 | Single-member decompilation | Milliseconds, computed on demand by `read_symbol` |
 | 3 | Full-assembly decompiled source, full-text indexed | Minutes, runs in the background |
 
@@ -214,23 +205,23 @@ There are several AI-modding tools for RimWorld. They mostly occupy different ni
 | Game API research | IL metadata symbol index in seconds; per-member decompilation on demand; full-text source in the background | Decompiles game and DLC assemblies with a vendored `ilspycmd`, then indexes | Yes, but you decompile the game yourself first (`import-csharp` takes a decompiled source tree) | No | Yes, but you decompile the game yourself first (ILSpy or dnSpy output placed in `RimWorldData/`); requires an embedding model (local or remote API) to build the index |
 | Def XML search | Yes, with cross-reference lookup (`find_def_usages`) | Yes | Yes (`search_defs`, `get_def_details`) | No | Yes |
 | Installed mods | List, decompile and search other mods' assemblies | Lists local and Workshop mods, edits the active list and load order, flags missing dependencies, incompatibilities and load-order problems; indexes only game/DLC assemblies, decompiles other DLLs on demand (`decompile_dll`) | No | List mods, read/change mod settings and load order in the running game | No |
-| Build | C# build with structured compiler diagnostics | Yes (agent edits and builds) | No | No | No |
+| Build | No (the agent runs `dotnet build` itself) | Yes (agent edits and builds) | No | No | No |
 | Test launch | Isolated save folder, generated `ModsConfig.xml`, junction/symlink to your workspace | Launches the game with the mod installed; bridge mod watches for errors | No | Starts a debug game or loads a save through GABS | No |
 | In-game feedback | Errors/warnings + game state (scene, map, tick, paused, open dialogs) | Errors via its bridge mod | No | Full live state, semantic UI layout, screenshots, debug actions, Lua scripting | No |
 | Steam Workshop | None by design | Publishing built in | No | No | No |
-| Network | Local (loopback only; first build may restore one NuGet reference package) | Model provider API, Workshop upload; ships `@sentry/electron` | Hosted mode sends queries to rimsage.com; self-hosted mode is local | Local | Local unless a remote embedding API is used |
+| Network | Local (loopback only; the first bridge build may restore its NuGet packages) | Model provider API, Workshop upload; ships `@sentry/electron` | Hosted mode sends queries to rimsage.com; self-hosted mode is local | Local | Local unless a remote embedding API is used |
 | License | MIT | MIT | MIT | MIT | MIT |
 
 Where this project fits:
 
-- **Versus Modmixer**: same overall loop (research → build → launch → read errors), but as a headless MCP server for coding agents you already use (Claude Code, Codex, …) rather than a desktop app with its own chat. No Workshop publishing and no art/audio pipeline. Indexing is layered so symbol lookup works within seconds of the first `rebuild_index` instead of waiting for a full decompile.
-- **Versus RimSage / RiMCP_hybrid**: those are research-only. This server also decompiles for you, builds, and tests; RiMCP_hybrid's semantic search may find conceptually related code that a literal/regex search misses.
+- **Versus Modmixer**: same overall loop (research → build → launch → read errors), but as a headless MCP server for coding agents you already use (Claude Code, Codex, …) rather than a desktop app with its own chat. No Workshop publishing and no art/audio pipeline. Indexing is layered so symbol lookup works within seconds of the first query instead of waiting for a full decompile.
+- **Versus RimSage / RiMCP_hybrid**: those are research-only. This server also decompiles for you and tests; RiMCP_hybrid's semantic search may find conceptually related code that a literal/regex search misses.
 - **Versus RimBridgeServer**: complementary rather than competing. RimBridgeServer gives an agent deep control of a running game (UI, screenshots, debug actions); this project's bridge reports only diagnostics and coarse game state. Use RimBridgeServer when you need in-game interaction; use this server for the API research, build, and isolated launch around it.
 
 ## Security and privacy
 
-- The only tools that write files are `create_mod`, `build_mod`, and `run_test_cycle`, and they write only to the mod directory you pass (test sessions additionally use an isolated temporary save directory). There is no path allow-list; rely on your MCP client's tool-permission prompts.
-- No external network communication by the server itself (initial C# mod builds may restore reference packages from NuGet). Game files, decompiled output, indexes, and diagnostics stay local.
+- The only tool that writes outside the server's own index and data directories is `run_test_cycle`: it links the mod directory you pass into the game's `Mods` folder and uses an isolated temporary save directory. There is no path allow-list; rely on your MCP client's tool-permission prompts.
+- No external network communication by the server itself (the first bridge build may restore its packages from NuGet). Game files, decompiled output, indexes, and diagnostics stay local.
 - The bridge activates only when `RIMWORLD_MOD_MCP_BRIDGE_TOKEN` is present and connects only to `127.0.0.1`. Each test session uses a single-use token; the token is never written to diagnostic records and never appears in tool responses.
 - Destructive operations (`stop_test`) require an explicit `confirm: true`.
 

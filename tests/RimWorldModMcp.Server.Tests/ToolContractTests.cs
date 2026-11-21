@@ -26,12 +26,11 @@ public sealed partial class ToolContractTests
 
         string[] expected =
         [
-            "rimworld_status", "rebuild_index",
+            "rimworld_status",
             "search_defs", "read_def", "read_symbol", "list_symbols", "find_descendants",
             "search_source", "read_source_file", "find_def_usages",
-            "list_installed_mods", "inspect_installed_mod",
-            "create_mod", "build_mod",
-            "run_test_cycle", "test_status", "stop_test", "list_test_diagnostics", "get_test_diagnostic",
+            "list_installed_mods",
+            "run_test_cycle", "test_status", "stop_test", "list_test_diagnostics",
         ];
 
         Assert.Equal(expected.Order(), tools.Select(t => t.Name).Order());
@@ -109,7 +108,6 @@ public sealed partial class ToolContractTests
         var expected = new Dictionary<string, (bool ReadOnly, bool Destructive, bool Idempotent, bool OpenWorld)>
         {
             ["rimworld_status"] = (true, false, true, false),
-            ["rebuild_index"] = (false, true, false, false),
             ["search_defs"] = (true, false, true, false),
             ["read_def"] = (true, false, true, false),
             ["read_symbol"] = (true, false, true, false),
@@ -117,16 +115,12 @@ public sealed partial class ToolContractTests
             ["find_descendants"] = (true, false, true, false),
             ["search_source"] = (false, true, true, false),
             ["read_source_file"] = (true, false, true, false),
-            ["find_def_usages"] = (true, false, true, false),
+            ["find_def_usages"] = (false, true, true, false),
             ["list_installed_mods"] = (true, false, true, false),
-            ["inspect_installed_mod"] = (false, true, true, false),
-            ["create_mod"] = (false, false, false, false),
-            ["build_mod"] = (false, true, false, true),
             ["run_test_cycle"] = (false, true, false, true),
             ["test_status"] = (true, false, true, false),
             ["stop_test"] = (false, true, true, false),
             ["list_test_diagnostics"] = (true, false, true, false),
-            ["get_test_diagnostic"] = (true, false, true, false),
         };
 
         Assert.Equal(expected.Keys.Order(), tools.Select(t => t.Name).Order());

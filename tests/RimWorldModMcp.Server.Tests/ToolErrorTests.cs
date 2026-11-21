@@ -49,7 +49,7 @@ public sealed class ToolErrorTests
         Assert.Contains(value, error.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>索引損毀時每個查詢工具都會失敗；訊息必須指向 rebuild_index。</summary>
+    /// <summary>索引損毀時每個查詢工具都會失敗；訊息必須說明會自動重建、稍後重試即可。</summary>
     [TestCase(11)] // SQLITE_CORRUPT
     [TestCase(26)] // SQLITE_NOTADB
     public void CorruptIndexTellsTheCallerToRebuild(int sqliteErrorCode)
@@ -58,7 +58,7 @@ public sealed class ToolErrorTests
             () => ToolGuard.Run<int>(() => throw new SqliteException("database disk image is malformed", sqliteErrorCode)));
 
         Assert.Contains("corrupt", error.Message);
-        Assert.Contains("rebuild_index", error.Message);
+        Assert.Contains("rebuilt automatically", error.Message);
     }
 
     [Test]

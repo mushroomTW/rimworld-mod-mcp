@@ -3,7 +3,7 @@ namespace RimWorldModMcp.Core.Paths;
 /// <summary>讀取 RimWorld 安裝目錄下 Version.txt 的版本號，並提供偵測失敗時的退路版本。</summary>
 public static class GameVersion
 {
-    /// <summary>偵測不到遊戲版本時（ModScaffolder 的 supportedVersions、TestEnvironmentPreparer 的 ModsConfig.xml）的退路版本。</summary>
+    /// <summary>偵測不到遊戲版本時（TestEnvironmentPreparer 的 ModsConfig.xml）的退路版本。</summary>
     public const string Fallback = "1.7";
 
     /// <summary>

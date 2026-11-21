@@ -443,9 +443,6 @@ public sealed class DiagnosticStore(StoreDirectories store)
     public IReadOnlyList<DiagnosticRecord> ReadSince(DiagnosticCursor cursor)
         => [.. Read().Where(cursor.IsAfter)];
 
-    public DiagnosticRecord? Find(string hash)
-        => Read().FirstOrDefault(r => string.Equals(r.Hash, hash, StringComparison.OrdinalIgnoreCase));
-
     public void Clear()
     {
         lock (_gate)

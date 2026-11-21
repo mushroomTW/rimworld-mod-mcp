@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
+using RimWorldModMcp.Core.Locking;
 using RimWorldModMcp.Core.Paths;
+using RimWorldModMcp.Core.Platform;
 using RimWorldModMcp.Indexing.Pipeline;
 using RimWorldModMcp.Indexing.Storage;
 
@@ -14,6 +16,7 @@ public sealed class SourceIndexerTests : IDisposable
 {
     private readonly string _root;
     private readonly string? _previousGamePath;
+    private readonly StoreDirectories _store;
     private readonly IndexDatabase _database;
     private readonly SourceIndexer _indexer;
 
@@ -33,7 +36,8 @@ public sealed class SourceIndexerTests : IDisposable
 
         Environment.SetEnvironmentVariable("RIMWORLD_MOD_MCP_GAME_PATH", install);
 
-        _database = new IndexDatabase(new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache")));
+        _store = new StoreDirectories(Path.Combine(_root, "data"), Path.Combine(_root, "cache"));
+        _database = new IndexDatabase(_store);
         _indexer = new SourceIndexer(_database, new RimWorldLocator());
     }
 
@@ -67,7 +71,6 @@ public sealed class SourceIndexerTests : IDisposable
         Assert.NotNull(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp-firstpass"));
         Assert.NotNull(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Waylith"));
         Assert.Equal(1L, SourceFileRepository.CountAssembly(connection, "Waylith"));
-        Assert.False(_indexer.IsInterrupted());
     }
 
     /// <summary>
@@ -97,8 +100,6 @@ public sealed class SourceIndexerTests : IDisposable
             interrupt.ExecuteNonQuery();
         }
 
-        Assert.True(_indexer.IsInterrupted());
-
         var progress = _indexer.Run();
 
         Assert.True(progress.Completed, progress.Error);
@@ -107,7 +108,6 @@ public sealed class SourceIndexerTests : IDisposable
         using var check = _database.Open();
         Assert.Equal("// sentinel", SourceFileRepository.Read(check, "Assembly-CSharp-firstpass", "LudeonTK/Early.cs"));
         Assert.Contains("class Thing", SourceFileRepository.Read(check, "Assembly-CSharp", "Verse/Thing.cs"));
-        Assert.False(_indexer.IsInterrupted());
     }
 
     /// <summary>rebuild_index 清空 source_file 時，done 標記必須一起消失，否則續跑會跳過空掉的組件。</summary>
@@ -122,12 +122,6 @@ public sealed class SourceIndexerTests : IDisposable
         Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp"));
         Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Assembly-CSharp-firstpass"));
         Assert.Null(IndexMetaRepository.Get(connection, SourceIndexer.DoneKeyPrefix + "Waylith"));
-    }
-
-    [Test]
-    public void FreshDatabaseIsNotConsideredInterrupted()
-    {
-        Assert.False(_indexer.IsInterrupted());
     }
 
     /// <summary>
@@ -172,5 +166,42 @@ public sealed class SourceIndexerTests : IDisposable
 
         Assert.False(SourceIndexer.CommitIfCurrent(connection, "g1", c => IndexMetaRepository.Set(c, "probe", "second")));
         Assert.Equal("first", IndexMetaRepository.Get(connection, "probe"));
+    }
+
+    /// <summary>
+    /// 同一台機器常開著好幾個 server：另一個行程正持有原始碼索引鎖時，
+    /// 背景索引直接收手、不記成錯誤，也不重複反編譯。
+    /// </summary>
+    [Test]
+    public async Task BackgroundIndexYieldsWhileAnotherProcessHoldsTheLock()
+    {
+        var locks = new CriticalSectionLock(_store, new AlwaysAliveProcessHost());
+        var indexer = new SourceIndexer(_database, new RimWorldLocator(), locks);
+
+        using (locks.Hold(SourceIndexer.LockName))
+        {
+            indexer.StartInBackground();
+
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (indexer.Progress.Running && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(50);
+            }
+        }
+
+        Assert.False(indexer.Progress.Running);
+        Assert.Null(indexer.Progress.Error);
+
+        using var connection = _database.Open();
+        Assert.Equal(0L, SourceFileRepository.CountGame(connection));
+    }
+
+    private sealed class AlwaysAliveProcessHost : IProcessHost
+    {
+        public bool IsAlive(int processId) => true;
+
+        public bool Terminate(int processId, DateTime? expectedStartUtc = null) => true;
+
+        public DateTime? StartTimeUtc(int processId) => DateTime.UtcNow;
     }
 }

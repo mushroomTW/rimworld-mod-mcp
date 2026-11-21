@@ -128,7 +128,8 @@ public sealed class TestCycleToolTests
         Assert.True(entry.GetProperty("text_truncated").GetBoolean());
         Assert.Equal(100, entry.GetProperty("text").GetString()!.Length);
 
-        var full = await _server.CallAsync("get_test_diagnostic", Args(("diagnostic_hash", entry.GetProperty("hash").GetString())));
+        // 要完整堆疊就把上限調大。
+        var full = (await _server.CallAsync("list_test_diagnostics", Args(("max_text_length", 20000)))).GetProperty("results")[0];
 
         Assert.False(full.GetProperty("text_truncated").GetBoolean());
         Assert.EndsWith("Frame39.Tick()", full.GetProperty("text").GetString());

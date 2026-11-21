@@ -16,7 +16,7 @@ public sealed class TestCycleTools(
 {
     // 新場次會清除舊診斷與殘留連結，且執行的 Mod 與橋接建置可能存取外部服務。
     [McpServerTool(Name = "run_test_cycle", UseStructuredContent = true, ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = true)]
-    [Description("Launch RimWorld with the given mod in an isolated save directory; the user's saves and settings stay untouched. Run build_mod first for C# mods; after launch, read errors with list_test_diagnostics. Requires the game to not be running.")]
+    [Description("Launch RimWorld with the given mod in an isolated save directory; the user's saves and settings stay untouched. Build C# mods first; after launch, read errors with list_test_diagnostics. Requires the game to not be running.")]
     public TestSessionResult RunTestCycle(
         [Description("Directory of the mod to test.")]
         string path,
@@ -83,7 +83,7 @@ public sealed class TestCycleTools(
     public Task<ListDiagnosticsResult> ListTestDiagnostics(
         [Description("Return only this type: error, warning, diagnostic, loaded_mods, or performance.")]
         string? type = null,
-        [Description("Character limit per entry, 100-20000; the default keeps the message and the top frames. Use get_test_diagnostic for the full stack trace.")]
+        [Description("Character limit per entry, 100-20000; the default keeps the message and the top frames; raise it for the full stack trace.")]
         int max_text_length = 600,
         [Description("Maximum results, 1-500.")]
         int limit = 50,
@@ -164,18 +164,6 @@ public sealed class TestCycleTools(
         => string.IsNullOrEmpty(type)
             ? records
             : [.. records.Where(r => string.Equals(r.Type, type, StringComparison.OrdinalIgnoreCase))];
-
-    [McpServerTool(Name = "get_test_diagnostic", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Fetch one diagnostic in full by hash, including the untruncated stack trace.")]
-    public DiagnosticSummary GetTestDiagnostic(
-        [Description("The diagnostic hash from list_test_diagnostics.")]
-        string diagnostic_hash) => ToolGuard.Run(() =>
-    {
-        var record = diagnostics.Find(diagnostic_hash)
-            ?? throw new KeyNotFoundException($"Diagnostic not found: {diagnostic_hash}");
-
-        return ToSummary(record, int.MaxValue);
-    });
 
     private static TestSessionResult ToResult(TestSession session, GameStateRecord? game) => new()
     {
