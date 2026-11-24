@@ -6,19 +6,19 @@ public sealed class GameLauncherArgumentsTests
     private const string SaveData = "C:/tmp/run 1";
 
     [Test]
-    public void DefaultLaunchHasNoHeadlessSwitches()
+    public void DefaultLaunchHasNoHiddenWindowSwitches()
     {
         Assert.Equal(
             ["-savedatafolder=C:/tmp/run 1", "-quicktest"],
-            GameLauncher.Arguments(SaveData, quickTest: true, headless: false));
+            GameLauncher.Arguments(SaveData, quickTest: true, noWindow: false));
     }
 
-    /// <summary>無頭模式看不到當機對話框，所以要一併關掉，否則遊戲會卡在對話框上。</summary>
+    /// <summary>隱藏視窗時沒有人會處理當機對話框，所以要一併關掉，否則遊戲會卡在對話框上。</summary>
     [Test]
-    public void HeadlessAlsoSuppressesTheCrashDialog()
+    public void NoWindowAlsoSuppressesTheCrashDialog()
     {
         Assert.Equal(
-            ["-savedatafolder=C:/tmp/run 1", "-headless", "-NoCrashDialog"],
-            GameLauncher.Arguments(SaveData, quickTest: false, headless: true));
+            ["-savedatafolder=C:/tmp/run 1", "-NoWindow", "-NoCrashDialog"],
+            GameLauncher.Arguments(SaveData, quickTest: false, noWindow: true));
     }
 }

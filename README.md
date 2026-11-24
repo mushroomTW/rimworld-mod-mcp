@@ -182,7 +182,7 @@ Once tier 1 completes, Def search, symbol lookup, inheritance chains, and `read_
 - `-savedatafolder` points at a temporary directory, so your real saves and settings are untouched.
 - A generated `ModsConfig.xml` activates only the mod under test and its dependencies, carrying over your existing game version and known DLC.
 - Temporary links in the Mods folder point at your workspace, so edits take effect without copying files. Windows uses junctions (no administrator rights needed); macOS and Linux use symbolic links.
-- By default `run_test_cycle` adds `-headless -NoCrashDialog` (RimWorld 1.7), so no game window is created; the bridge still reports state and errors. Pass `headless=false` to show the window.
+- By default `run_test_cycle` adds `-NoWindow -NoCrashDialog` (RimWorld 1.7): the game window stays hidden but the game still renders, so screenshots work. The bridge still reports state and errors. Pass `no_window=false` to show the window.
 - Starting a test is refused while the game is already running — it would interfere with your own save.
 - Stopping a session removes the links, terminates the daemon, and cleans up the temporary save data. **Link removal never recurses into the target, so your mod source is never touched.**
 

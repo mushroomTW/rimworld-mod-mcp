@@ -182,7 +182,7 @@ macOS 與 Linux 改填下載檔案的絕對路徑。若從原始碼安裝為 dot
 - `-savedatafolder` 指向暫存目錄，不碰使用者的存檔與設定。
 - 自產的 `ModsConfig.xml` 只啟用要測的 Mod 與其相依，並沿用使用者現有的遊戲版本與已知 DLC。
 - Mods 目錄下建立臨時連結指向工作區，不複製檔案，所以改動立即生效。Windows 用 junction（不需要管理員權限），macOS 與 Linux 用 symbolic link。
-- `run_test_cycle` 預設加上 `-headless -NoCrashDialog`（RimWorld 1.7），不建立遊戲視窗；Bridge 照常回報狀態與錯誤。要看到視窗時傳 `headless=false`。
+- `run_test_cycle` 預設加上 `-NoWindow -NoCrashDialog`（RimWorld 1.7），不顯示遊戲視窗但照常渲染，所以可以截圖；Bridge 照常回報狀態與錯誤。要看到視窗時傳 `no_window=false`。
 - 遊戲已在執行時拒絕開始測試——那會干擾使用者自己的存檔。
 - 停止場次會移除連結、終止 daemon、清理暫存存檔；**連結的移除永遠不會遞迴進目標，使用者的 Mod 原始碼不受影響**。
 

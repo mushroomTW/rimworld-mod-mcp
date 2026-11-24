@@ -26,9 +26,9 @@ public sealed class TestCycleTools(
         bool quicktest = true,
         [Description("Array of config file paths (not a folder; a bare string or directory is rejected) to copy into the isolated session's Config directory before launch, e.g. the mod's saved ModSettings. Files named Mod_<folder>_<class>.xml are renamed to match the test session's mod folder so RimWorld picks them up, unless <folder> belongs to another active mod (a companion or dependency), whose settings keep their name. ModsConfig.xml is rejected.")]
         string[]? seed_config = null,
-        [Description("Launch with -headless (default): no game window is created (RimWorld 1.7). Crash dialogs are suppressed too; read errors with list_test_diagnostics. Pass false to show the game window.")]
-        bool headless = true) => ToolGuard.Run(() =>
-        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config, headless), game: null));
+        [Description("Launch with -NoWindow (default): the game window stays hidden but the game still renders, so screenshots work (RimWorld 1.7). Crash dialogs are suppressed too; read errors with list_test_diagnostics. Pass false to show the game window.")]
+        bool no_window = true) => ToolGuard.Run(() =>
+        ToResult(testCycle.Start(path, companion_mods, quicktest, seed_config, no_window), game: null));
 
     [McpServerTool(Name = "test_status", UseStructuredContent = true, ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Report the current test session state: whether the bridge and diagnostics daemon are healthy, and game (the in-game state the bridge last reported: program_state Entry/MapInitializing/Playing, map_loaded, tick, paused, loading, open_windows, age_ms). game is null until the bridge reports. Pass wait_for_state to block until program_state reaches it, e.g. wait_for_state=Playing before checking for errors.")]

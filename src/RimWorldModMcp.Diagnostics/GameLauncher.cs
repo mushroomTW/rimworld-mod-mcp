@@ -17,7 +17,7 @@ public sealed record SessionGame(int Pid, DateTime? StartUtc);
 /// </summary>
 public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes)
 {
-    public Process Launch(RimWorldPaths paths, string saveData, bool quickTest, bool headless, string token)
+    public Process Launch(RimWorldPaths paths, string saveData, bool quickTest, bool noWindow, string token)
     {
         var startInfo = new ProcessStartInfo(paths.Executable!)
         {
@@ -33,7 +33,7 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
 
         // 用 ArgumentList 而不是組字串：暫存目錄路徑含空格時，
         // 組字串會讓遊戲收到被拆開的參數。
-        foreach (var argument in Arguments(saveData, quickTest, headless))
+        foreach (var argument in Arguments(saveData, quickTest, noWindow))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -48,10 +48,10 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
     }
 
     /// <summary>
-    /// 遊戲的命令列參數。-headless 是 1.7（Waylith 引擎）的開關，不建立視窗；
-    /// 此時一併加 -NoCrashDialog，否則當掉時跳出的對話框沒有視窗可見，遊戲會一直卡著。
+    /// 遊戲的命令列參數。-NoWindow 是 1.7（Waylith 引擎）的開關，不顯示視窗但照常渲染，所以截圖可用（-headless 沒有圖形裝置）；
+    /// 此時一併加 -NoCrashDialog，否則當掉時的對話框沒有人處理，遊戲會一直卡著。
     /// </summary>
-    internal static IReadOnlyList<string> Arguments(string saveData, bool quickTest, bool headless)
+    internal static IReadOnlyList<string> Arguments(string saveData, bool quickTest, bool noWindow)
     {
         var arguments = new List<string> { $"-savedatafolder={saveData}" };
 
@@ -60,9 +60,9 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
             arguments.Add("-quicktest");
         }
 
-        if (headless)
+        if (noWindow)
         {
-            arguments.Add("-headless");
+            arguments.Add("-NoWindow");
             arguments.Add("-NoCrashDialog");
         }
 

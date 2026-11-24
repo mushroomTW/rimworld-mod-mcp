@@ -42,7 +42,7 @@ public sealed class TestCycleService(
         IReadOnlyList<string>? companionMods,
         bool quickTest,
         IReadOnlyList<string>? seedConfig = null,
-        bool headless = false)
+        bool noWindow = false)
     {
         var mod = PathText.ResolveDirectory(modPath);
         var seedFiles = ResolveSeedConfig(seedConfig);
@@ -152,7 +152,7 @@ public sealed class TestCycleService(
 
             sessions.Write(session);
 
-            using var game = launcher.Launch(paths, prepared.SaveData, quickTest, headless, token);
+            using var game = launcher.Launch(paths, prepared.SaveData, quickTest, noWindow, token);
 
             session = session with
             {
