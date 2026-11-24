@@ -23,11 +23,6 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
         {
             WorkingDirectory = paths.InstallRoot,
             UseShellExecute = false,
-            // 不重導 stdout/stderr：診斷本來就走 Player.log 與 Bridge，這兩條
-            // 管線沒有人讀。重導又不讀的話，OS 管線緩衝區（Windows 約 4 KB）
-            // 被遊戲的啟動 log 填滿後，RimWorld 的下一次寫入會永久阻塞。
-            RedirectStandardOutput = false,
-            RedirectStandardError = false,
             CreateNoWindow = false,
         };
 
@@ -43,8 +38,27 @@ public sealed class GameLauncher(RimWorldLocator locator, IProcessHost processes
         startInfo.Environment[EnvironmentVariables.Name("BRIDGE_TOKEN")] = token;
         startInfo.Environment[EnvironmentVariables.Name("BRIDGE_PORT")] = locator.BridgePort().ToString();
 
-        return Process.Start(startInfo)
+        return StartDetached(startInfo);
+    }
+
+    /// <summary>
+    /// 啟動時隔開標準輸出入：本程序的 stdout 是 MCP 的 JSON-RPC 通道，沿用的話遊戲的主控台 log 會夾進訊息裡。
+    /// 診斷走 Player.log 與 Bridge，管線沒有人讀，所以立刻關掉讀取端：.NET 的主控台寫入遇到斷管會略過；
+    /// 留著不讀則會在緩衝區滿了之後永久阻塞遊戲。
+    /// </summary>
+    internal static Process StartDetached(ProcessStartInfo startInfo)
+    {
+        startInfo.RedirectStandardInput = true;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+
+        var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start RimWorld.");
+
+        process.StandardInput.Close();
+        process.StandardOutput.Close();
+        process.StandardError.Close();
+        return process;
     }
 
     /// <summary>
